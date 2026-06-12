@@ -93,6 +93,13 @@ def test_documents_search_and_filter(isolated):
     assert len(fab) == 1 and fab[0]["topic"] == "파운드리"
 
 
+def test_count_documents(isolated):
+    assert collection.count_documents() == 0
+    for name, body, topic in VIRTUAL_DOCUMENTS:
+        collection.save_upload(name, body.encode("utf-8"), topic)
+    assert collection.count_documents() == len(VIRTUAL_DOCUMENTS)
+
+
 def test_delete_document_removes_file(isolated):
     name, body, topic = VIRTUAL_DOCUMENTS[1]
     doc = collection.save_upload(name, body.encode("utf-8"), topic)

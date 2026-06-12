@@ -38,6 +38,9 @@ def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(config.COLLECTION_DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL: 쓰기가 읽기를 블로킹하지 않게 해 동시성·처리량 개선.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -70,6 +73,10 @@ def init_db() -> None:
                 created_at   TEXT NOT NULL,
                 FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
             );
+            -- 목록/검색 경로의 필터·정렬 인덱스(문서 누적 시 풀스캔 방지).
+            CREATE INDEX IF NOT EXISTS idx_documents_source  ON documents(source_id);
+            CREATE INDEX IF NOT EXISTS idx_documents_topic   ON documents(topic);
+            CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at DESC);
             """
         )
         cur = conn.execute("SELECT COUNT(*) AS n FROM sources")
@@ -202,6 +209,11 @@ def list_documents(source_id: str | None = None, q: str | None = None,
     with _conn() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [_row_to_document(r) for r in rows]
+
+
+def count_documents() -> int:
+    with _conn() as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
 
 
 def delete_document(doc_id: str) -> None:
