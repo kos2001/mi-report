@@ -17,6 +17,14 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
+# COM 인제스트 워커 (Windows 전용 — DRM 클라이언트 + MS Office 설치 환경)
+windows = [
+    "pywin32>=306",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

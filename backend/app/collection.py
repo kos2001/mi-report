@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import COLLECTION_DB, UPLOADS_DIR
+from . import config
 
 SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
@@ -34,8 +34,8 @@ def _today() -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    COLLECTION_DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(COLLECTION_DB)
+    config.COLLECTION_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(config.COLLECTION_DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -214,26 +214,33 @@ def delete_document(doc_id: str) -> None:
         conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
 
 
-def _ensure_upload_source(conn: sqlite3.Connection) -> sqlite3.Row:
-    """수동 업로드용 소스를 보장(없으면 생성)."""
-    row = conn.execute("SELECT * FROM sources WHERE type='upload' LIMIT 1").fetchone()
+def _ensure_named_source(conn: sqlite3.Connection, name: str, type_: str) -> sqlite3.Row:
+    """이름+타입으로 소스를 보장(없으면 생성). 업로드/인제스트 소스 귀속에 사용."""
+    row = conn.execute(
+        "SELECT * FROM sources WHERE name=? AND type=? LIMIT 1", (name, type_)
+    ).fetchone()
     if row is not None:
         return row
     sid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO sources (id, name, type, config, enabled, status, count, created_at)"
         " VALUES (?,?,?,?,1,?,0,?)",
-        (sid, "수동 업로드", "upload", "{}", "정상", _now()),
+        (sid, name, type_, "{}", "정상", _now()),
     )
     return conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
 
 
+def _ensure_upload_source(conn: sqlite3.Connection) -> sqlite3.Row:
+    """수동 업로드용 소스를 보장(없으면 생성)."""
+    return _ensure_named_source(conn, "수동 업로드", "upload")
+
+
 def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict[str, Any]:
     """업로드 파일을 디스크에 저장하고 문서로 등록한다."""
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     doc_id = uuid.uuid4().hex
     safe_name = Path(filename).name  # 경로 조작 방지
-    dest = UPLOADS_DIR / f"{doc_id}__{safe_name}"
+    dest = config.UPLOADS_DIR / f"{doc_id}__{safe_name}"
     dest.write_bytes(content)
     with _conn() as conn:
         src = _ensure_upload_source(conn)
@@ -242,6 +249,40 @@ def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict
             " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (doc_id, src["id"], src["name"], safe_name, safe_name, str(dest),
              topic, _today(), "수집됨", _now()),
+        )
+        conn.execute(
+            "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
+            (_now(), src["id"]),
+        )
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return _row_to_document(row)
+
+
+# 기본 COM 인제스트 소스 이름 (DRM 해제 상태로 추출된 문서의 귀속)
+COM_SOURCE_NAME = "COM 인제스트 (DRM 해제)"
+
+
+def ingest_text(title: str, text: str, *, topic: str | None = None,
+                original_filename: str | None = None,
+                source_name: str = COM_SOURCE_NAME) -> dict[str, Any]:
+    """이미 추출된 평문 텍스트를 문서로 등록한다.
+
+    Windows COM 인제스트 워커가 DRM 해제 상태로 추출한 본문을 여기로 보낸다.
+    원본(암호화) 파일이 아니라 추출 텍스트를 .txt 로 저장한다.
+    """
+    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    doc_id = uuid.uuid4().hex
+    safe_title = Path(title).name or "untitled"
+    dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
+    dest.write_text(text, encoding="utf-8")
+    with _conn() as conn:
+        src = _ensure_named_source(conn, source_name, "upload")
+        conn.execute(
+            "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
+            " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (doc_id, src["id"], src["name"], safe_title,
+             original_filename or safe_title, str(dest), topic, _today(),
+             "수집됨", _now()),
         )
         conn.execute(
             "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
