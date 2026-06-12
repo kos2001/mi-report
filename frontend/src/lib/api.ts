@@ -58,6 +58,10 @@ export const api = {
   listSources: () =>
     req<{ sources: Source[] }>("/collection/sources").then((d) => d.sources),
 
+  // 대시보드용: 소스 목록 + 문서 개수를 한 번에 (문서 전체 목록 전송 회피).
+  collectionOverview: () =>
+    req<{ sources: Source[]; documentCount: number }>("/collection/sources"),
+
   createSource: (body: {
     name: string;
     type: SourceType;

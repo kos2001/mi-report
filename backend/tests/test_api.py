@@ -28,7 +28,9 @@ def test_profiles_endpoint(client):
 def test_sources_seeded(client):
     r = client.get("/collection/sources")
     assert r.status_code == 200
-    assert len(r.json()["sources"]) == 5
+    body = r.json()
+    assert len(body["sources"]) == 5
+    assert body["documentCount"] == 0  # 대시보드 단일 호출용 카운트
 
 
 def test_source_lifecycle(client):

@@ -12,11 +12,12 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, AsyncIterator
 
 import httpx
 
-from .profiles import Profile, ProviderConfig, load_profile
+from .profiles import Profile, ProviderConfig, get_active_profile_name, load_profile
 
 
 class HermesGatewayError(RuntimeError):
@@ -34,6 +35,11 @@ class HermesGatewayClient:
         self.provider: ProviderConfig = self.profile.active_provider()
         self.base_url = self.provider.base_url.rstrip("/")
         self.model = self.profile.model or "hermes-agent"
+        # 영속 클라이언트: keep-alive 커넥션 풀을 재사용한다(요청마다 새 연결 생성 방지).
+        self._http = httpx.Client()
+
+    def close(self) -> None:
+        self._http.close()
 
     # ---- 내부 헬퍼 -----------------------------------------------------
     def _headers(self, session_id: str | None = None, session_key: str | None = None) -> dict[str, str]:
@@ -62,11 +68,10 @@ class HermesGatewayClient:
     def _request(self, method: str, path: str, *, json: Any = None, params: Any = None,
                  session_id: str | None = None, session_key: str | None = None,
                  timeout: float = 60.0) -> Any:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.request(
-                method, self._url(path), json=json, params=params,
-                headers=self._headers(session_id, session_key),
-            )
+        resp = self._http.request(
+            method, self._url(path), json=json, params=params,
+            headers=self._headers(session_id, session_key), timeout=timeout,
+        )
         if resp.status_code >= 400:
             try:
                 detail = resp.json()
@@ -170,5 +175,18 @@ class HermesGatewayClient:
         return self._request("DELETE", f"/api/sessions/{session_id}")
 
 
+@lru_cache(maxsize=8)
+def _client_for(name: str) -> HermesGatewayClient:
+    """프로파일별 클라이언트 싱글턴. 프로파일(config.yaml/.env) 로드를 1회로 줄이고
+    keep-alive httpx 커넥션을 재사용한다."""
+    return HermesGatewayClient(profile_name=name)
+
+
 def get_client(profile_name: str | None = None) -> HermesGatewayClient:
-    return HermesGatewayClient(profile_name=profile_name)
+    name = profile_name or get_active_profile_name()
+    return _client_for(name)
+
+
+def reset_clients() -> None:
+    """프로파일 설정 변경 시 캐시 무효화(예: active_profile 전환)."""
+    _client_for.cache_clear()

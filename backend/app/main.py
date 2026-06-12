@@ -192,7 +192,8 @@ def delete_session(session_id: str, profile: str | None = None):
 # ── 데이터 수집 ────────────────────────────────────────────────────────
 @app.get("/collection/sources")
 def collection_sources():
-    return {"sources": collection.list_sources()}
+    # documentCount 를 함께 반환 → 대시보드가 문서 전체 목록을 받지 않고 개수만 사용.
+    return {"sources": collection.list_sources(), "documentCount": collection.count_documents()}
 
 
 @app.post("/collection/sources", status_code=201)

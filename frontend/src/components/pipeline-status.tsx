@@ -22,10 +22,10 @@ export function PipelineStatus() {
     let alive = true;
     (async () => {
       try {
-        const [s, d] = await Promise.all([api.listSources(), api.listDocuments()]);
+        const { sources, documentCount } = await api.collectionOverview();
         if (!alive) return;
-        setSources(s);
-        setDocCount(d.length);
+        setSources(sources);
+        setDocCount(documentCount);
         setError(null);
       } catch {
         if (alive) setError("백엔드 미연결 (http://localhost:8000)");
