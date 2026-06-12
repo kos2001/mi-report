@@ -72,3 +72,13 @@ class SourceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     config: dict[str, Any] | None = None
     enabled: bool | None = None
+
+
+class IngestText(BaseModel):
+    """COM 인제스트 워커가 보내는, DRM 해제 상태로 추출된 평문 텍스트."""
+
+    title: str = Field(..., min_length=1)
+    text: str
+    topic: str | None = None
+    original_filename: str | None = None
+    source_name: str | None = None

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,16 +18,24 @@ from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
     ApprovalRequest,
     ChatRequest,
+    IngestText,
     RunRequest,
     SessionChatRequest,
     SourceCreate,
     SourceUpdate,
 )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    collection.init_db()
+    yield
+
+
 app = FastAPI(
     title="MI Report Agent Backend",
     version="0.1.0",
     description="Hermes Gateway(OpenAI 호환)를 통해 Hermes Agent CLI 전체 기능을 사용한다.",
+    lifespan=lifespan,
 )
 
 # 프론트엔드(Next.js dev: 3000/3300)에서 호출 허용
@@ -35,11 +45,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    collection.init_db()
 
 
 def _client(profile: str | None = None):
@@ -230,6 +235,16 @@ def collection_collect(source_id: str):
 async def collection_upload(file: UploadFile = File(...), topic: str | None = Form(None)):
     content = await file.read()
     return collection.save_upload(file.filename or "untitled", content, topic)
+
+
+@app.post("/collection/ingest", status_code=201)
+def collection_ingest(req: IngestText):
+    """COM 인제스트 워커 진입점: DRM 해제 상태로 추출된 텍스트를 문서로 등록."""
+    return collection.ingest_text(
+        req.title, req.text, topic=req.topic,
+        original_filename=req.original_filename,
+        source_name=req.source_name or collection.COM_SOURCE_NAME,
+    )
 
 
 @app.get("/collection/documents")
