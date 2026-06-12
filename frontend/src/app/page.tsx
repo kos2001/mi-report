@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { competitors, digests, pipelineStatus, topics } from "@/lib/data";
+import { competitors, digests, topics } from "@/lib/data";
 import { Card, ImpactBadge, PageHeader } from "@/components/ui";
+import { PipelineStatus } from "@/components/pipeline-status";
 
 export default function DashboardPage() {
   const draftDigest = digests.find((d) => d.mailedAt === null);
@@ -77,42 +78,7 @@ export default function DashboardPage() {
         <h2 className="mb-3 text-sm font-medium text-zinc-300">
           수집 파이프라인 상태
         </h2>
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
-                <th className="px-5 py-3 font-medium">소스</th>
-                <th className="px-5 py-3 font-medium">상태</th>
-                <th className="px-5 py-3 font-medium">최근 실행</th>
-                <th className="px-5 py-3 text-right font-medium">신규 문서</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pipelineStatus.map((p) => (
-                <tr key={p.name} className="border-b border-zinc-800/60 last:border-0">
-                  <td className="px-5 py-3 text-zinc-200">{p.name}</td>
-                  <td className="px-5 py-3">
-                    <span
-                      className={
-                        p.status === "정상"
-                          ? "text-emerald-400"
-                          : "text-amber-400"
-                      }
-                    >
-                      ● {p.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-400">
-                    {p.lastRun}
-                  </td>
-                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
-                    {p.count}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <PipelineStatus />
       </section>
     </>
   );

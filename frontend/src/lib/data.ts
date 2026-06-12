@@ -234,10 +234,5 @@ export const competitors: Competitor[] = [
   },
 ];
 
-export const pipelineStatus = [
-  { name: "EDM 수집", status: "정상", lastRun: "2026-06-12 06:00", count: 128 },
-  { name: "Confluence 동기화", status: "정상", lastRun: "2026-06-12 06:10", count: 54 },
-  { name: "뉴스 크롤링", status: "정상", lastRun: "2026-06-12 07:00", count: 312 },
-  { name: "증권사 리포트 수집", status: "지연", lastRun: "2026-06-11 18:00", count: 9 },
-  { name: "컨센서스 갱신 감지", status: "정상", lastRun: "2026-06-12 08:00", count: 2 },
-];
+// 수집 파이프라인 상태는 라이브 백엔드(/collection/sources)에서 가져온다.
+// → components/pipeline-status.tsx

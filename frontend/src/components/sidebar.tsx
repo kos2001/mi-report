@@ -47,7 +47,7 @@ export function Sidebar() {
       </nav>
       <div className="mt-auto px-5 py-4">
         <p className="rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-400/80">
-          데이터는 목업입니다. 백엔드 파이프라인 연동 전 UI 검증용.
+          데이터 수집·대시보드 상태는 백엔드 실연동. 주제·다이제스트·경쟁사는 목업.
         </p>
       </div>
     </aside>
