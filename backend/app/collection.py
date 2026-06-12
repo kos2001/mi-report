@@ -1,0 +1,251 @@
+"""데이터 수집 저장소.
+
+소스(EDM/Confluence/뉴스/증권사/컨센서스/업로드) 메타데이터와 수집된 문서를
+stdlib sqlite3 에 저장한다. 업로드 파일은 디스크(UPLOADS_DIR)에 저장한다.
+
+현실성 구분:
+  - 실제 동작: 소스 CRUD, 수동 업로드(파일 저장), 문서 목록/검색
+  - 스텁: 커넥터 소스의 '수집 트리거'는 실행 기록 + 카운트만 갱신
+           (실제 EDM/Confluence/뉴스 크롤링은 이후 단계에서 연동)
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .config import COLLECTION_DB, UPLOADS_DIR
+
+SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
+# 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
+CONNECTOR_TYPES = ("edm", "confluence", "news", "broker", "consensus")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+
+
+def _conn() -> sqlite3.Connection:
+    COLLECTION_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(COLLECTION_DB)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db() -> None:
+    """스키마 생성 + 최초 1회 기본 소스 시드(대시보드 목업과 동일한 5종)."""
+    with _conn() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS sources (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                type       TEXT NOT NULL,
+                config     TEXT NOT NULL DEFAULT '{}',
+                enabled    INTEGER NOT NULL DEFAULT 1,
+                status     TEXT NOT NULL DEFAULT '대기',
+                last_run   TEXT,
+                count      INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS documents (
+                id           TEXT PRIMARY KEY,
+                source_id    TEXT,
+                source_name  TEXT NOT NULL,
+                title        TEXT NOT NULL,
+                filename     TEXT,
+                path         TEXT,
+                topic        TEXT,
+                published_at TEXT,
+                status       TEXT NOT NULL DEFAULT '수집됨',
+                created_at   TEXT NOT NULL,
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
+            );
+            """
+        )
+        cur = conn.execute("SELECT COUNT(*) AS n FROM sources")
+        if cur.fetchone()["n"] == 0:
+            seed = [
+                ("EDM 수집", "edm", {"path": "EDM 루트 경로"}, "정상", "2026-06-12 06:00", 128),
+                ("Confluence 동기화", "confluence", {"space": "MI", "base_url": ""}, "정상", "2026-06-12 06:10", 54),
+                ("뉴스 크롤링", "news", {"keywords": ["반도체", "HBM", "파운드리"]}, "정상", "2026-06-12 07:00", 312),
+                ("증권사 리포트 수집", "broker", {"sources": []}, "지연", "2026-06-11 18:00", 9),
+                ("컨센서스 갱신 감지", "consensus", {"tickers": ["QCOM", "MTK"]}, "정상", "2026-06-12 08:00", 2),
+            ]
+            for name, type_, cfg, status, last_run, count in seed:
+                conn.execute(
+                    "INSERT INTO sources (id, name, type, config, enabled, status, last_run, count, created_at)"
+                    " VALUES (?,?,?,?,1,?,?,?,?)",
+                    (uuid.uuid4().hex, name, type_, json.dumps(cfg, ensure_ascii=False),
+                     status, last_run, count, _now()),
+                )
+
+
+def _row_to_source(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "type": row["type"],
+        "config": json.loads(row["config"] or "{}"),
+        "enabled": bool(row["enabled"]),
+        "status": row["status"],
+        "lastRun": row["last_run"],
+        "count": row["count"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _row_to_document(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "sourceId": row["source_id"],
+        "sourceName": row["source_name"],
+        "title": row["title"],
+        "filename": row["filename"],
+        "topic": row["topic"],
+        "publishedAt": row["published_at"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+    }
+
+
+# ── 소스 ───────────────────────────────────────────────────────────────
+def list_sources() -> list[dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT * FROM sources ORDER BY created_at").fetchall()
+    return [_row_to_source(r) for r in rows]
+
+
+def create_source(name: str, type_: str, config: dict[str, Any] | None, enabled: bool) -> dict[str, Any]:
+    if type_ not in SOURCE_TYPES:
+        raise ValueError(f"잘못된 소스 타입: {type_} (허용: {', '.join(SOURCE_TYPES)})")
+    sid = uuid.uuid4().hex
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO sources (id, name, type, config, enabled, status, count, created_at)"
+            " VALUES (?,?,?,?,?,?,0,?)",
+            (sid, name, type_, json.dumps(config or {}, ensure_ascii=False),
+             1 if enabled else 0, "대기", _now()),
+        )
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+    return _row_to_source(row)
+
+
+def update_source(sid: str, *, name: str | None = None, config: dict[str, Any] | None = None,
+                  enabled: bool | None = None) -> dict[str, Any]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+        if row is None:
+            raise KeyError(sid)
+        new_name = name if name is not None else row["name"]
+        new_config = json.dumps(config, ensure_ascii=False) if config is not None else row["config"]
+        new_enabled = (1 if enabled else 0) if enabled is not None else row["enabled"]
+        conn.execute(
+            "UPDATE sources SET name=?, config=?, enabled=? WHERE id=?",
+            (new_name, new_config, new_enabled, sid),
+        )
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+    return _row_to_source(row)
+
+
+def delete_source(sid: str) -> None:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM sources WHERE id=?", (sid,))
+        if cur.rowcount == 0:
+            raise KeyError(sid)
+
+
+def collect_source(sid: str) -> dict[str, Any]:
+    """수집 트리거(스텁). 커넥터 소스의 실행 기록 + 카운트만 갱신한다."""
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+        if row is None:
+            raise KeyError(sid)
+        if row["type"] not in CONNECTOR_TYPES:
+            raise ValueError("업로드 소스는 수집 트리거 대상이 아닙니다.")
+        if not row["enabled"]:
+            raise ValueError("비활성 소스는 수집할 수 없습니다.")
+        # 스텁: 실제 크롤링 대신 실행 시각만 갱신 (신규 건수 0)
+        conn.execute(
+            "UPDATE sources SET status='정상', last_run=? WHERE id=?",
+            (_now(), sid),
+        )
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+    return {"source": _row_to_source(row), "ingested": 0, "stub": True}
+
+
+# ── 문서 ───────────────────────────────────────────────────────────────
+def list_documents(source_id: str | None = None, q: str | None = None,
+                   topic: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM documents WHERE 1=1"
+    params: list[Any] = []
+    if source_id:
+        sql += " AND source_id=?"
+        params.append(source_id)
+    if topic:
+        sql += " AND topic=?"
+        params.append(topic)
+    if q:
+        sql += " AND (title LIKE ? OR filename LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%"])
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_document(r) for r in rows]
+
+
+def delete_document(doc_id: str) -> None:
+    with _conn() as conn:
+        row = conn.execute("SELECT path FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if row is None:
+            raise KeyError(doc_id)
+        if row["path"]:
+            Path(row["path"]).unlink(missing_ok=True)
+        conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+
+
+def _ensure_upload_source(conn: sqlite3.Connection) -> sqlite3.Row:
+    """수동 업로드용 소스를 보장(없으면 생성)."""
+    row = conn.execute("SELECT * FROM sources WHERE type='upload' LIMIT 1").fetchone()
+    if row is not None:
+        return row
+    sid = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO sources (id, name, type, config, enabled, status, count, created_at)"
+        " VALUES (?,?,?,?,1,?,0,?)",
+        (sid, "수동 업로드", "upload", "{}", "정상", _now()),
+    )
+    return conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+
+
+def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict[str, Any]:
+    """업로드 파일을 디스크에 저장하고 문서로 등록한다."""
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    doc_id = uuid.uuid4().hex
+    safe_name = Path(filename).name  # 경로 조작 방지
+    dest = UPLOADS_DIR / f"{doc_id}__{safe_name}"
+    dest.write_bytes(content)
+    with _conn() as conn:
+        src = _ensure_upload_source(conn)
+        conn.execute(
+            "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
+            " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (doc_id, src["id"], src["name"], safe_name, safe_name, str(dest),
+             topic, _today(), "수집됨", _now()),
+        )
+        conn.execute(
+            "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
+            (_now(), src["id"]),
+        )
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return _row_to_document(row)

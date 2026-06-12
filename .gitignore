@@ -1,0 +1,32 @@
+# ── 시크릿 (절대 커밋 금지) ─────────────────────────────────
+.env
+**/.env
+backend/profiles/*/.env
+# .env.example 은 추적 (위 규칙의 예외)
+!**/.env.example
+
+# ── 런타임 데이터 ───────────────────────────────────────────
+backend/data/
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# ── Node / Next.js ─────────────────────────────────────────
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── 로컬 도구/OS ───────────────────────────────────────────
+.DS_Store
+*.log
+.claude/settings.local.json
+.playwright-mcp/

@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# 시크릿: 프로파일 .env 는 절대 커밋하지 않는다 (.env.example 만 추적)
+.env
+profiles/*/.env
+
+# 수집 데이터(로컬 런타임 산출물)
+data/
