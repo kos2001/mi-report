@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection
+from . import collection, gateway
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -29,6 +29,7 @@ from .schemas import (
 async def lifespan(app: FastAPI):
     collection.init_db()
     yield
+    await gateway.close_all()  # 영속 게이트웨이 커넥션 정리
 
 
 app = FastAPI(
@@ -54,9 +55,9 @@ def _client(profile: str | None = None):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-def _guard(fn):
+async def _guard(awaitable):
     try:
-        return fn()
+        return await awaitable
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
@@ -76,36 +77,36 @@ def health():
 
 
 @app.get("/gateway/health")
-def gateway_health(profile: str | None = None):
-    return _guard(lambda: _client(profile).health())
+async def gateway_health(profile: str | None = None):
+    return await _guard(_client(profile).health())
 
 
 @app.get("/gateway/capabilities")
-def capabilities(profile: str | None = None):
-    return _guard(lambda: _client(profile).capabilities())
+async def capabilities(profile: str | None = None):
+    return await _guard(_client(profile).capabilities())
 
 
 @app.get("/gateway/models")
-def models(profile: str | None = None):
-    return _guard(lambda: _client(profile).models())
+async def models(profile: str | None = None):
+    return await _guard(_client(profile).models())
 
 
 @app.get("/gateway/skills")
-def skills(profile: str | None = None):
-    return _guard(lambda: _client(profile).skills())
+async def skills(profile: str | None = None):
+    return await _guard(_client(profile).skills())
 
 
 @app.get("/gateway/toolsets")
-def toolsets(profile: str | None = None):
-    return _guard(lambda: _client(profile).toolsets())
+async def toolsets(profile: str | None = None):
+    return await _guard(_client(profile).toolsets())
 
 
 # ── 단순 대화 ─────────────────────────────────────────────────────────
 @app.post("/chat")
-def chat(req: ChatRequest):
+async def chat(req: ChatRequest):
     client = _client(req.profile)
     messages = [m.model_dump() for m in req.messages]
-    return _guard(lambda: client.chat(
+    return await _guard(client.chat(
         messages, model=req.model, temperature=req.temperature,
         session_id=req.session_id, session_key=req.session_key,
     ))
@@ -113,18 +114,18 @@ def chat(req: ChatRequest):
 
 # ── 에이전틱 run (전체 툴셋) ──────────────────────────────────────────
 @app.post("/runs", status_code=202)
-def start_run(req: RunRequest):
+async def start_run(req: RunRequest):
     client = _client(req.profile)
     history = [m.model_dump() for m in req.conversation_history] if req.conversation_history else None
-    return _guard(lambda: client.start_run(
+    return await _guard(client.start_run(
         req.input, instructions=req.instructions, conversation_history=history,
         session_id=req.session_id, model=req.model, session_key=req.session_key,
     ))
 
 
 @app.get("/runs/{run_id}")
-def get_run(run_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).get_run(run_id))
+async def get_run(run_id: str, profile: str | None = None):
+    return await _guard(_client(profile).get_run(run_id))
 
 
 @app.get("/runs/{run_id}/events")
@@ -143,50 +144,50 @@ async def run_events(run_id: str, profile: str | None = None):
 
 
 @app.post("/runs/{run_id}/approval")
-def approve_run(run_id: str, req: ApprovalRequest, profile: str | None = None):
-    return _guard(lambda: _client(profile).approve_run(
+async def approve_run(run_id: str, req: ApprovalRequest, profile: str | None = None):
+    return await _guard(_client(profile).approve_run(
         run_id, req.choice, resolve_all=req.resolve_all))
 
 
 @app.post("/runs/{run_id}/stop")
-def stop_run(run_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).stop_run(run_id))
+async def stop_run(run_id: str, profile: str | None = None):
+    return await _guard(_client(profile).stop_run(run_id))
 
 
 # ── 세션 ──────────────────────────────────────────────────────────────
 @app.get("/sessions")
-def list_sessions(profile: str | None = None):
-    return _guard(lambda: _client(profile).list_sessions())
+async def list_sessions(profile: str | None = None):
+    return await _guard(_client(profile).list_sessions())
 
 
 @app.post("/sessions", status_code=201)
-def create_session(profile: str | None = None):
-    return _guard(lambda: _client(profile).create_session())
+async def create_session(profile: str | None = None):
+    return await _guard(_client(profile).create_session())
 
 
 @app.get("/sessions/{session_id}")
-def get_session(session_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).get_session(session_id))
+async def get_session(session_id: str, profile: str | None = None):
+    return await _guard(_client(profile).get_session(session_id))
 
 
 @app.get("/sessions/{session_id}/messages")
-def session_messages(session_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).session_messages(session_id))
+async def session_messages(session_id: str, profile: str | None = None):
+    return await _guard(_client(profile).session_messages(session_id))
 
 
 @app.post("/sessions/{session_id}/chat")
-def session_chat(session_id: str, req: SessionChatRequest, profile: str | None = None):
-    return _guard(lambda: _client(profile).session_chat(session_id, req.message))
+async def session_chat(session_id: str, req: SessionChatRequest, profile: str | None = None):
+    return await _guard(_client(profile).session_chat(session_id, req.message))
 
 
 @app.post("/sessions/{session_id}/fork", status_code=201)
-def fork_session(session_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).fork_session(session_id))
+async def fork_session(session_id: str, profile: str | None = None):
+    return await _guard(_client(profile).fork_session(session_id))
 
 
 @app.delete("/sessions/{session_id}")
-def delete_session(session_id: str, profile: str | None = None):
-    return _guard(lambda: _client(profile).delete_session(session_id))
+async def delete_session(session_id: str, profile: str | None = None):
+    return await _guard(_client(profile).delete_session(session_id))
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────
@@ -234,8 +235,12 @@ def collection_collect(source_id: str):
 
 @app.post("/collection/upload", status_code=201)
 async def collection_upload(file: UploadFile = File(...), topic: str | None = Form(None)):
-    content = await file.read()
-    return collection.save_upload(file.filename or "untitled", content, topic)
+    # 스트리밍 저장: 전체 파일을 메모리에 올리지 않고 청크 단위로 디스크에 쓴다.
+    doc_id, dest, safe_name = collection.allocate_upload(file.filename or "untitled")
+    with dest.open("wb") as out:
+        while chunk := await file.read(1 << 20):  # 1 MiB
+            out.write(chunk)
+    return collection.register_upload(doc_id, dest, safe_name, topic)
 
 
 @app.post("/collection/ingest", status_code=201)

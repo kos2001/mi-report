@@ -12,6 +12,7 @@ stdlib sqlite3 에 저장한다. 업로드 파일은 디스크(UPLOADS_DIR)에 �
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -77,6 +78,26 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_documents_source  ON documents(source_id);
             CREATE INDEX IF NOT EXISTS idx_documents_topic   ON documents(topic);
             CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at DESC);
+
+            -- 전문검색(FTS5): documents 의 외부 콘텐츠 인덱스. 트리거로 동기화.
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                title, filename, topic,
+                content='documents', content_rowid='rowid'
+            );
+            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+                INSERT INTO documents_fts(rowid, title, filename, topic)
+                VALUES (new.rowid, new.title, new.filename, new.topic);
+            END;
+            CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts, rowid, title, filename, topic)
+                VALUES ('delete', old.rowid, old.title, old.filename, old.topic);
+            END;
+            CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts, rowid, title, filename, topic)
+                VALUES ('delete', old.rowid, old.title, old.filename, old.topic);
+                INSERT INTO documents_fts(rowid, title, filename, topic)
+                VALUES (new.rowid, new.title, new.filename, new.topic);
+            END;
             """
         )
         cur = conn.execute("SELECT COUNT(*) AS n FROM sources")
@@ -191,20 +212,40 @@ def collect_source(sid: str) -> dict[str, Any]:
 
 
 # ── 문서 ───────────────────────────────────────────────────────────────
+def _fts_match(q: str) -> str | None:
+    """사용자 검색어를 안전한 FTS5 MATCH 식으로 변환(토큰별 접두 매칭).
+
+    각 토큰을 따옴표로 감싸(특수문자 무력화) 접두(*)로 매칭한다.
+    예: 'HBM 시장' -> '"HBM"* "시장"*'
+    """
+    tokens = [t for t in re.split(r"\s+", q.strip()) if t]
+    if not tokens:
+        return None
+    return " ".join('"' + t.replace('"', '""') + '"*' for t in tokens)
+
+
 def list_documents(source_id: str | None = None, q: str | None = None,
                    topic: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-    sql = "SELECT * FROM documents WHERE 1=1"
     params: list[Any] = []
+    match = _fts_match(q) if q else None
+    if match:
+        # FTS5 전문검색 + 필터/정렬. rowid 로 documents 와 조인.
+        # MATCH 는 별칭이 아니라 FTS 테이블명을 좌변으로 써야 한다.
+        sql = (
+            "SELECT d.* FROM documents_fts "
+            "JOIN documents d ON d.rowid = documents_fts.rowid "
+            "WHERE documents_fts MATCH ?"
+        )
+        params.append(match)
+    else:
+        sql = "SELECT d.* FROM documents d WHERE 1=1"
     if source_id:
-        sql += " AND source_id=?"
+        sql += " AND d.source_id=?"
         params.append(source_id)
     if topic:
-        sql += " AND topic=?"
+        sql += " AND d.topic=?"
         params.append(topic)
-    if q:
-        sql += " AND (title LIKE ? OR filename LIKE ?)"
-        params.extend([f"%{q}%", f"%{q}%"])
-    sql += " ORDER BY created_at DESC LIMIT ?"
+    sql += " ORDER BY d.created_at DESC LIMIT ?"
     params.append(limit)
     with _conn() as conn:
         rows = conn.execute(sql, params).fetchall()
@@ -247,13 +288,21 @@ def _ensure_upload_source(conn: sqlite3.Connection) -> sqlite3.Row:
     return _ensure_named_source(conn, "수동 업로드", "upload")
 
 
-def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict[str, Any]:
-    """업로드 파일을 디스크에 저장하고 문서로 등록한다."""
+def allocate_upload(filename: str) -> tuple[str, Path, str]:
+    """업로드 대상 경로를 예약한다. (doc_id, dest_path, safe_name).
+
+    스트리밍 업로드: 호출자가 dest 에 청크로 직접 쓰고 register_upload 로 등록한다.
+    """
     config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     doc_id = uuid.uuid4().hex
-    safe_name = Path(filename).name  # 경로 조작 방지
+    safe_name = Path(filename).name or "untitled"  # 경로 조작 방지
     dest = config.UPLOADS_DIR / f"{doc_id}__{safe_name}"
-    dest.write_bytes(content)
+    return doc_id, dest, safe_name
+
+
+def register_upload(doc_id: str, dest: Path, safe_name: str,
+                    topic: str | None = None) -> dict[str, Any]:
+    """이미 디스크에 쓰인 업로드 파일을 문서로 등록한다."""
     with _conn() as conn:
         src = _ensure_upload_source(conn)
         conn.execute(
@@ -268,6 +317,13 @@ def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict
         )
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
+
+
+def save_upload(filename: str, content: bytes, topic: str | None = None) -> dict[str, Any]:
+    """바이트를 받아 저장+등록(프로그램/테스트용). 엔드포인트는 스트리밍을 쓴다."""
+    doc_id, dest, safe_name = allocate_upload(filename)
+    dest.write_bytes(content)
+    return register_upload(doc_id, dest, safe_name, topic)
 
 
 # 기본 COM 인제스트 소스 이름 (DRM 해제 상태로 추출된 문서의 귀속)

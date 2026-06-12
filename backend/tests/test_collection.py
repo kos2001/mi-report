@@ -93,6 +93,21 @@ def test_documents_search_and_filter(isolated):
     assert len(fab) == 1 and fab[0]["topic"] == "파운드리"
 
 
+def test_fts_prefix_search(isolated):
+    for name, body, topic in VIRTUAL_DOCUMENTS:
+        collection.save_upload(name, body.encode("utf-8"), topic)
+    # 접두 검색: '파운' → '파운드리' 문서 매칭
+    hits = collection.list_documents(q="파운")
+    assert len(hits) == 1 and "파운드리" in hits[0]["title"]
+
+
+def test_fts_special_chars_do_not_crash(isolated):
+    collection.save_upload("가상_HBM_전망.txt", b"x", "HBM")
+    # 따옴표 등 특수문자가 섞여도 예외 없이 동작
+    assert isinstance(collection.list_documents(q='HBM "전망"'), list)
+    assert collection.list_documents(q="   ") == collection.list_documents()
+
+
 def test_count_documents(isolated):
     assert collection.count_documents() == 0
     for name, body, topic in VIRTUAL_DOCUMENTS:
