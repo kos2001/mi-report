@@ -86,10 +86,13 @@ export const api = {
     req<void>(`/collection/sources/${id}`, { method: "DELETE" }),
 
   collect: (id: string) =>
-    req<{ source: Source; ingested: number; stub: boolean }>(
-      `/collection/sources/${id}/collect`,
-      { method: "POST" },
-    ),
+    req<{
+      source: Source;
+      ingested: number;
+      stub: boolean;
+      documents?: CollectedDoc[];
+      errors?: { url: string; error: string }[];
+    }>(`/collection/sources/${id}/collect`, { method: "POST" }),
 
   listDocuments: (params?: { source?: string; q?: string; topic?: string }) => {
     const qs = new URLSearchParams();

@@ -192,6 +192,76 @@ def delete_source(sid: str) -> None:
             raise KeyError(sid)
 
 
+def get_source(sid: str) -> dict[str, Any]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+    if row is None:
+        raise KeyError(sid)
+    return _row_to_source(row)
+
+
+_URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def source_urls(source: dict[str, Any]) -> list[str]:
+    """소스에서 수집 대상 URL 목록을 뽑는다.
+
+    우선순위: config.url(문자열) / config.urls(리스트) > URL 처럼 보이는 소스 이름.
+    스킴이 없으면 https:// 를 붙인다. URL 이 없으면 빈 리스트(→ 스텁 수집).
+    """
+    cfg = source.get("config") or {}
+    raw: list[str] = []
+    one = cfg.get("url")
+    if isinstance(one, str) and one.strip():
+        raw.append(one.strip())
+    many = cfg.get("urls")
+    if isinstance(many, list):
+        raw += [u.strip() for u in many if isinstance(u, str) and u.strip()]
+    if not raw:
+        name = (source.get("name") or "").strip()
+        # 이름이 URL 처럼 보이면(점 포함, 공백 없음) 수집 대상으로 본다.
+        if name and " " not in name and "." in name:
+            raw.append(name)
+    return [u if _URL_SCHEME_RE.match(u) else f"https://{u}" for u in raw]
+
+
+def mark_source_status(sid: str, status: str) -> dict[str, Any]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE sources SET status=?, last_run=? WHERE id=?", (status, _now(), sid)
+        )
+        if cur.rowcount == 0:
+            raise KeyError(sid)
+        row = conn.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+    return _row_to_source(row)
+
+
+def add_crawled_document(
+    source_id: str, source_name: str, title: str, text: str,
+    *, url: str | None = None, topic: str | None = None,
+) -> dict[str, Any]:
+    """수집한 페이지 본문을 문서로 저장하고 소스 카운트를 갱신한다."""
+    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    doc_id = uuid.uuid4().hex
+    safe_title = (Path(title).name or "untitled").strip()[:120] or "untitled"
+    dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
+    body = f"# {title}\n원본: {url}\n\n{text}" if url else text
+    dest.write_text(body, encoding="utf-8")
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
+            " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (doc_id, source_id, source_name, safe_title, url or safe_title, str(dest),
+             topic, _today(), "수집됨", _now()),
+        )
+        conn.execute(
+            "UPDATE sources SET count = count + 1, status='정상', last_run=? WHERE id=?",
+            (_now(), source_id),
+        )
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return _row_to_document(row)
+
+
 def collect_source(sid: str) -> dict[str, Any]:
     """수집 트리거(스텁). 커넥터 소스의 실행 기록 + 카운트만 갱신한다."""
     with _conn() as conn:
