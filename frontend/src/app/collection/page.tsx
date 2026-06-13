@@ -110,14 +110,23 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("news");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const add = async () => {
     if (!name.trim()) return;
     setBusy(true);
+    setError(null);
     try {
       await api.createSource({ name: name.trim(), type });
       setName("");
       onChange();
+    } catch (e) {
+      // 실패를 조용히 무시하지 않고 사용자에게 노출한다(백엔드 미연동/오류 등).
+      setError(
+        e instanceof Error
+          ? e.message
+          : "소스 추가 실패 — 백엔드 연결을 확인하세요 (http://localhost:8000)",
+      );
     } finally {
       setBusy(false);
     }
@@ -131,6 +140,9 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !busy) add();
+            }}
             placeholder="소스 이름"
             className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
           />
@@ -150,9 +162,14 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
             disabled={busy || !name.trim()}
             className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
           >
-            추가
+            {busy ? "추가 중…" : "추가"}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+            {error}
+          </p>
+        )}
       </Card>
 
       <div className="flex flex-col gap-3">
