@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection, competitors, digest, gateway, topics
+from . import classify, collection, competitors, digest, gateway, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -268,6 +268,57 @@ def collection_delete_document(doc_id: str):
         collection.delete_document(doc_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+
+
+# ── 문서 자동 분류 (AI agent) ─────────────────────────────────────────────
+@app.post("/collection/documents/{doc_id}/classify")
+async def collection_classify_document(doc_id: str, profile: str | None = None):
+    """단일 문서를 게이트웨이(LLM)로 분류해 주제를 부여한다."""
+    try:
+        doc = collection.get_document(doc_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+    text = collection.read_document_text(doc_id)
+    if not text:
+        raise HTTPException(status_code=422, detail="본문을 읽을 수 없는 문서입니다.")
+    client = _client(profile)
+    try:
+        result = await classify.classify_document(client, doc["title"], text)
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"분류 실패: {e}") from e
+    document = collection.set_topic(doc_id, result["topic"]) if result["topic"] else doc
+    return {"document": document, "classification": result}
+
+
+@app.post("/collection/classify-untagged")
+async def collection_classify_untagged(limit: int = 20, profile: str | None = None):
+    """주제 미부여 문서들을 일괄 자동 분류한다(개별 실패는 건너뜀)."""
+    client = _client(profile)
+    classified: list[dict] = []
+    for doc_id in collection.list_untagged_ids(limit):
+        text = collection.read_document_text(doc_id)
+        if not text:
+            continue
+        doc = collection.get_document(doc_id)
+        try:
+            result = await classify.classify_document(client, doc["title"], text)
+        except (HermesGatewayError, httpx.HTTPError, ValueError):
+            continue  # 개별 문서 실패는 전체를 막지 않는다
+        if result["topic"]:
+            collection.set_topic(doc_id, result["topic"])
+            classified.append(
+                {
+                    "id": doc_id,
+                    "title": doc["title"],
+                    "topic": result["topic"],
+                    "category": result["category"],
+                }
+            )
+    return {"classified": classified, "count": len(classified)}
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────

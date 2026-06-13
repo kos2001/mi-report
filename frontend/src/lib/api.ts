@@ -105,6 +105,20 @@ export const api = {
   deleteDocument: (id: string) =>
     req<void>(`/collection/documents/${id}`, { method: "DELETE" }),
 
+  // AI 자동 분류: 단일 문서의 주제를 부여한다.
+  classifyDocument: (id: string) =>
+    req<{ document: CollectedDoc; classification: { topic: string; category: string; tags: string[] } }>(
+      `/collection/documents/${id}/classify`,
+      { method: "POST" },
+    ),
+
+  // AI 자동 분류: 주제 미부여 문서들을 일괄 분류한다.
+  classifyUntagged: (limit = 20) =>
+    req<{ classified: { id: string; title: string; topic: string; category: string }[]; count: number }>(
+      `/collection/classify-untagged?limit=${limit}`,
+      { method: "POST" },
+    ),
+
   upload: async (file: File, topic?: string) => {
     const fd = new FormData();
     fd.append("file", file);

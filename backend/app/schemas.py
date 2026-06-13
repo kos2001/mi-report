@@ -181,3 +181,12 @@ class CompetitorAnalyzeRequest(BaseModel):
     q: str | None = Field(default=None, description="문서 전문검색어(선택).")
     limit: int = Field(default=20, ge=1, le=100, description="입력 문서 최대 건수.")
     profile: str | None = None
+
+
+# ── 문서 자동 분류 (AI agent) ─────────────────────────────────────────────
+class DocClassificationOut(BaseModel):
+    """LLM 이 산출하는 문서 분류 결과."""
+
+    topic: str = ""
+    category: TopicCategory = "수요/시황"
+    tags: list[str] = Field(default_factory=list)

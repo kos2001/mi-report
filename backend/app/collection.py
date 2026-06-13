@@ -324,6 +324,35 @@ def documents_for_digest(
     return out
 
 
+def get_document(doc_id: str) -> dict[str, Any]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise KeyError(doc_id)
+    return _row_to_document(row)
+
+
+def set_topic(doc_id: str, topic: str) -> dict[str, Any]:
+    """문서의 주제를 갱신한다(자동 분류 결과 반영). FTS 트리거가 색인을 동기화."""
+    with _conn() as conn:
+        cur = conn.execute("UPDATE documents SET topic=? WHERE id=?", (topic, doc_id))
+        if cur.rowcount == 0:
+            raise KeyError(doc_id)
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return _row_to_document(row)
+
+
+def list_untagged_ids(limit: int = 50) -> list[str]:
+    """주제가 비어 있는 문서 id 목록(최신순). 일괄 자동 분류 대상."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM documents WHERE topic IS NULL OR topic='' "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def delete_document(doc_id: str) -> None:
     with _conn() as conn:
         row = conn.execute("SELECT path FROM documents WHERE id=?", (doc_id,)).fetchone()

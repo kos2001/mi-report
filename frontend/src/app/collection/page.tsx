@@ -352,6 +352,8 @@ function UploadTab({ onChange }: { onChange: () => void }) {
 // ── 문서 탭 ──────────────────────────────────────────────────────────
 function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () => void }) {
   const [q, setQ] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
   const filtered = q
     ? docs.filter(
         (d) =>
@@ -360,14 +362,50 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
       )
     : docs;
 
+  const untaggedCount = docs.filter((d) => !d.topic).length;
+
+  const classifyOne = async (id: string) => {
+    setBusyId(id);
+    try {
+      await api.classifyDocument(id);
+      onChange();
+    } catch {
+      /* 상위 새로고침 */
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const classifyAll = async () => {
+    setBatchBusy(true);
+    try {
+      await api.classifyUntagged();
+      onChange();
+    } catch {
+      /* 상위 새로고침 */
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="제목·주제로 검색"
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-      />
+      <div className="flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="제목·주제로 검색"
+          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+        />
+        <button
+          onClick={classifyAll}
+          disabled={batchBusy || untaggedCount === 0}
+          title="주제가 비어 있는 문서를 AI 로 일괄 분류"
+          className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {batchBusy ? "분류 중…" : `미분류 자동 분류${untaggedCount ? ` (${untaggedCount})` : ""}`}
+        </button>
+      </div>
       <Card className="p-0">
         {filtered.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-zinc-500">
@@ -396,12 +434,23 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
                     {d.createdAt}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => api.deleteDocument(d.id).then(onChange)}
-                      className="text-xs text-zinc-500 hover:text-red-400"
-                    >
-                      삭제
-                    </button>
+                    <div className="flex items-center justify-end gap-3">
+                      {!d.topic && (
+                        <button
+                          onClick={() => classifyOne(d.id)}
+                          disabled={busyId === d.id}
+                          className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-50"
+                        >
+                          {busyId === d.id ? "분류 중…" : "분류"}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => api.deleteDocument(d.id).then(onChange)}
+                        className="text-xs text-zinc-500 hover:text-red-400"
+                      >
+                        삭제
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
