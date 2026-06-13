@@ -29,7 +29,10 @@ export default function RootLayout({
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-screen bg-zinc-950 text-zinc-200">
+      {/* 셸을 뷰포트 높이에 고정(h-screen + overflow-hidden)해야 main 의
+          overflow-y-auto 가 바운드된 높이를 갖고 내부 스크롤이 동작한다.
+          min-h-screen 으로 두면 main 이 콘텐츠만큼 늘어나 스크롤이 안 됐다. */}
+      <body className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-200">
         <Sidebar />
         <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
           <div className="mx-auto max-w-5xl">{children}</div>

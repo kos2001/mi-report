@@ -17,7 +17,7 @@ const nav = [
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-zinc-800 bg-zinc-950">
       <div className="px-5 py-6">
         <p className="text-lg font-semibold tracking-tight text-zinc-50">
           MI Report Agent
