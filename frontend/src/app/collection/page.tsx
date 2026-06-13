@@ -109,6 +109,7 @@ export default function CollectionPage() {
 function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("news");
+  const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,8 +118,11 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
     setBusy(true);
     setError(null);
     try {
-      await api.createSource({ name: name.trim(), type });
+      // URL 을 넣으면 config.url 로 저장 → '지금 수집'이 실제로 그 페이지를 가져온다.
+      const config = url.trim() ? { url: url.trim() } : undefined;
+      await api.createSource({ name: name.trim(), type, config });
       setName("");
+      setUrl("");
       onChange();
     } catch (e) {
       // 실패를 조용히 무시하지 않고 사용자에게 노출한다(백엔드 미연동/오류 등).
@@ -144,6 +148,15 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
               if (e.key === "Enter" && !busy) add();
             }}
             placeholder="소스 이름"
+            className="w-44 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          />
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !busy) add();
+            }}
+            placeholder="수집할 URL (선택) — 예: https://example.com/article"
             className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
           />
           <select
@@ -165,6 +178,10 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
             {busy ? "추가 중…" : "추가"}
           </button>
         </div>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          URL 을 넣으면 ‘상태·수집’ 탭의 ‘지금 수집’이 그 페이지를 실제로 가져와 문서로 저장합니다.
+          (포털 홈처럼 동적인 페이지는 본문 추출이 부실할 수 있어 기사 URL 을 권장)
+        </p>
         {error && (
           <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
             {error}
@@ -213,14 +230,23 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
 // ── 상태·수집 탭 ─────────────────────────────────────────────────────
 function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [result, setResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const collect = async (s: Source) => {
     setBusyId(s.id);
     try {
-      await api.collect(s.id);
+      const r = await api.collect(s.id);
+      const msg = r.stub
+        ? "URL 미설정 — 실행 기록만 갱신(스텁)"
+        : `${r.ingested}건 수집됨${r.errors && r.errors.length ? ` · 실패 ${r.errors.length}` : ""}`;
+      setResult((prev) => ({ ...prev, [s.id]: { ok: true, msg } }));
       onChange();
-    } catch {
-      /* 무시: 상위에서 새로고침 */
+    } catch (e) {
+      // 수집 실패(예: 본문 추출 실패)를 사용자에게 노출한다.
+      setResult((prev) => ({
+        ...prev,
+        [s.id]: { ok: false, msg: e instanceof Error ? e.message : "수집 실패" },
+      }));
     } finally {
       setBusyId(null);
     }
@@ -260,14 +286,23 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                 </td>
                 <td className="px-5 py-3 text-right">
                   {connector ? (
-                    <button
-                      onClick={() => collect(s)}
-                      disabled={!s.enabled || busyId === s.id}
-                      title={!s.enabled ? "비활성 소스" : "수집 트리거(스텁)"}
-                      className="rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
-                    >
-                      {busyId === s.id ? "수집 중…" : "지금 수집"}
-                    </button>
+                    <div className="flex flex-col items-end gap-1">
+                      <button
+                        onClick={() => collect(s)}
+                        disabled={!s.enabled || busyId === s.id}
+                        title={!s.enabled ? "비활성 소스" : "URL 이 있으면 실제 수집, 없으면 스텁"}
+                        className="rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+                      >
+                        {busyId === s.id ? "수집 중…" : "지금 수집"}
+                      </button>
+                      {result[s.id] && (
+                        <span
+                          className={`text-[11px] ${result[s.id].ok ? "text-emerald-400" : "text-red-400"}`}
+                        >
+                          {result[s.id].msg.slice(0, 60)}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-xs text-zinc-600">업로드 전용</span>
                   )}
@@ -278,7 +313,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
         </tbody>
       </table>
       <p className="border-t border-zinc-800 px-5 py-2.5 text-[11px] text-amber-400/70">
-        ⚠️ 커넥터 수집은 현재 스텁입니다(실행 기록만 갱신). 실제 크롤링 연동은 이후 단계.
+        ⚠️ URL 이 설정된 소스는 실제로 페이지를 가져옵니다. URL 이 없는 소스는 스텁(실행 기록만 갱신)입니다.
       </p>
     </Card>
   );

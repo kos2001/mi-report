@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, gateway, rag, report, topics
+from . import classify, collection, competitors, digest, fetcher, gateway, rag, report, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -229,13 +229,58 @@ def collection_delete_source(source_id: str):
 
 
 @app.post("/collection/sources/{source_id}/collect")
-def collection_collect(source_id: str):
+async def collection_collect(source_id: str):
+    """수집 트리거. 소스에 URL 이 있으면 실제로 fetch→본문 추출→문서 저장하고,
+    URL 이 없으면 기존 스텁(실행 기록만 갱신)으로 동작한다."""
     try:
-        return collection.collect_source(source_id)
+        source = collection.get_source(source_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"소스 없음: {source_id}") from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    urls = collection.source_urls(source)
+    if not urls:
+        # URL 없음 → 기존 스텁 동작(검증 포함)
+        try:
+            return collection.collect_source(source_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # URL 있음 → 실제 수집. 커넥터/활성 검증.
+    if source["type"] not in collection.CONNECTOR_TYPES:
+        raise HTTPException(status_code=400, detail="업로드 소스는 수집 트리거 대상이 아닙니다.")
+    if not source["enabled"]:
+        raise HTTPException(status_code=400, detail="비활성 소스는 수집할 수 없습니다.")
+
+    documents: list[dict] = []
+    errors: list[dict] = []
+    async with httpx.AsyncClient() as client:
+        for url in urls:
+            try:
+                fetched = await fetcher.fetch_url(client, url)
+            except httpx.HTTPError as e:
+                errors.append({"url": url, "error": f"가져오기 실패: {e}"})
+                continue
+            if not fetched["text"]:
+                errors.append({"url": url, "error": "본문 추출 실패(빈 텍스트)"})
+                continue
+            documents.append(
+                collection.add_crawled_document(
+                    source["id"], source["name"], fetched["title"], fetched["text"], url=url
+                )
+            )
+
+    if not documents:
+        collection.mark_source_status(source_id, "오류")
+        detail = "; ".join(f"{e['url']}: {e['error']}" for e in errors) or "수집된 문서가 없습니다."
+        raise HTTPException(status_code=502, detail=f"수집 실패 — {detail}")
+
+    return {
+        "source": collection.get_source(source_id),
+        "ingested": len(documents),
+        "documents": documents,
+        "errors": errors,
+        "stub": False,
+    }
 
 
 @app.post("/collection/upload", status_code=201)
