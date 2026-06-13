@@ -11,6 +11,7 @@ const nav = [
   { href: "/competitors", label: "경쟁사 IR", icon: "▤" },
   { href: "/ask", label: "문서 Q&A", icon: "?" },
   { href: "/report", label: "주간 리포트", icon: "▦" },
+  { href: "/manual", label: "사용 안내", icon: "ⓘ" },
 ];
 
 export function Sidebar() {
