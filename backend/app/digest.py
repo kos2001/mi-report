@@ -8,9 +8,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Protocol
 
+from .llm_json import extract_json
 from .schemas import DigestItemOut
 
 # S.LSI 관점 MI 애널리스트 시스템 프롬프트. 도메인 제약(출처 근거·교차검증)을 명시한다.
@@ -60,17 +60,8 @@ def extract_content(completion: Any) -> str:
 
 
 def parse_items(content: str) -> list[DigestItemOut]:
-    """LLM 응답 문자열에서 다이제스트 항목을 파싱·검증한다.
-
-    코드펜스나 잡음이 섞여도 첫 '{' ~ 마지막 '}' 구간을 JSON 으로 취한다.
-    """
-    start, end = content.find("{"), content.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise ValueError(f"응답에서 JSON 객체를 찾지 못함: {content[:200]!r}")
-    try:
-        data = json.loads(content[start : end + 1])
-    except json.JSONDecodeError as e:
-        raise ValueError(f"다이제스트 JSON 파싱 실패: {e}") from e
+    """LLM 응답 문자열에서 다이제스트 항목을 파싱·검증한다."""
+    data = extract_json(content)
     raw = data.get("items") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         raise ValueError("응답에 'items' 배열이 없음")

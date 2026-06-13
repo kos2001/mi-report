@@ -257,6 +257,22 @@ def count_documents() -> int:
         return conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
 
 
+def today() -> str:
+    """오늘 날짜(YYYY-MM-DD). 생성물 메타데이터(updatedAt 등)에 사용."""
+    return _today()
+
+
+def list_topics() -> list[dict[str, Any]]:
+    """문서에 부여된 주제 목록 + 건수(내림차순). 비어 있는 주제는 제외."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT topic, COUNT(*) AS n FROM documents "
+            "WHERE topic IS NOT NULL AND topic != '' "
+            "GROUP BY topic ORDER BY n DESC, topic"
+        ).fetchall()
+    return [{"topic": r["topic"], "count": r["n"]} for r in rows]
+
+
 def read_document_text(doc_id: str, *, max_chars: int = 4000) -> str | None:
     """문서의 저장 본문을 읽는다(텍스트만, 길이 제한). 없거나 비텍스트면 None.
 

@@ -111,3 +111,30 @@ class DigestGenerateRequest(BaseModel):
     issueNo: int = Field(default=1, ge=1, description="다이제스트 호수.")
     period: str = Field(default="", description="대상 기간 표기(예: 2026.06.08 – 06.11).")
     profile: str | None = None
+
+
+# ── 주제별 History (AI agent 생성) ────────────────────────────────────────
+TopicCategory = Literal["SET", "반도체 설계", "반도체 제조", "수요/시황"]
+
+
+class TopicHistoryEntry(BaseModel):
+    date: str = ""
+    event: str = ""
+    source: str = ""
+
+
+class TopicSummaryOut(BaseModel):
+    """LLM 이 산출하는 주제 요약(프론트 Topic 과 매칭, id/title/메타는 서버가 부여)."""
+
+    category: TopicCategory = "수요/시황"
+    summary: str = ""
+    insight: str = ""
+    history: list[TopicHistoryEntry] = Field(default_factory=list)
+
+
+class TopicSummarizeRequest(BaseModel):
+    """주제별 누적 문서로부터 이력·인사이트 생성 요청."""
+
+    topic: str = Field(..., min_length=1, description="요약할 주제(문서 topic 값).")
+    limit: int = Field(default=30, ge=1, le=100, description="입력 문서 최대 건수.")
+    profile: str | None = None

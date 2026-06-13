@@ -155,6 +155,34 @@ export const digestApi = {
     }),
 };
 
+// ── 주제별 History (AI agent 생성) ────────────────────────────────────────
+export interface TopicListItem {
+  topic: string;
+  count: number;
+}
+
+export interface GeneratedTopic {
+  id: string;
+  title: string;
+  category: "SET" | "반도체 설계" | "반도체 제조" | "수요/시황";
+  summary: string;
+  insight: string;
+  sourceCount: number;
+  updatedAt: string;
+  generated: boolean;
+  history: { date: string; event: string; source: string }[];
+}
+
+export const topicsApi = {
+  list: () => req<{ topics: TopicListItem[] }>("/topics").then((d) => d.topics),
+
+  summarize: (body: { topic: string; limit?: number }) =>
+    req<GeneratedTopic>("/topics/summarize", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection, digest, gateway
+from . import collection, digest, gateway, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -24,6 +24,7 @@ from .schemas import (
     SessionChatRequest,
     SourceCreate,
     SourceUpdate,
+    TopicSummarizeRequest,
 )
 
 @asynccontextmanager
@@ -292,3 +293,32 @@ async def digest_generate(req: DigestGenerateRequest):
     except ValueError as e:
         # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
         raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+# ── 주제별 History (AI agent 생성) ────────────────────────────────────────
+@app.get("/topics")
+def topics_list():
+    """문서에 부여된 주제 목록 + 건수."""
+    return {"topics": collection.list_topics()}
+
+
+@app.post("/topics/summarize")
+async def topics_summarize(req: TopicSummarizeRequest):
+    """한 주제의 누적 문서를 게이트웨이(LLM)로 요약·이력화한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{req.topic}' 주제에 본문이 있는 문서가 없습니다.",
+        )
+    client = _client(req.profile)
+    try:
+        return await topics.generate_topic_summary(
+            client, req.topic, docs, updated_at=collection.today()
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"주제 요약 생성 실패: {e}") from e
