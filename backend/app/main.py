@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, gateway, topics
+from . import classify, collection, competitors, digest, gateway, rag, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -21,6 +21,7 @@ from .schemas import (
     CompetitorAnalyzeRequest,
     DigestGenerateRequest,
     IngestText,
+    RagQueryRequest,
     RunRequest,
     SessionChatRequest,
     SourceCreate,
@@ -319,6 +320,27 @@ async def collection_classify_untagged(limit: int = 20, profile: str | None = No
                 }
             )
     return {"classified": classified, "count": len(classified)}
+
+
+# ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
+@app.post("/rag/query")
+async def rag_query(req: RagQueryRequest):
+    """수집 문서를 근거로 자연어 질문에 답한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="답변 근거로 쓸 문서가 없습니다. (문서를 업로드하거나 topic/q 를 조정하세요)",
+        )
+    client = _client(req.profile)
+    try:
+        return {"question": req.question, **await rag.answer_question(client, req.question, docs)}
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"답변 생성 실패: {e}") from e
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────

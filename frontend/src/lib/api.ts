@@ -227,6 +227,22 @@ export const competitorsApi = {
     }),
 };
 
+// ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
+export interface RagAnswer {
+  question: string;
+  answer: string;
+  sources: { index: number; title: string; source: string }[];
+  usedDocCount: number;
+}
+
+export const ragApi = {
+  query: (body: { question: string; topic?: string; q?: string; limit?: number }) =>
+    req<RagAnswer>("/rag/query", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

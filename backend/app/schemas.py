@@ -190,3 +190,14 @@ class DocClassificationOut(BaseModel):
     topic: str = ""
     category: TopicCategory = "수요/시황"
     tags: list[str] = Field(default_factory=list)
+
+
+# ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
+class RagQueryRequest(BaseModel):
+    """수집 문서 근거 자연어 질문."""
+
+    question: str = Field(..., min_length=1, description="자연어 질문.")
+    topic: str | None = Field(default=None, description="문서 topic 필터(선택).")
+    q: str | None = Field(default=None, description="문서 전문검색어(선택, 제목·주제 기준).")
+    limit: int = Field(default=8, ge=1, le=30, description="근거로 쓸 문서 최대 건수.")
+    profile: str | None = None
