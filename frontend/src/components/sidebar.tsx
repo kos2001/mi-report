@@ -10,6 +10,7 @@ const nav = [
   { href: "/digest", label: "뉴스 다이제스트", icon: "✉" },
   { href: "/competitors", label: "경쟁사 IR", icon: "▤" },
   { href: "/ask", label: "문서 Q&A", icon: "?" },
+  { href: "/report", label: "주간 리포트", icon: "▦" },
 ];
 
 export function Sidebar() {

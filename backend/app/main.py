@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, gateway, rag, topics
+from . import classify, collection, competitors, digest, gateway, rag, report, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -22,6 +22,7 @@ from .schemas import (
     DigestGenerateRequest,
     IngestText,
     RagQueryRequest,
+    ReportGenerateRequest,
     RunRequest,
     SessionChatRequest,
     SourceCreate,
@@ -341,6 +342,39 @@ async def rag_query(req: RagQueryRequest):
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"답변 생성 실패: {e}") from e
+
+
+# ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
+@app.post("/report/generate")
+async def report_generate(req: ReportGenerateRequest):
+    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트 초안을 생성한다."""
+    digest_docs = collection.documents_for_digest(limit=req.digestLimit)
+    topic_docs: dict[str, list] = {}
+    for t in collection.list_topics()[: req.maxTopics]:
+        docs = collection.documents_for_digest(limit=req.topicLimit, topic=t["topic"])
+        if docs:
+            topic_docs[t["topic"]] = docs
+    if not digest_docs and not topic_docs:
+        raise HTTPException(
+            status_code=422,
+            detail="리포트로 만들 본문 있는 문서가 없습니다. 먼저 문서를 업로드/수집하세요.",
+        )
+    client = _client(req.profile)
+    try:
+        return await report.generate_report(
+            client,
+            digest_docs=digest_docs,
+            topic_docs=topic_docs,
+            issue_no=req.issueNo,
+            period=req.period,
+            generated_at=collection.today(),
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"리포트 생성 실패: {e}") from e
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────

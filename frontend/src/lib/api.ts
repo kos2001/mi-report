@@ -243,6 +243,30 @@ export const ragApi = {
     }),
 };
 
+// ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────
+export interface GeneratedReport {
+  generatedAt: string;
+  period: string;
+  issueNo: number;
+  overview: string;
+  digest: GeneratedDigest | null;
+  topics: GeneratedTopic[];
+}
+
+export const reportApi = {
+  generate: (body?: {
+    issueNo?: number;
+    period?: string;
+    maxTopics?: number;
+    digestLimit?: number;
+    topicLimit?: number;
+  }) =>
+    req<GeneratedReport>("/report/generate", {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

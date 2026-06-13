@@ -201,3 +201,15 @@ class RagQueryRequest(BaseModel):
     q: str | None = Field(default=None, description="문서 전문검색어(선택, 제목·주제 기준).")
     limit: int = Field(default=8, ge=1, le=30, description="근거로 쓸 문서 최대 건수.")
     profile: str | None = None
+
+
+# ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
+class ReportGenerateRequest(BaseModel):
+    """다이제스트 + 주제 요약 + 총평을 묶은 주간 리포트 생성 요청."""
+
+    issueNo: int = Field(default=1, ge=1, description="리포트 호수.")
+    period: str = Field(default="", description="대상 기간 표기.")
+    maxTopics: int = Field(default=3, ge=0, le=10, description="요약할 주제 최대 개수.")
+    digestLimit: int = Field(default=20, ge=1, le=100, description="다이제스트 입력 문서 수.")
+    topicLimit: int = Field(default=20, ge=1, le=100, description="주제별 입력 문서 수.")
+    profile: str | None = None
