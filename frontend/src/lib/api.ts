@@ -118,6 +118,43 @@ export const api = {
   },
 };
 
+// ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
+export interface GeneratedDigestItem {
+  id: string;
+  title: string;
+  source: string;
+  publishedAt: string;
+  summary: string;
+  slsiRelevance: string;
+  demandImpact: string;
+  risk: string;
+  impact: "high" | "medium" | "low";
+  tags: string[];
+}
+
+export interface GeneratedDigest {
+  issueNo: number;
+  period: string;
+  mailedAt: string | null;
+  generated: boolean;
+  sourceDocCount: number;
+  items: GeneratedDigestItem[];
+}
+
+export const digestApi = {
+  generate: (body?: {
+    issueNo?: number;
+    period?: string;
+    limit?: number;
+    source?: string;
+    topic?: string;
+  }) =>
+    req<GeneratedDigest>("/digest/generate", {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

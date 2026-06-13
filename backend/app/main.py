@@ -12,12 +12,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection, gateway
+from . import collection, digest, gateway
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
     ApprovalRequest,
     ChatRequest,
+    DigestGenerateRequest,
     IngestText,
     RunRequest,
     SessionChatRequest,
@@ -265,3 +266,29 @@ def collection_delete_document(doc_id: str):
         collection.delete_document(doc_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+
+
+# ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
+@app.post("/digest/generate")
+async def digest_generate(req: DigestGenerateRequest):
+    """수집 문서를 게이트웨이(LLM)로 요약·평가해 다이제스트 초안을 생성한다."""
+    docs = collection.documents_for_digest(
+        limit=req.limit, source_id=req.source, topic=req.topic
+    )
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="본문이 있는 수집 문서가 없습니다. 먼저 문서를 업로드/수집하세요.",
+        )
+    client = _client(req.profile)
+    try:
+        return await digest.generate_digest(
+            client, docs, issue_no=req.issueNo, period=req.period
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
+        raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e

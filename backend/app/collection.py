@@ -257,6 +257,54 @@ def count_documents() -> int:
         return conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
 
 
+def read_document_text(doc_id: str, *, max_chars: int = 4000) -> str | None:
+    """문서의 저장 본문을 읽는다(텍스트만, 길이 제한). 없거나 비텍스트면 None.
+
+    업로드/인제스트 문서는 디스크(path)에 저장된다. 바이너리(.docx 등)는 여기서
+    추출하지 않고 None 을 반환한다(추출은 COM 워커 등 인제스트 단계의 책임).
+    """
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT path FROM documents WHERE id=?", (doc_id,)
+        ).fetchone()
+    if row is None:
+        raise KeyError(doc_id)
+    path = row["path"]
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None  # 바이너리/디코딩 불가 — 본문 없이 건너뜀
+    text = text.strip()
+    return text[:max_chars] if text else None
+
+
+def documents_for_digest(
+    limit: int = 20, source_id: str | None = None, topic: str | None = None
+) -> list[dict[str, Any]]:
+    """다이제스트 입력용: 최근 문서 중 읽을 수 있는 본문이 있는 것만 묶어 반환."""
+    docs = list_documents(source_id=source_id, topic=topic, limit=limit)
+    out: list[dict[str, Any]] = []
+    for d in docs:
+        text = read_document_text(d["id"])
+        if not text:
+            continue
+        out.append(
+            {
+                "id": d["id"],
+                "title": d["title"],
+                "source": d["sourceName"],
+                "publishedAt": d["publishedAt"],
+                "content": text,
+            }
+        )
+    return out
+
+
 def delete_document(doc_id: str) -> None:
     with _conn() as conn:
         row = conn.execute("SELECT path FROM documents WHERE id=?", (doc_id,)).fetchone()
