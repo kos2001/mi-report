@@ -138,3 +138,46 @@ class TopicSummarizeRequest(BaseModel):
     topic: str = Field(..., min_length=1, description="요약할 주제(문서 topic 값).")
     limit: int = Field(default=30, ge=1, le=100, description="입력 문서 최대 건수.")
     profile: str | None = None
+
+
+# ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+ConsensusDirection = Literal["up", "down", "flat"]
+
+
+class CompetitorFinancial(BaseModel):
+    metric: str = ""
+    value: str = ""
+    # 문서에 수치가 없을 수 있으므로 nullable(환각 방지: 없으면 null).
+    qoq: float | None = None
+    yoy: float | None = None
+
+
+class ConsensusEntry(BaseModel):
+    metric: str = ""
+    current: str = ""
+    previous: str = ""
+    revisedAt: str = ""
+    broker: str = ""
+    direction: ConsensusDirection = "flat"
+
+
+class CompetitorAnalysisOut(BaseModel):
+    """LLM 이 산출하는 경쟁사 분기 분석(프론트 Competitor 와 매칭, id/name 은 서버 부여)."""
+
+    fiscalQuarter: str = ""
+    reportedAt: str = ""
+    financials: list[CompetitorFinancial] = Field(default_factory=list)
+    callSummary: list[str] = Field(default_factory=list)
+    qoqChanges: list[str] = Field(default_factory=list)
+    consensus: list[ConsensusEntry] = Field(default_factory=list)
+
+
+class CompetitorAnalyzeRequest(BaseModel):
+    """경쟁사 IR/실적 문서로부터 분기 분석 생성 요청."""
+
+    name: str = Field(..., min_length=1, description="경쟁사 이름.")
+    ticker: str = Field(default="", description="티커(선택).")
+    topic: str | None = Field(default=None, description="문서 topic 필터(선택).")
+    q: str | None = Field(default=None, description="문서 전문검색어(선택).")
+    limit: int = Field(default=20, ge=1, le=100, description="입력 문서 최대 건수.")
+    profile: str | None = None

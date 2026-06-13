@@ -12,12 +12,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection, digest, gateway, topics
+from . import collection, competitors, digest, gateway, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
     ApprovalRequest,
     ChatRequest,
+    CompetitorAnalyzeRequest,
     DigestGenerateRequest,
     IngestText,
     RunRequest,
@@ -322,3 +323,24 @@ async def topics_summarize(req: TopicSummarizeRequest):
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"주제 요약 생성 실패: {e}") from e
+
+
+# ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+@app.post("/competitors/analyze")
+async def competitors_analyze(req: CompetitorAnalyzeRequest):
+    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="분석할 본문 있는 문서가 없습니다. (topic/q 로 IR 문서를 지정하세요)",
+        )
+    client = _client(req.profile)
+    try:
+        return await competitors.analyze_competitor(client, req.name, req.ticker, docs)
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"경쟁사 분석 생성 실패: {e}") from e

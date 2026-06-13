@@ -183,6 +183,36 @@ export const topicsApi = {
     }),
 };
 
+// ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+export interface GeneratedCompetitor {
+  id: string;
+  name: string;
+  ticker: string;
+  fiscalQuarter: string;
+  reportedAt: string;
+  financials: { metric: string; value: string; qoq: number | null; yoy: number | null }[];
+  callSummary: string[];
+  qoqChanges: string[];
+  consensus: {
+    metric: string;
+    current: string;
+    previous: string;
+    revisedAt: string;
+    broker: string;
+    direction: "up" | "down" | "flat";
+  }[];
+  sourceDocCount: number;
+  generated: boolean;
+}
+
+export const competitorsApi = {
+  analyze: (body: { name: string; ticker?: string; topic?: string; q?: string; limit?: number }) =>
+    req<GeneratedCompetitor>("/competitors/analyze", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

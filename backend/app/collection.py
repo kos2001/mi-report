@@ -300,10 +300,13 @@ def read_document_text(doc_id: str, *, max_chars: int = 4000) -> str | None:
 
 
 def documents_for_digest(
-    limit: int = 20, source_id: str | None = None, topic: str | None = None
+    limit: int = 20,
+    source_id: str | None = None,
+    topic: str | None = None,
+    q: str | None = None,
 ) -> list[dict[str, Any]]:
-    """다이제스트 입력용: 최근 문서 중 읽을 수 있는 본문이 있는 것만 묶어 반환."""
-    docs = list_documents(source_id=source_id, topic=topic, limit=limit)
+    """LLM 입력용: 최근 문서 중 읽을 수 있는 본문이 있는 것만 묶어 반환."""
+    docs = list_documents(source_id=source_id, q=q, topic=topic, limit=limit)
     out: list[dict[str, Any]] = []
     for d in docs:
         text = read_document_text(d["id"])
