@@ -105,6 +105,20 @@ export const api = {
   deleteDocument: (id: string) =>
     req<void>(`/collection/documents/${id}`, { method: "DELETE" }),
 
+  // AI 자동 분류: 단일 문서의 주제를 부여한다.
+  classifyDocument: (id: string) =>
+    req<{ document: CollectedDoc; classification: { topic: string; category: string; tags: string[] } }>(
+      `/collection/documents/${id}/classify`,
+      { method: "POST" },
+    ),
+
+  // AI 자동 분류: 주제 미부여 문서들을 일괄 분류한다.
+  classifyUntagged: (limit = 20) =>
+    req<{ classified: { id: string; title: string; topic: string; category: string }[]; count: number }>(
+      `/collection/classify-untagged?limit=${limit}`,
+      { method: "POST" },
+    ),
+
   upload: async (file: File, topic?: string) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -116,6 +130,141 @@ export const api = {
     if (!res.ok) throw new Error(`업로드 실패: ${res.status}`);
     return res.json() as Promise<CollectedDoc>;
   },
+};
+
+// ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
+export interface GeneratedDigestItem {
+  id: string;
+  title: string;
+  source: string;
+  publishedAt: string;
+  summary: string;
+  slsiRelevance: string;
+  demandImpact: string;
+  risk: string;
+  impact: "high" | "medium" | "low";
+  tags: string[];
+}
+
+export interface GeneratedDigest {
+  issueNo: number;
+  period: string;
+  mailedAt: string | null;
+  generated: boolean;
+  sourceDocCount: number;
+  items: GeneratedDigestItem[];
+}
+
+export const digestApi = {
+  generate: (body?: {
+    issueNo?: number;
+    period?: string;
+    limit?: number;
+    source?: string;
+    topic?: string;
+  }) =>
+    req<GeneratedDigest>("/digest/generate", {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+};
+
+// ── 주제별 History (AI agent 생성) ────────────────────────────────────────
+export interface TopicListItem {
+  topic: string;
+  count: number;
+}
+
+export interface GeneratedTopic {
+  id: string;
+  title: string;
+  category: "SET" | "반도체 설계" | "반도체 제조" | "수요/시황";
+  summary: string;
+  insight: string;
+  sourceCount: number;
+  updatedAt: string;
+  generated: boolean;
+  history: { date: string; event: string; source: string }[];
+}
+
+export const topicsApi = {
+  list: () => req<{ topics: TopicListItem[] }>("/topics").then((d) => d.topics),
+
+  summarize: (body: { topic: string; limit?: number }) =>
+    req<GeneratedTopic>("/topics/summarize", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+// ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+export interface GeneratedCompetitor {
+  id: string;
+  name: string;
+  ticker: string;
+  fiscalQuarter: string;
+  reportedAt: string;
+  financials: { metric: string; value: string; qoq: number | null; yoy: number | null }[];
+  callSummary: string[];
+  qoqChanges: string[];
+  consensus: {
+    metric: string;
+    current: string;
+    previous: string;
+    revisedAt: string;
+    broker: string;
+    direction: "up" | "down" | "flat";
+  }[];
+  sourceDocCount: number;
+  generated: boolean;
+}
+
+export const competitorsApi = {
+  analyze: (body: { name: string; ticker?: string; topic?: string; q?: string; limit?: number }) =>
+    req<GeneratedCompetitor>("/competitors/analyze", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+// ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
+export interface RagAnswer {
+  question: string;
+  answer: string;
+  sources: { index: number; title: string; source: string }[];
+  usedDocCount: number;
+}
+
+export const ragApi = {
+  query: (body: { question: string; topic?: string; q?: string; limit?: number }) =>
+    req<RagAnswer>("/rag/query", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+// ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────
+export interface GeneratedReport {
+  generatedAt: string;
+  period: string;
+  issueNo: number;
+  overview: string;
+  digest: GeneratedDigest | null;
+  topics: GeneratedTopic[];
+}
+
+export const reportApi = {
+  generate: (body?: {
+    issueNo?: number;
+    period?: string;
+    maxTopics?: number;
+    digestLimit?: number;
+    topicLimit?: number;
+  }) =>
+    req<GeneratedReport>("/report/generate", {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
 };
 
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {

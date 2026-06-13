@@ -1,0 +1,126 @@
+"""경쟁사 IR 분석 생성 테스트.
+
+순수 로직은 네트워크 없이, 엔드포인트는 페이크 게이트웨이 클라이언트를 주입해 검증.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+
+import pytest
+
+from app import competitors, main
+from app.schemas import CompetitorAnalysisOut
+
+
+class FakeClient:
+    def __init__(self, content: str):
+        self._content = content
+        self.calls: list[tuple] = []
+
+    async def chat(self, messages, **kwargs):
+        self.calls.append((messages, kwargs))
+        return {"choices": [{"message": {"role": "assistant", "content": self._content}}]}
+
+
+_VALID_RESPONSE = json.dumps(
+    {
+        "fiscalQuarter": "FY26 Q2",
+        "reportedAt": "2026-04-30",
+        "financials": [
+            {"metric": "매출", "value": "$11.7B", "qoq": 3.2, "yoy": 12.4},
+            {"metric": "영업이익률", "value": "29.1%", "qoq": None, "yoy": None},
+        ],
+        "callSummary": ["온디바이스 AI 수요로 프리미엄 AP ASP 상승 강조."],
+        "qoqChanges": ["차량용 백로그 언급 증가 — 성장 내러티브 이동."],
+        "consensus": [
+            {
+                "metric": "FY26 매출",
+                "current": "$45.2B",
+                "previous": "$44.8B",
+                "revisedAt": "2026-06-05",
+                "broker": "해외 IB A",
+                "direction": "up",
+            }
+        ],
+    },
+    ensure_ascii=False,
+)
+
+
+# ── 순수 로직 ─────────────────────────────────────────────────────────────
+def test_build_messages_includes_name_ticker_and_docs():
+    docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30", "content": "실적본문"}]
+    msgs = competitors.build_messages("경쟁사 Q", "QCOM", docs)
+    assert msgs[0]["role"] == "system"
+    assert "경쟁사 Q" in msgs[1]["content"]
+    assert "QCOM" in msgs[1]["content"]
+    assert "실적본문" in msgs[1]["content"]
+
+
+def test_parse_analysis_valid():
+    out = competitors.parse_analysis(_VALID_RESPONSE)
+    assert isinstance(out, CompetitorAnalysisOut)
+    assert out.fiscalQuarter == "FY26 Q2"
+    assert out.financials[1].qoq is None  # 수치 없으면 null
+    assert out.consensus[0].direction == "up"
+
+
+def test_parse_analysis_invalid_raises():
+    with pytest.raises(ValueError):
+        competitors.parse_analysis("JSON 없음")
+
+
+def test_analyze_competitor_assigns_metadata():
+    client = FakeClient(_VALID_RESPONSE)
+    docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30", "content": "본문"}]
+    result = asyncio.run(competitors.analyze_competitor(client, "경쟁사 Q", "QCOM", docs))
+    assert result["id"] == "경쟁사-q"
+    assert result["name"] == "경쟁사 Q"
+    assert result["ticker"] == "QCOM"
+    assert result["sourceDocCount"] == 1
+    assert result["generated"] is True
+    assert result["financials"][0]["qoq"] == 3.2
+    assert len(client.calls) == 1
+
+
+def test_analyze_competitor_empty_docs_raises():
+    with pytest.raises(ValueError):
+        asyncio.run(competitors.analyze_competitor(FakeClient(""), "X", "", []))
+
+
+# ── 엔드포인트 ─────────────────────────────────────────────────────────────
+def _upload(client, name, body, topic=None):
+    return client.post(
+        "/collection/upload",
+        files={"file": (name, io.BytesIO(body.encode("utf-8")), "text/plain")},
+        data={"topic": topic} if topic else {},
+    )
+
+
+def test_competitors_analyze_endpoint(client, monkeypatch):
+    _upload(client, "qcom_ir.txt", "FY26 Q2 매출 11.7B 달러. 온디바이스 AI 수요 강조.", "QCOM")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+    r = client.post("/competitors/analyze", json={"name": "경쟁사 Q", "ticker": "QCOM", "topic": "QCOM"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "경쟁사 Q"
+    assert body["ticker"] == "QCOM"
+    assert body["sourceDocCount"] == 1
+    assert body["financials"][0]["metric"] == "매출"
+    assert body["consensus"][0]["direction"] == "up"
+
+
+def test_competitors_analyze_no_documents_422(client, monkeypatch):
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+    r = client.post("/competitors/analyze", json={"name": "없는경쟁사", "topic": "없음"})
+    assert r.status_code == 422
+
+
+def test_competitors_analyze_bad_llm_output_502(client, monkeypatch):
+    _upload(client, "x.txt", "본문.", "ZZZ")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient("JSON 아님"))
+    r = client.post("/competitors/analyze", json={"name": "X", "topic": "ZZZ"})
+    assert r.status_code == 502

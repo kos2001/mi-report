@@ -12,17 +12,22 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import collection, gateway
+from . import classify, collection, competitors, digest, gateway, rag, report, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
     ApprovalRequest,
     ChatRequest,
+    CompetitorAnalyzeRequest,
+    DigestGenerateRequest,
     IngestText,
+    RagQueryRequest,
+    ReportGenerateRequest,
     RunRequest,
     SessionChatRequest,
     SourceCreate,
     SourceUpdate,
+    TopicSummarizeRequest,
 )
 
 @asynccontextmanager
@@ -265,3 +270,184 @@ def collection_delete_document(doc_id: str):
         collection.delete_document(doc_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+
+
+# ── 문서 자동 분류 (AI agent) ─────────────────────────────────────────────
+@app.post("/collection/documents/{doc_id}/classify")
+async def collection_classify_document(doc_id: str, profile: str | None = None):
+    """단일 문서를 게이트웨이(LLM)로 분류해 주제를 부여한다."""
+    try:
+        doc = collection.get_document(doc_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+    text = collection.read_document_text(doc_id)
+    if not text:
+        raise HTTPException(status_code=422, detail="본문을 읽을 수 없는 문서입니다.")
+    client = _client(profile)
+    try:
+        result = await classify.classify_document(client, doc["title"], text)
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"분류 실패: {e}") from e
+    document = collection.set_topic(doc_id, result["topic"]) if result["topic"] else doc
+    return {"document": document, "classification": result}
+
+
+@app.post("/collection/classify-untagged")
+async def collection_classify_untagged(limit: int = 20, profile: str | None = None):
+    """주제 미부여 문서들을 일괄 자동 분류한다(개별 실패는 건너뜀)."""
+    client = _client(profile)
+    classified: list[dict] = []
+    for doc_id in collection.list_untagged_ids(limit):
+        text = collection.read_document_text(doc_id)
+        if not text:
+            continue
+        doc = collection.get_document(doc_id)
+        try:
+            result = await classify.classify_document(client, doc["title"], text)
+        except (HermesGatewayError, httpx.HTTPError, ValueError):
+            continue  # 개별 문서 실패는 전체를 막지 않는다
+        if result["topic"]:
+            collection.set_topic(doc_id, result["topic"])
+            classified.append(
+                {
+                    "id": doc_id,
+                    "title": doc["title"],
+                    "topic": result["topic"],
+                    "category": result["category"],
+                }
+            )
+    return {"classified": classified, "count": len(classified)}
+
+
+# ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
+@app.post("/rag/query")
+async def rag_query(req: RagQueryRequest):
+    """수집 문서를 근거로 자연어 질문에 답한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="답변 근거로 쓸 문서가 없습니다. (문서를 업로드하거나 topic/q 를 조정하세요)",
+        )
+    client = _client(req.profile)
+    try:
+        return {"question": req.question, **await rag.answer_question(client, req.question, docs)}
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"답변 생성 실패: {e}") from e
+
+
+# ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
+@app.post("/report/generate")
+async def report_generate(req: ReportGenerateRequest):
+    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트 초안을 생성한다."""
+    digest_docs = collection.documents_for_digest(limit=req.digestLimit)
+    topic_docs: dict[str, list] = {}
+    for t in collection.list_topics()[: req.maxTopics]:
+        docs = collection.documents_for_digest(limit=req.topicLimit, topic=t["topic"])
+        if docs:
+            topic_docs[t["topic"]] = docs
+    if not digest_docs and not topic_docs:
+        raise HTTPException(
+            status_code=422,
+            detail="리포트로 만들 본문 있는 문서가 없습니다. 먼저 문서를 업로드/수집하세요.",
+        )
+    client = _client(req.profile)
+    try:
+        return await report.generate_report(
+            client,
+            digest_docs=digest_docs,
+            topic_docs=topic_docs,
+            issue_no=req.issueNo,
+            period=req.period,
+            generated_at=collection.today(),
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"리포트 생성 실패: {e}") from e
+
+
+# ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
+@app.post("/digest/generate")
+async def digest_generate(req: DigestGenerateRequest):
+    """수집 문서를 게이트웨이(LLM)로 요약·평가해 다이제스트 초안을 생성한다."""
+    docs = collection.documents_for_digest(
+        limit=req.limit, source_id=req.source, topic=req.topic
+    )
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="본문이 있는 수집 문서가 없습니다. 먼저 문서를 업로드/수집하세요.",
+        )
+    client = _client(req.profile)
+    try:
+        return await digest.generate_digest(
+            client, docs, issue_no=req.issueNo, period=req.period
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
+        raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+# ── 주제별 History (AI agent 생성) ────────────────────────────────────────
+@app.get("/topics")
+def topics_list():
+    """문서에 부여된 주제 목록 + 건수."""
+    return {"topics": collection.list_topics()}
+
+
+@app.post("/topics/summarize")
+async def topics_summarize(req: TopicSummarizeRequest):
+    """한 주제의 누적 문서를 게이트웨이(LLM)로 요약·이력화한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{req.topic}' 주제에 본문이 있는 문서가 없습니다.",
+        )
+    client = _client(req.profile)
+    try:
+        return await topics.generate_topic_summary(
+            client, req.topic, docs, updated_at=collection.today()
+        )
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"주제 요약 생성 실패: {e}") from e
+
+
+# ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+@app.post("/competitors/analyze")
+async def competitors_analyze(req: CompetitorAnalyzeRequest):
+    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다."""
+    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    if not docs:
+        raise HTTPException(
+            status_code=422,
+            detail="분석할 본문 있는 문서가 없습니다. (topic/q 로 IR 문서를 지정하세요)",
+        )
+    client = _client(req.profile)
+    try:
+        return await competitors.analyze_competitor(client, req.name, req.ticker, docs)
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"경쟁사 분석 생성 실패: {e}") from e

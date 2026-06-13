@@ -257,6 +257,102 @@ def count_documents() -> int:
         return conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
 
 
+def today() -> str:
+    """오늘 날짜(YYYY-MM-DD). 생성물 메타데이터(updatedAt 등)에 사용."""
+    return _today()
+
+
+def list_topics() -> list[dict[str, Any]]:
+    """문서에 부여된 주제 목록 + 건수(내림차순). 비어 있는 주제는 제외."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT topic, COUNT(*) AS n FROM documents "
+            "WHERE topic IS NOT NULL AND topic != '' "
+            "GROUP BY topic ORDER BY n DESC, topic"
+        ).fetchall()
+    return [{"topic": r["topic"], "count": r["n"]} for r in rows]
+
+
+def read_document_text(doc_id: str, *, max_chars: int = 4000) -> str | None:
+    """문서의 저장 본문을 읽는다(텍스트만, 길이 제한). 없거나 비텍스트면 None.
+
+    업로드/인제스트 문서는 디스크(path)에 저장된다. 바이너리(.docx 등)는 여기서
+    추출하지 않고 None 을 반환한다(추출은 COM 워커 등 인제스트 단계의 책임).
+    """
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT path FROM documents WHERE id=?", (doc_id,)
+        ).fetchone()
+    if row is None:
+        raise KeyError(doc_id)
+    path = row["path"]
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None  # 바이너리/디코딩 불가 — 본문 없이 건너뜀
+    text = text.strip()
+    return text[:max_chars] if text else None
+
+
+def documents_for_digest(
+    limit: int = 20,
+    source_id: str | None = None,
+    topic: str | None = None,
+    q: str | None = None,
+) -> list[dict[str, Any]]:
+    """LLM 입력용: 최근 문서 중 읽을 수 있는 본문이 있는 것만 묶어 반환."""
+    docs = list_documents(source_id=source_id, q=q, topic=topic, limit=limit)
+    out: list[dict[str, Any]] = []
+    for d in docs:
+        text = read_document_text(d["id"])
+        if not text:
+            continue
+        out.append(
+            {
+                "id": d["id"],
+                "title": d["title"],
+                "source": d["sourceName"],
+                "publishedAt": d["publishedAt"],
+                "content": text,
+            }
+        )
+    return out
+
+
+def get_document(doc_id: str) -> dict[str, Any]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise KeyError(doc_id)
+    return _row_to_document(row)
+
+
+def set_topic(doc_id: str, topic: str) -> dict[str, Any]:
+    """문서의 주제를 갱신한다(자동 분류 결과 반영). FTS 트리거가 색인을 동기화."""
+    with _conn() as conn:
+        cur = conn.execute("UPDATE documents SET topic=? WHERE id=?", (topic, doc_id))
+        if cur.rowcount == 0:
+            raise KeyError(doc_id)
+        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return _row_to_document(row)
+
+
+def list_untagged_ids(limit: int = 50) -> list[str]:
+    """주제가 비어 있는 문서 id 목록(최신순). 일괄 자동 분류 대상."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM documents WHERE topic IS NULL OR topic='' "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def delete_document(doc_id: str) -> None:
     with _conn() as conn:
         row = conn.execute("SELECT path FROM documents WHERE id=?", (doc_id,)).fetchone()

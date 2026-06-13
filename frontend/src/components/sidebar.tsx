@@ -9,6 +9,9 @@ const nav = [
   { href: "/topics", label: "주제별 History", icon: "≡" },
   { href: "/digest", label: "뉴스 다이제스트", icon: "✉" },
   { href: "/competitors", label: "경쟁사 IR", icon: "▤" },
+  { href: "/ask", label: "문서 Q&A", icon: "?" },
+  { href: "/report", label: "주간 리포트", icon: "▦" },
+  { href: "/manual", label: "사용 안내", icon: "ⓘ" },
 ];
 
 export function Sidebar() {
