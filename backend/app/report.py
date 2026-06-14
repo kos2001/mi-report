@@ -96,3 +96,82 @@ async def generate_report(
         "digest": digest_obj,
         "topics": topic_summaries,
     }
+
+
+# ── 문서(Markdown) 렌더 + 템플릿 ──────────────────────────────────────────
+# 템플릿은 {{placeholder}} 토큰을 채워 완성한다. 지원 토큰:
+#   {{issue_no}} {{period}} {{generated_at}} {{overview}} {{digest}} {{topics}}
+DEFAULT_REPORT_TEMPLATE = """# 주간 MI 리포트 제{{issue_no}}호
+
+**기간**: {{period}}  |  **생성일**: {{generated_at}}
+
+## 총평
+{{overview}}
+
+## 뉴스 다이제스트
+{{digest}}
+
+## 주제별 동향
+{{topics}}
+
+---
+_본 리포트는 수집 문서를 근거로 AI가 생성한 초안이며, 발송 전 사람의 검토가 필요합니다._
+"""
+
+REPORT_PLACEHOLDERS = ("issue_no", "period", "generated_at", "overview", "digest", "topics")
+
+
+def _render_digest_md(digest_obj: dict[str, Any] | None) -> str:
+    if not digest_obj or not digest_obj.get("items"):
+        return "_생성된 다이제스트 항목이 없습니다._"
+    lines: list[str] = []
+    for it in digest_obj["items"]:
+        lines.append(f"### [{it.get('impact', 'medium')}] {it.get('title', '')}")
+        if it.get("summary"):
+            lines.append(it["summary"])
+        meta = [
+            ("S.LSI 연관성", it.get("slsiRelevance")),
+            ("수요 변동", it.get("demandImpact")),
+            ("리스크", it.get("risk")),
+        ]
+        for label, val in meta:
+            if val:
+                lines.append(f"- **{label}**: {val}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _render_topics_md(topic_summaries: list[dict[str, Any]]) -> str:
+    if not topic_summaries:
+        return "_요약된 주제가 없습니다._"
+    lines: list[str] = []
+    for t in topic_summaries:
+        cat = t.get("category", "")
+        lines.append(f"### {t.get('title', '')}" + (f" ({cat})" if cat else ""))
+        if t.get("summary"):
+            lines.append(t["summary"])
+        if t.get("insight"):
+            lines.append(f"- **인사이트**: {t['insight']}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def render_report_markdown(report: dict[str, Any], template: str | None = None) -> str:
+    """리포트(dict)를 템플릿에 채워 Markdown 문서로 렌더한다.
+
+    template 미지정 시 DEFAULT_REPORT_TEMPLATE 사용. {{토큰}}만 치환하며,
+    템플릿에 없는 섹션은 자연히 빠진다(사용자 정의 템플릿 자유도 보장).
+    """
+    tmpl = template if (template and template.strip()) else DEFAULT_REPORT_TEMPLATE
+    values = {
+        "issue_no": str(report.get("issueNo", "")),
+        "period": report.get("period") or "—",
+        "generated_at": report.get("generatedAt") or "—",
+        "overview": report.get("overview") or "_총평이 없습니다._",
+        "digest": _render_digest_md(report.get("digest")),
+        "topics": _render_topics_md(report.get("topics", [])),
+    }
+    out = tmpl
+    for key in REPORT_PLACEHOLDERS:
+        out = out.replace("{{" + key + "}}", values[key])
+    return out

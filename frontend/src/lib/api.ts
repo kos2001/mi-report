@@ -290,6 +290,20 @@ export const reportApi = {
       method: "POST",
       body: JSON.stringify(body ?? {}),
     }),
+
+  // 리포트를 생성하고 (선택) 템플릿을 적용해 Markdown 문서로 받는다.
+  document: (body?: {
+    issueNo?: number;
+    period?: string;
+    maxTopics?: number;
+    digestLimit?: number;
+    topicLimit?: number;
+    template?: string;
+  }) =>
+    req<{ filename: string; markdown: string; report: GeneratedReport }>(
+      "/report/document",
+      { method: "POST", body: JSON.stringify(body ?? {}) },
+    ),
 };
 
 // ── 지식 자산(생성물 누적) + 자기 개선(피드백) ─────────────────────────────

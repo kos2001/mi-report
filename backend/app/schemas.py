@@ -191,4 +191,5 @@ class ReportGenerateRequest(BaseModel):
     maxTopics: int = Field(default=3, ge=0, le=10, description="요약할 주제 최대 개수.")
     digestLimit: int = Field(default=20, ge=1, le=100, description="다이제스트 입력 문서 수.")
     topicLimit: int = Field(default=20, ge=1, le=100, description="주제별 입력 문서 수.")
+    template: str | None = Field(default=None, description="문서 렌더 템플릿({{토큰}}). 미지정 시 기본 템플릿.")
     profile: str | None = None

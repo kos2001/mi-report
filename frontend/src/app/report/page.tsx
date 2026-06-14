@@ -4,10 +4,37 @@ import { useState } from "react";
 import { reportApi, type GeneratedReport } from "@/lib/api";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 
+// 기본 템플릿(서버와 동일 토큰). 비우면 서버 기본 템플릿이 적용된다.
+const TEMPLATE_PLACEHOLDER = `# 주간 MI 리포트 제{{issue_no}}호
+
+**기간**: {{period}}  |  **생성일**: {{generated_at}}
+
+## 총평
+{{overview}}
+
+## 뉴스 다이제스트
+{{digest}}
+
+## 주제별 동향
+{{topics}}`;
+
+function downloadMarkdown(filename: string, markdown: string) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ReportPage() {
   const [report, setReport] = useState<GeneratedReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [docBusy, setDocBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTemplate, setShowTemplate] = useState(false);
+  const [template, setTemplate] = useState("");
 
   async function generate() {
     setLoading(true);
@@ -26,6 +53,25 @@ export default function ReportPage() {
     }
   }
 
+  // 리포트를 생성하고 (선택) 템플릿을 적용한 Markdown 문서를 내려받는다.
+  async function generateDocument() {
+    setDocBusy(true);
+    setError(null);
+    try {
+      const r = await reportApi.document({
+        period: "최근 수집 문서",
+        maxTopics: 3,
+        template: template.trim() || undefined,
+      });
+      downloadMarkdown(r.filename, r.markdown);
+      setReport(r.report);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "문서 생성 실패");
+    } finally {
+      setDocBusy(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -41,14 +87,49 @@ export default function ReportPage() {
               수집 문서로 다이제스트와 주제 요약을 생성하고 총평까지 종합합니다. (다중 호출 — 시간이 걸릴 수 있음)
             </p>
           </div>
-          <button
-            onClick={generate}
-            disabled={loading}
-            className="shrink-0 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
-          >
-            {loading ? "생성 중…" : "AI 리포트 생성"}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={generate}
+              disabled={loading || docBusy}
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 disabled:opacity-40"
+            >
+              {loading ? "생성 중…" : "AI 리포트 생성"}
+            </button>
+            <button
+              onClick={generateDocument}
+              disabled={loading || docBusy}
+              title="리포트를 생성하고 템플릿을 적용한 Markdown 문서(.md)로 내려받습니다"
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+            >
+              {docBusy ? "문서 생성 중…" : "문서(.md) 생성·다운로드"}
+            </button>
+          </div>
         </div>
+
+        {/* 템플릿 입력(선택) — {{토큰}} 으로 문서 형식을 정의 */}
+        <div className="mt-3 border-t border-zinc-800 pt-3">
+          <button
+            onClick={() => setShowTemplate((v) => !v)}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            {showTemplate ? "▾" : "▸"} 문서 템플릿 입력 (선택) — 비우면 기본 템플릿
+          </button>
+          {showTemplate && (
+            <div className="mt-2">
+              <textarea
+                value={template}
+                onChange={(e) => setTemplate(e.target.value)}
+                placeholder={TEMPLATE_PLACEHOLDER}
+                rows={9}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-sky-500"
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                토큰: <code className="text-zinc-400">{"{{issue_no}} {{period}} {{generated_at}} {{overview}} {{digest}} {{topics}}"}</code>
+              </p>
+            </div>
+          )}
+        </div>
+
         {error && (
           <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
             {error}
