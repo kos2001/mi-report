@@ -58,7 +58,7 @@ class GatewayPassthrough(BaseModel):
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────
-SourceType = Literal["edm", "confluence", "jira", "news", "broker", "consensus", "upload"]
+SourceType = Literal["edm", "confluence", "news", "broker", "consensus", "upload"]
 
 
 class SourceCreate(BaseModel):
