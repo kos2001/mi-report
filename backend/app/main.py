@@ -1,6 +1,6 @@
-"""MI Report Agent 백엔드 — Hermes Gateway 를 통해 Hermes Agent 의 전체 기능을 노출.
+"""MI Report Agent 백엔드 — agno + OpenRouter(OpenAI 호환) LLM 으로 AI 기능을 제공.
 
-프로파일(연결 정보)만 갈아끼우면 어떤 OpenAI 호환 게이트웨이로도 동작한다.
+LLM 연결 정보는 프로파일 .env(OPENROUTER_*)로 설정한다.
 """
 
 from __future__ import annotations
@@ -10,14 +10,11 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 
 from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics
-from .gateway import HermesGatewayError, get_client
+from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
-    ApprovalRequest,
-    ChatRequest,
     CompetitorAnalyzeRequest,
     DigestGenerateRequest,
     DigestSendRequest,
@@ -25,8 +22,6 @@ from .schemas import (
     IngestText,
     RagQueryRequest,
     ReportGenerateRequest,
-    RunRequest,
-    SessionChatRequest,
     SourceCreate,
     SourceUpdate,
     TopicSummarizeRequest,
@@ -42,7 +37,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MI Report Agent Backend",
     version="0.1.0",
-    description="Hermes Gateway(OpenAI 호환)를 통해 Hermes Agent CLI 전체 기능을 사용한다.",
+    description="agno + OpenRouter(OpenAI 호환) LLM 으로 MI 자동화 기능을 제공한다.",
     lifespan=lifespan,
 )
 
@@ -60,15 +55,6 @@ def _client(profile: str | None = None):
         return get_client(profile)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-async def _guard(awaitable):
-    try:
-        return await awaitable
-    except HermesGatewayError as e:
-        raise HTTPException(status_code=e.status, detail=e.detail) from e
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
 
 
 # ── 프로파일 ──────────────────────────────────────────────────────────
@@ -108,120 +94,6 @@ def feedback_create(req: FeedbackRequest):
 @app.get("/feedback/summary")
 def feedback_summary():
     return assets.feedback_summary()
-
-
-@app.get("/gateway/health")
-async def gateway_health(profile: str | None = None):
-    return await _guard(_client(profile).health())
-
-
-@app.get("/gateway/capabilities")
-async def capabilities(profile: str | None = None):
-    return await _guard(_client(profile).capabilities())
-
-
-@app.get("/gateway/models")
-async def models(profile: str | None = None):
-    return await _guard(_client(profile).models())
-
-
-@app.get("/gateway/skills")
-async def skills(profile: str | None = None):
-    return await _guard(_client(profile).skills())
-
-
-@app.get("/gateway/toolsets")
-async def toolsets(profile: str | None = None):
-    return await _guard(_client(profile).toolsets())
-
-
-# ── 단순 대화 ─────────────────────────────────────────────────────────
-@app.post("/chat")
-async def chat(req: ChatRequest):
-    client = _client(req.profile)
-    messages = [m.model_dump() for m in req.messages]
-    return await _guard(client.chat(
-        messages, model=req.model, temperature=req.temperature,
-        session_id=req.session_id, session_key=req.session_key,
-    ))
-
-
-# ── 에이전틱 run (전체 툴셋) ──────────────────────────────────────────
-@app.post("/runs", status_code=202)
-async def start_run(req: RunRequest):
-    client = _client(req.profile)
-    history = [m.model_dump() for m in req.conversation_history] if req.conversation_history else None
-    return await _guard(client.start_run(
-        req.input, instructions=req.instructions, conversation_history=history,
-        session_id=req.session_id, model=req.model, session_key=req.session_key,
-    ))
-
-
-@app.get("/runs/{run_id}")
-async def get_run(run_id: str, profile: str | None = None):
-    return await _guard(_client(profile).get_run(run_id))
-
-
-@app.get("/runs/{run_id}/events")
-async def run_events(run_id: str, profile: str | None = None):
-    client = _client(profile)
-
-    async def event_stream():
-        try:
-            async for line in client.stream_run_events(run_id):
-                # SSE 프레이밍 유지: 게이트웨이가 보낸 'data: ...' 라인을 그대로 전달
-                yield f"{line}\n"
-        except HermesGatewayError as e:
-            yield f"data: {{\"event\": \"error\", \"status\": {e.status}}}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-@app.post("/runs/{run_id}/approval")
-async def approve_run(run_id: str, req: ApprovalRequest, profile: str | None = None):
-    return await _guard(_client(profile).approve_run(
-        run_id, req.choice, resolve_all=req.resolve_all))
-
-
-@app.post("/runs/{run_id}/stop")
-async def stop_run(run_id: str, profile: str | None = None):
-    return await _guard(_client(profile).stop_run(run_id))
-
-
-# ── 세션 ──────────────────────────────────────────────────────────────
-@app.get("/sessions")
-async def list_sessions(profile: str | None = None):
-    return await _guard(_client(profile).list_sessions())
-
-
-@app.post("/sessions", status_code=201)
-async def create_session(profile: str | None = None):
-    return await _guard(_client(profile).create_session())
-
-
-@app.get("/sessions/{session_id}")
-async def get_session(session_id: str, profile: str | None = None):
-    return await _guard(_client(profile).get_session(session_id))
-
-
-@app.get("/sessions/{session_id}/messages")
-async def session_messages(session_id: str, profile: str | None = None):
-    return await _guard(_client(profile).session_messages(session_id))
-
-
-@app.post("/sessions/{session_id}/chat")
-async def session_chat(session_id: str, req: SessionChatRequest, profile: str | None = None):
-    return await _guard(_client(profile).session_chat(session_id, req.message))
-
-
-@app.post("/sessions/{session_id}/fork", status_code=201)
-async def fork_session(session_id: str, profile: str | None = None):
-    return await _guard(_client(profile).fork_session(session_id))
-
-
-@app.delete("/sessions/{session_id}")
-async def delete_session(session_id: str, profile: str | None = None):
-    return await _guard(_client(profile).delete_session(session_id))
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────
@@ -345,7 +217,7 @@ async def collection_classify_document(doc_id: str, profile: str | None = None):
     client = _client(profile)
     try:
         result = await classify.classify_document(client, doc["title"], text)
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -367,7 +239,7 @@ async def collection_classify_untagged(limit: int = 20, profile: str | None = No
         doc = collection.get_document(doc_id)
         try:
             result = await classify.classify_document(client, doc["title"], text)
-        except (HermesGatewayError, httpx.HTTPError, ValueError):
+        except (LLMError, httpx.HTTPError, ValueError):
             continue  # 개별 문서 실패는 전체를 막지 않는다
         if result["topic"]:
             collection.set_topic(doc_id, result["topic"])
@@ -402,7 +274,7 @@ async def rag_query(req: RagQueryRequest):
     try:
         ranked = await rag.rerank(client, req.question, docs, top_n=req.limit)
         return {"question": req.question, **await rag.answer_question(client, req.question, ranked)}
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -437,7 +309,7 @@ async def report_generate(req: ReportGenerateRequest):
         )
         assets.save_artifact_safe("report", f"제{req.issueNo}호 리포트", str(req.issueNo), result)
         return result
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -464,7 +336,7 @@ async def digest_generate(req: DigestGenerateRequest):
         )
         assets.save_artifact_safe("digest", f"제{req.issueNo}호", str(req.issueNo), result)
         return result
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -515,7 +387,7 @@ async def pipeline_run(issueNo: int = 1, period: str = "자동 수집분", limit
     """수집 + 다이제스트 생성·저장을 한 번에 실행한다(cron/수동 트리거 공용)."""
     try:
         return await pipeline.run_pipeline(issue_no=issueNo, period=period, limit=limit)
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -544,7 +416,7 @@ async def topics_summarize(req: TopicSummarizeRequest):
         )
         assets.save_artifact_safe("topic", req.topic, req.topic, result)
         return result
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
@@ -567,7 +439,7 @@ async def competitors_analyze(req: CompetitorAnalyzeRequest):
         result = await competitors.analyze_competitor(client, req.name, req.ticker, docs)
         assets.save_artifact_safe("competitor", req.name, req.ticker or req.name, result)
         return result
-    except HermesGatewayError as e:
+    except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
