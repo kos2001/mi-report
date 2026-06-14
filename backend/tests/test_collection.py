@@ -140,3 +140,10 @@ def test_rebuild_content_fts_indexes_title(isolated):
     assert n >= 1
     hits = collection.search_documents("EUV 노광")
     assert any("EUV" in d["title"] for d in hits)
+
+
+def test_hybrid_search_falls_back_to_bm25_when_disabled(isolated):
+    # MI_EMBEDDINGS 미설정 → 임베딩 비활성 → 하이브리드가 BM25 경로로 동작.
+    collection.ingest_text("HBM 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
+    hits = collection.hybrid_search("HBM 수요", limit=5)
+    assert any("HBM" in d["title"] for d in hits)

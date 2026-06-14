@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import assets, config, synonyms
+from . import assets, config, embeddings, synonyms
 
 SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
@@ -102,6 +102,13 @@ def init_db() -> None:
             -- 본문 전문검색(FTS5): RAG 검색용. 외부 콘텐츠가 아니라 본문을 직접 보관·색인한다
             -- (본문은 디스크 파일에 있고 DB 엔 없으므로 별도 테이블로 색인). doc_id 로 documents 와 조인.
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_content_fts USING fts5(doc_id UNINDEXED, body);
+
+            -- 의미 임베딩(하이브리드 검색용). vec 는 float32 raw bytes, model 로 차원/모델 추적.
+            CREATE TABLE IF NOT EXISTS documents_embeddings (
+                doc_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+                model  TEXT NOT NULL,
+                vec    BLOB NOT NULL
+            );
             """
         )
         _backfill_content_fts(conn)
@@ -286,6 +293,7 @@ def add_crawled_document(
             (_now(), source_id),
         )
         _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
+        store_embedding(conn, doc_id, title=title, topic=topic, text=text)  # 의미 임베딩(활성 시)
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
 
@@ -388,6 +396,122 @@ def rebuild_content_fts() -> int:
     return n
 
 
+# ── 의미 임베딩 + 하이브리드 검색 ───────────────────────────────────────
+def _embed_doc_text(title: str | None, topic: str | None, text: str | None) -> str:
+    """임베딩 대상 텍스트(제목+주제+본문)를 구성."""
+    return "\n".join(p.strip() for p in (title, topic, text) if p and p.strip())
+
+
+def store_embedding(conn: sqlite3.Connection, doc_id: str, *, title: str | None = None,
+                    topic: str | None = None, text: str | None = None) -> None:
+    """문서 임베딩을 계산·저장(임베딩 비활성/실패 시 무동작)."""
+    if not embeddings.active():
+        return
+    body = _embed_doc_text(title, topic, text)
+    if not body:
+        return
+    mat = embeddings.embed([body], is_query=False)
+    if mat is None:
+        return
+    conn.execute(
+        "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
+        (doc_id, embeddings.MODEL_NAME, mat[0].tobytes()),
+    )
+
+
+def rebuild_embeddings() -> int:
+    """모든 문서의 임베딩을 (재)계산·저장한다(배치). 임베딩 비활성 시 0 반환."""
+    if not embeddings.active():
+        return 0
+    with _conn() as conn:
+        rows = conn.execute("SELECT id, path, title, topic FROM documents").fetchall()
+        ids, texts = [], []
+        for r in rows:
+            body = _embed_doc_text(r["title"], r["topic"], _read_path_text(r["path"]))
+            if body:
+                ids.append(r["id"])
+                texts.append(body)
+        if not texts:
+            return 0
+        mat = embeddings.embed(texts, is_query=False)
+        if mat is None:
+            return 0
+        for did, vec in zip(ids, mat):
+            conn.execute(
+                "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
+                (did, embeddings.MODEL_NAME, vec.tobytes()),
+            )
+    return len(ids)
+
+
+def _load_doc_vectors(conn: sqlite3.Connection, *, topic: str | None = None,
+                      source_id: str | None = None):
+    """저장된 문서 임베딩을 (ids, matrix) 로 로드(필터 적용). 없으면 (None, None)."""
+    import numpy as np
+
+    sql = (
+        "SELECT e.doc_id AS doc_id, e.vec AS vec FROM documents_embeddings e "
+        "JOIN documents d ON d.id = e.doc_id WHERE 1=1"
+    )
+    params: list[Any] = []
+    if source_id:
+        sql += " AND d.source_id=?"
+        params.append(source_id)
+    if topic:
+        sql += " AND d.topic=?"
+        params.append(topic)
+    rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return None, None
+    ids = [r["doc_id"] for r in rows]
+    mat = np.frombuffer(b"".join(r["vec"] for r in rows), dtype="float32").reshape(len(rows), -1)
+    return ids, mat
+
+
+def _rrf(rank_lists: list[list[str]], k: int = 60) -> dict[str, float]:
+    """Reciprocal Rank Fusion: 여러 순위 리스트를 결합(상위일수록 큰 점수)."""
+    out: dict[str, float] = {}
+    for rl in rank_lists:
+        for pos, idx in enumerate(rl):
+            out[idx] = out.get(idx, 0.0) + 1.0 / (k + pos)
+    return out
+
+
+def hybrid_search(query: str, *, limit: int = 8, topic: str | None = None,
+                  source_id: str | None = None, pool: int = 30) -> list[dict[str, Any]]:
+    """BM25(어휘) + 의미 임베딩(dense)을 RRF 로 결합한 하이브리드 검색.
+
+    어휘가 안 겹치는 패러프레이즈도 dense 가 회수하고, 정확한 키워드는 BM25 가 잡는다.
+    임베딩 비활성 시 BM25(search_documents) 결과를 그대로 반환한다.
+    """
+    bm25 = search_documents(query, limit=pool, topic=topic, source_id=source_id)
+    if not embeddings.active():
+        return bm25[:limit]
+    import numpy as np
+
+    qmat = embeddings.embed([query], is_query=True)
+    with _conn() as conn:
+        ids, mat = _load_doc_vectors(conn, topic=topic, source_id=source_id)
+    if qmat is None or ids is None:
+        return bm25[:limit]
+    qv = qmat[0]
+    sims = mat @ qv / (np.linalg.norm(mat, axis=1) * np.linalg.norm(qv) + 1e-9)
+    dense_order = [ids[i] for i in np.argsort(-sims)]
+    fused = _rrf([[d["id"] for d in bm25], dense_order])
+    top_ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]]
+    docs = {d["id"]: d for d in bm25}
+    missing = [i for i in top_ids if i not in docs]
+    if missing:
+        with _conn() as conn:
+            qmarks = ",".join("?" * len(missing))
+            rows = conn.execute(
+                f"SELECT * FROM documents WHERE id IN ({qmarks})", missing
+            ).fetchall()
+        for r in rows:
+            docs[r["id"]] = _row_to_document(r)
+    return [docs[i] for i in top_ids if i in docs]
+
+
 def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
                      source_id: str | None = None) -> list[dict[str, Any]]:
     """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트).
@@ -423,8 +547,9 @@ def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
     """RAG 입력: 질문 관련 문서를 본문 BM25 로 검색해 본문과 함께 반환.
 
     본문 매칭이 없으면 최근 문서로 폴백한다(질문이 색인 토큰과 안 겹칠 때).
+    임베딩이 활성화되면 BM25+의미(dense) 하이브리드로 회수한다.
     """
-    hits = search_documents(query, limit=limit, topic=topic, source_id=source_id)
+    hits = hybrid_search(query, limit=limit, topic=topic, source_id=source_id)
     if not hits:
         hits = list_documents(source_id=source_id, topic=topic, limit=limit)
     out: list[dict[str, Any]] = []
@@ -685,5 +810,6 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
             (_now(), src["id"]),
         )
         _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
+        store_embedding(conn, doc_id, title=title, topic=topic, text=text)  # 의미 임베딩(활성 시)
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)

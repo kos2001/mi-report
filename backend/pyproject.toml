@@ -21,6 +21,12 @@ dev = [
 windows = [
     "pywin32>=306",
 ]
+# 의미 임베딩 하이브리드 검색 (로컬 fastembed — 외부 API 없음, 데이터 유출 없음).
+# 활성화: 이 그룹 설치 + 환경변수 MI_EMBEDDINGS=1.
+embeddings = [
+    "fastembed>=0.4",
+    "numpy>=1.26",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
