@@ -175,6 +175,23 @@ export const digestApi = {
   // 스케줄 파이프라인이 마지막으로 저장한 다이제스트(없으면 null)
   latest: () =>
     req<{ digest: GeneratedDigest | null }>("/digest/latest").then((d) => d.digest),
+
+  // 다이제스트 메일 발송(SMTP 미설정 시 미리보기만 반환)
+  send: (body: {
+    issueNo: number;
+    period: string;
+    items: GeneratedDigestItem[];
+    to?: string[];
+    dryRun?: boolean;
+  }) =>
+    req<{
+      status: "sent" | "not_sent" | "error";
+      reason?: string;
+      detail?: string;
+      subject: string;
+      to?: string[];
+      preview?: string;
+    }>("/digest/send", { method: "POST", body: JSON.stringify(body) }),
 };
 
 // ── 주제별 History (AI agent 생성) ────────────────────────────────────────
