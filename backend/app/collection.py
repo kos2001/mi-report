@@ -199,10 +199,22 @@ def update_source(sid: str, *, name: str | None = None, config: dict[str, Any] |
 
 
 def delete_source(sid: str) -> None:
+    """소스와 그 소스로 수집된 문서(파일·본문 FTS 포함)를 함께 삭제한다.
+
+    문서를 고아로 남기지 않는다(이전 FK SET NULL 동작 → 잔존 문서가 RAG 에 남던 문제).
+    """
     with _conn() as conn:
-        cur = conn.execute("DELETE FROM sources WHERE id=?", (sid,))
-        if cur.rowcount == 0:
+        if conn.execute("SELECT 1 FROM sources WHERE id=?", (sid,)).fetchone() is None:
             raise KeyError(sid)
+        rows = conn.execute(
+            "SELECT id, path FROM documents WHERE source_id=?", (sid,)
+        ).fetchall()
+        for r in rows:
+            if r["path"]:
+                Path(r["path"]).unlink(missing_ok=True)
+            conn.execute("DELETE FROM documents WHERE id=?", (r["id"],))
+            _index_content(conn, r["id"], None)
+        conn.execute("DELETE FROM sources WHERE id=?", (sid,))
 
 
 def get_source(sid: str) -> dict[str, Any]:
