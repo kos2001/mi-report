@@ -65,10 +65,11 @@ def test_retrieval_quality(isolated):
     assert metrics["mrr"] >= MRR_FLOOR, metrics
 
 
-def test_semantic_gap_diagnostic(isolated, capsys):
-    """동의어/의미 기반 난이도 셋 회수율(진단용, 비-게이팅).
+def test_synonym_coverage(isolated, capsys):
+    """동의어/약어 난이도 셋 회수율 — 도메인 동의어 사전이 커버하는지 가드.
 
-    BM25 어휘 매칭의 한계를 수치로 남긴다 → 다음 레버(의미 임베딩)의 목표치.
+    BM25 어휘 매칭으로는 0.75 였던 셋을 동의어 질의 확장으로 1.00 까지 끌어올린다.
+    사전에 없는 신규 패러프레이즈는 의미 임베딩 검색이 다음 레버.
     """
     id_map = _load_corpus()
     hit = 0
@@ -80,13 +81,13 @@ def test_semantic_gap_diagnostic(isolated, capsys):
         hit += int(ok)
         rows.append(f"  {'hit ' if ok else 'miss'}  {question}  ({note})")
     n = len(HARD_QUERIES)
+    recall = hit / n
     with capsys.disabled():
-        print("\n── 의미 기반 난이도 셋 (진단, 비-게이팅) ─────────────")
+        print("\n── 동의어 난이도 셋 (동의어 사전 적용) ─────────────")
         for line in rows:
             print(line)
-        print(f"  recall@5={hit / n:.2f}  ← 의미 임베딩 도입 시 개선 목표")
-    # 게이팅하지 않음: 어휘 매칭의 알려진 한계 기록만.
-    assert 0 <= hit <= n
+        print(f"  recall@5={recall:.2f}  (BM25 단독 0.75 → 동의어 확장)")
+    assert recall == 1.0, f"동의어 사전 커버리지 회귀: {recall:.2f}"
 
 
 @pytest.mark.parametrize("question,expected_ids,note", EVAL_QUERIES)
