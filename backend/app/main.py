@@ -12,14 +12,15 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, gateway, pipeline, rag, report, topics
+from . import classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics
 from .gateway import HermesGatewayError, get_client
-from .profiles import get_active_profile_name, list_profiles
+from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
     ApprovalRequest,
     ChatRequest,
     CompetitorAnalyzeRequest,
     DigestGenerateRequest,
+    DigestSendRequest,
     IngestText,
     RagQueryRequest,
     ReportGenerateRequest,
@@ -444,6 +445,36 @@ async def digest_generate(req: DigestGenerateRequest):
 def digest_latest():
     """스케줄 파이프라인이 마지막으로 저장한 다이제스트(없으면 null)."""
     return {"digest": pipeline.load_latest_digest()}
+
+
+@app.post("/digest/send")
+def digest_send(req: DigestSendRequest):
+    """다이제스트를 메일로 발송한다.
+
+    SMTP 가 설정돼 있으면 실제 발송하고, 미설정/연결 불가/ dryRun 이면 발송하지 않고
+    미리보기(평문)를 돌려준다. 발송 여부는 status 로 구분(예외 대신 200 + status).
+    """
+    load_profile()  # 활성 프로파일 .env(SMTP_*) 를 os.environ 에 보장
+    digest = {"issueNo": req.issueNo, "period": req.period,
+              "items": [it.model_dump() for it in req.items]}
+    subject, text, html = mailer.render_digest_email(digest, subject=req.subject)
+    to = req.to or mailer.default_recipients()
+    cfg = mailer.smtp_config()
+
+    if req.dryRun or cfg is None or not to:
+        reason = (
+            "dryRun" if req.dryRun
+            else "SMTP 미설정 (SMTP_HOST/FROM)" if cfg is None
+            else "수신자 미설정 (SMTP_TO 또는 to)"
+        )
+        return {"status": "not_sent", "reason": reason, "subject": subject,
+                "to": to, "preview": text}
+    try:
+        mailer.send_email(cfg, subject, text, html, to)
+        return {"status": "sent", "subject": subject, "to": to}
+    except Exception as e:  # SMTP 연결/인증 실패 등(사내망 미연동 포함)
+        return {"status": "error", "detail": str(e), "subject": subject,
+                "to": to, "preview": text}
 
 
 # ── 스케줄 파이프라인 (수집 → 다이제스트 생성·저장) ───────────────────────

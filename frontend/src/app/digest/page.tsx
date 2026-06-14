@@ -65,6 +65,27 @@ export default function DigestPage() {
   const [latest, setLatest] = useState<GeneratedDigest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function handleSend(d: GeneratedDigest) {
+    setSending(true);
+    setSendMsg(null);
+    try {
+      const r = await digestApi.send({ issueNo: d.issueNo, period: d.period, items: d.items });
+      if (r.status === "sent") {
+        setSendMsg({ ok: true, text: `발송 완료 → ${(r.to ?? []).join(", ")}` });
+      } else if (r.status === "not_sent") {
+        setSendMsg({ ok: false, text: `발송 안 됨 (${r.reason}) — 미리보기는 생성됨` });
+      } else {
+        setSendMsg({ ok: false, text: `발송 실패: ${r.detail ?? "오류"}` });
+      }
+    } catch (e) {
+      setSendMsg({ ok: false, text: e instanceof Error ? e.message : "발송 요청 실패" });
+    } finally {
+      setSending(false);
+    }
+  }
 
   // 스케줄 파이프라인(cron)이 마지막으로 저장한 다이제스트를 표시
   useEffect(() => {
@@ -168,10 +189,31 @@ export default function DigestPage() {
                   {generated.period}
                 </span>
               </h2>
-              <span className="rounded-full border border-sky-900/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-400">
-                AI 생성 초안 · 문서 {generated.sourceDocCount}건 기반
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-sky-900/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-400">
+                  AI 생성 초안 · 문서 {generated.sourceDocCount}건 기반
+                </span>
+                <button
+                  onClick={() => handleSend(generated)}
+                  disabled={sending || generated.items.length === 0}
+                  title="다이제스트를 메일로 발송 (SMTP 미설정 시 미리보기만)"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {sending ? "발송 중…" : "메일 발송"}
+                </button>
+              </div>
             </div>
+            {sendMsg && (
+              <p
+                className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
+                  sendMsg.ok
+                    ? "border-emerald-900/60 bg-emerald-950/40 text-emerald-400"
+                    : "border-amber-900/60 bg-amber-950/40 text-amber-300"
+                }`}
+              >
+                {sendMsg.text}
+              </p>
+            )}
             {generated.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>

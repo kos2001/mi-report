@@ -113,6 +113,17 @@ class DigestGenerateRequest(BaseModel):
     profile: str | None = None
 
 
+class DigestSendRequest(BaseModel):
+    """다이제스트 메일 발송 요청(생성된 초안을 그대로 전달)."""
+
+    issueNo: int = Field(default=1, ge=1)
+    period: str = ""
+    items: list[DigestItemOut] = Field(default_factory=list)
+    to: list[str] | None = Field(default=None, description="수신자(미지정 시 SMTP_TO).")
+    subject: str | None = None
+    dryRun: bool = Field(default=False, description="true 면 발송하지 않고 미리보기만.")
+
+
 # ── 주제별 History (AI agent 생성) ────────────────────────────────────────
 TopicCategory = Literal["SET", "반도체 설계", "반도체 제조", "수요/시황"]
 
