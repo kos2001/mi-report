@@ -131,3 +131,12 @@ def test_delete_source_then_gone(isolated):
     assert all(x["id"] != s["id"] for x in collection.list_sources())
     with pytest.raises(KeyError):
         collection.delete_source(s["id"])
+
+
+def test_rebuild_content_fts_indexes_title(isolated):
+    # 본문에 없는, 제목에만 있는 핵심어로도 재색인 후 검색되어야 한다.
+    collection.ingest_text("EUV 노광 장비 도입", "선단 공정 투자 확대 동향.", topic="장비")
+    n = collection.rebuild_content_fts()
+    assert n >= 1
+    hits = collection.search_documents("EUV 노광")
+    assert any("EUV" in d["title"] for d in hits)
