@@ -10,7 +10,7 @@ import io
 
 import pytest
 
-from app import main, rag
+from app import collection, main, rag
 
 
 class FakeClient:
@@ -47,6 +47,48 @@ def test_answer_question_returns_answer_and_sources():
 def test_answer_question_empty_docs_raises():
     with pytest.raises(ValueError):
         asyncio.run(rag.answer_question(FakeClient(""), "q", []))
+
+
+# ── P1: 재랭킹 + 인용 근거 ─────────────────────────────────────────────────
+def test_rerank_selects_and_orders_subset():
+    docs = [{"title": f"d{i}", "content": f"본문{i}"} for i in range(1, 11)]  # 10건
+    out = asyncio.run(rag.rerank(FakeClient("관련 순서: 3, 1, 5"), "q", docs, top_n=3))
+    assert [d["title"] for d in out] == ["d3", "d1", "d5"]
+
+
+def test_rerank_passthrough_when_few():
+    docs = [{"title": "a", "content": "x"}]
+    out = asyncio.run(rag.rerank(FakeClient("[]"), "q", docs, top_n=6))
+    assert out == docs  # 후보가 top_n 이하면 게이트웨이 호출 없이 그대로
+
+
+def test_answer_returns_only_cited_sources():
+    docs = [
+        {"title": "A", "source": "s"},
+        {"title": "B", "source": "s"},
+        {"title": "C", "source": "s"},
+    ]
+    client = FakeClient("핵심은 B와 C다 [문서 2] [문서 3].")
+    result = asyncio.run(rag.answer_question(client, "q", docs))
+    assert [s["title"] for s in result["sources"]] == ["B", "C"]  # 인용된 2,3만
+    assert result["citedCount"] == 2
+    assert result["usedDocCount"] == 3
+
+
+# ── P0: 본문 검색 ──────────────────────────────────────────────────────────
+def test_documents_for_rag_searches_body(client):
+    # 제목엔 없고 본문에만 있는 단어로 검색돼야 한다
+    _upload(client, "a.txt", "본문에 파운드리 수율 안정화 이야기가 있다.")
+    _upload(client, "b.txt", "전혀 다른 주제: HBM 메모리 대역폭.")
+    hits = collection.documents_for_rag("수율", limit=5)
+    titles = [h["title"] for h in hits]
+    assert "a.txt" in titles
+    assert "b.txt" not in titles
+
+
+def test_search_documents_empty_query_returns_empty(client):
+    _upload(client, "a.txt", "내용")
+    assert collection.search_documents("", limit=5) == []
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────
