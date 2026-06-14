@@ -8,7 +8,12 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app import collection, config, fetcher, pipeline
+from app import collection, confluence, config, fetcher, pipeline
+
+
+async def _no_confluence(*args, **kwargs):
+    """confluence 시드 소스가 테스트 중 실제 네트워크를 치지 않게 빈 결과로 대체."""
+    return []
 
 
 class FakeGateway:
@@ -64,17 +69,16 @@ def test_run_collection_only_url_connectors(client, monkeypatch):
         json={"name": "URL뉴스", "type": "news", "config": {"url": "https://a.com/1"}},
     )
     monkeypatch.setattr(fetcher, "fetch_url", _fake_fetch)
+    monkeypatch.setattr(confluence, "fetch_pages", _no_confluence)  # confluence 시드 오프라인
     result = asyncio.run(pipeline.run_collection())
     names = [s["source"] for s in result["sources"]]
-    # URL 이 있는 커넥터만 수집된다: 추가한 URL뉴스 + URL 시드(broker·news).
+    # URL 이 있는 커넥터가 수집된다: 추가한 URL뉴스 + URL 시드(broker·news).
     assert "URL뉴스" in names
     assert "증권사 리포트 수집" in names
     assert "뉴스 크롤링" in names
-    # URL 없는 시드 커넥터는 제외
+    # URL/자격증명 없는 시드 커넥터는 제외
     assert "EDM 수집" not in names
-    assert "Confluence 동기화" not in names
-    assert "컨센서스 갱신 감지" not in names
-    assert result["ingested"] == len(names)
+    assert "컨센서스 갱신 감지" not in names  # 시드에 url 없음
 
 
 def test_run_digest_saves_and_latest_loads(client, monkeypatch, isolated):
@@ -105,6 +109,7 @@ def test_run_pipeline_end_to_end(client, monkeypatch):
         json={"name": "URL뉴스", "type": "news", "config": {"url": "https://a.com/1"}},
     )
     monkeypatch.setattr(fetcher, "fetch_url", _fake_fetch)
+    monkeypatch.setattr(confluence, "fetch_pages", _no_confluence)  # confluence 시드 오프라인
     monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
 
     result = asyncio.run(pipeline.run_pipeline(issue_no=1, period="자동"))

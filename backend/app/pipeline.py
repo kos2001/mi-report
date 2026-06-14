@@ -12,14 +12,17 @@ from typing import Any
 
 import httpx
 
-from . import collection, config, digest, fetcher
+from . import collection, confluence, config, digest, fetcher
 from .gateway import get_client
 
 
 async def collect_source(
     source: dict[str, Any], client: httpx.AsyncClient
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """한 소스의 URL 들을 fetch → 본문 추출 → 문서 저장한다. (저장된 문서, 실패목록)."""
+    """한 소스를 수집한다. confluence 타입은 API 동기화, 그 외는 URL fetch."""
+    if source["type"] == "confluence":
+        return await collect_confluence_source(source, client)
+
     documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     for url in collection.source_urls(source):
@@ -39,6 +42,28 @@ async def collect_source(
     return documents, errors
 
 
+async def collect_confluence_source(
+    source: dict[str, Any], client: httpx.AsyncClient, *, limit: int = 25
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Confluence 페이지를 가져와 문서로 동기화한다(기존 문서는 교체)."""
+    base, email, token = confluence.config_from_source(source)
+    if not base or not email or not token:
+        return [], [{"url": base or "(미설정)", "error": "Confluence base_url/이메일/토큰 설정 필요"}]
+    try:
+        pages = await confluence.fetch_pages(client, base, email, token, limit=limit)
+    except httpx.HTTPError as e:
+        return [], [{"url": base, "error": f"Confluence API 실패: {e}"}]
+    # 재동기화: 기존 문서 제거 후 현재 페이지로 갱신
+    collection.delete_documents_by_source(source["id"])
+    documents = [
+        collection.add_crawled_document(
+            source["id"], source["name"], p["title"], p["text"], url=p["url"]
+        )
+        for p in pages
+    ]
+    return documents, []
+
+
 async def run_collection() -> dict[str, Any]:
     """URL 이 있는 활성 커넥터 소스를 모두 수집한다."""
     ingested = 0
@@ -47,7 +72,8 @@ async def run_collection() -> dict[str, Any]:
         for source in collection.list_sources():
             if source["type"] not in collection.CONNECTOR_TYPES or not source["enabled"]:
                 continue
-            if not collection.source_urls(source):
+            # confluence 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
+            if source["type"] != "confluence" and not collection.source_urls(source):
                 continue
             docs, errors = await collect_source(source, http)
             if not docs and errors:
