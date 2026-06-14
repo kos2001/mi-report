@@ -332,6 +332,11 @@ def today() -> str:
     return _today()
 
 
+def now() -> str:
+    """현재 시각(YYYY-MM-DD HH:MM). 생성물 타임스탬프에 사용."""
+    return _now()
+
+
 def list_topics() -> list[dict[str, Any]]:
     """문서에 부여된 주제 목록 + 건수(내림차순). 비어 있는 주제는 제외."""
     with _conn() as conn:
