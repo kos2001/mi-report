@@ -301,6 +301,10 @@ export interface ArtifactMeta {
   createdAt: string;
 }
 
+export interface ArtifactFull extends ArtifactMeta {
+  payload: Record<string, unknown>;
+}
+
 export const artifactsApi = {
   list: (params?: { kind?: string; ref?: string; limit?: number }) => {
     const qs = new URLSearchParams();
@@ -310,6 +314,7 @@ export const artifactsApi = {
     const suffix = qs.toString() ? `?${qs}` : "";
     return req<{ artifacts: ArtifactMeta[]; count: number }>(`/artifacts${suffix}`);
   },
+  get: (id: string) => req<ArtifactFull>(`/artifacts/${id}`),
   count: () => req<{ count: number }>("/artifacts?limit=1").then((d) => d.count),
 };
 
