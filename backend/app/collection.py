@@ -98,8 +98,13 @@ def init_db() -> None:
                 INSERT INTO documents_fts(rowid, title, filename, topic)
                 VALUES (new.rowid, new.title, new.filename, new.topic);
             END;
+
+            -- 본문 전문검색(FTS5): RAG 검색용. 외부 콘텐츠가 아니라 본문을 직접 보관·색인한다
+            -- (본문은 디스크 파일에 있고 DB 엔 없으므로 별도 테이블로 색인). doc_id 로 documents 와 조인.
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_content_fts USING fts5(doc_id UNINDEXED, body);
             """
         )
+        _backfill_content_fts(conn)
         cur = conn.execute("SELECT COUNT(*) AS n FROM sources")
         if cur.fetchone()["n"] == 0:
             seed = [
@@ -262,6 +267,7 @@ def add_crawled_document(
             "UPDATE sources SET count = count + 1, status='정상', last_run=? WHERE id=?",
             (_now(), source_id),
         )
+        _index_content(conn, doc_id, body)  # 본문 RAG 검색 색인
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
 
@@ -296,6 +302,98 @@ def _fts_match(q: str) -> str | None:
     if not tokens:
         return None
     return " ".join('"' + t.replace('"', '""') + '"*' for t in tokens)
+
+
+def _read_path_text(path: str | None, *, max_chars: int | None = None) -> str | None:
+    """디스크 경로의 텍스트를 읽는다(비텍스트/없음이면 None)."""
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        text = p.read_text(encoding="utf-8").strip()
+    except (UnicodeDecodeError, OSError):
+        return None
+    if not text:
+        return None
+    return text[:max_chars] if max_chars else text
+
+
+def _index_content(conn: sqlite3.Connection, doc_id: str, text: str | None) -> None:
+    """본문 FTS 색인 갱신(있으면 교체). RAG 검색이 본문까지 매칭하도록."""
+    conn.execute("DELETE FROM documents_content_fts WHERE doc_id=?", (doc_id,))
+    if text and text.strip():
+        conn.execute(
+            "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (doc_id, text)
+        )
+
+
+def _backfill_content_fts(conn: sqlite3.Connection) -> None:
+    """본문 FTS 에 아직 없는 문서를 디스크에서 읽어 색인(기존 DB 마이그레이션)."""
+    rows = conn.execute(
+        "SELECT d.id, d.path FROM documents d "
+        "LEFT JOIN documents_content_fts f ON f.doc_id = d.id "
+        "WHERE f.doc_id IS NULL"
+    ).fetchall()
+    for r in rows:
+        text = _read_path_text(r["path"])
+        if text:
+            conn.execute(
+                "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (r["id"], text)
+            )
+
+
+def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
+                     source_id: str | None = None) -> list[dict[str, Any]]:
+    """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트)."""
+    match = _fts_match(query) if query else None
+    if not match:
+        return []
+    params: list[Any] = [match]
+    sql = (
+        "SELECT d.*, bm25(documents_content_fts) AS rank "
+        "FROM documents_content_fts "
+        "JOIN documents d ON d.id = documents_content_fts.doc_id "
+        "WHERE documents_content_fts MATCH ?"
+    )
+    if source_id:
+        sql += " AND d.source_id=?"
+        params.append(source_id)
+    if topic:
+        sql += " AND d.topic=?"
+        params.append(topic)
+    sql += " ORDER BY rank LIMIT ?"  # bm25: 값이 작을수록 관련도 높음
+    params.append(limit)
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_document(r) for r in rows]
+
+
+def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
+                      source_id: str | None = None, max_chars: int = 4000) -> list[dict[str, Any]]:
+    """RAG 입력: 질문 관련 문서를 본문 BM25 로 검색해 본문과 함께 반환.
+
+    본문 매칭이 없으면 최근 문서로 폴백한다(질문이 색인 토큰과 안 겹칠 때).
+    """
+    hits = search_documents(query, limit=limit, topic=topic, source_id=source_id)
+    if not hits:
+        hits = list_documents(source_id=source_id, topic=topic, limit=limit)
+    out: list[dict[str, Any]] = []
+    for d in hits:
+        text = read_document_text(d["id"], max_chars=max_chars)
+        if not text:
+            continue
+        out.append(
+            {
+                "id": d["id"],
+                "title": d["title"],
+                "source": d["sourceName"],
+                "publishedAt": d["publishedAt"],
+                "content": text,
+            }
+        )
+    return out
 
 
 def list_documents(source_id: str | None = None, q: str | None = None,
@@ -364,18 +462,7 @@ def read_document_text(doc_id: str, *, max_chars: int = 4000) -> str | None:
         ).fetchone()
     if row is None:
         raise KeyError(doc_id)
-    path = row["path"]
-    if not path:
-        return None
-    p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        text = p.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return None  # 바이너리/디코딩 불가 — 본문 없이 건너뜀
-    text = text.strip()
-    return text[:max_chars] if text else None
+    return _read_path_text(row["path"], max_chars=max_chars)
 
 
 def documents_for_digest(
@@ -440,6 +527,7 @@ def delete_document(doc_id: str) -> None:
         if row["path"]:
             Path(row["path"]).unlink(missing_ok=True)
         conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+        _index_content(conn, doc_id, None)  # 본문 FTS 에서도 제거
 
 
 def _ensure_named_source(conn: sqlite3.Connection, name: str, type_: str) -> sqlite3.Row:
@@ -490,6 +578,8 @@ def register_upload(doc_id: str, dest: Path, safe_name: str,
             "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
             (_now(), src["id"]),
         )
+        # 업로드 파일이 텍스트면 본문 RAG 검색 색인(바이너리는 None → 건너뜀)
+        _index_content(conn, doc_id, _read_path_text(str(dest)))
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
 
@@ -531,5 +621,6 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
             "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
             (_now(), src["id"]),
         )
+        _index_content(conn, doc_id, text)  # 본문 RAG 검색 색인
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)

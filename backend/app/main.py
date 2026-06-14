@@ -356,16 +356,23 @@ async def collection_classify_untagged(limit: int = 20, profile: str | None = No
 # ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
 @app.post("/rag/query")
 async def rag_query(req: RagQueryRequest):
-    """수집 문서를 근거로 자연어 질문에 답한다."""
-    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    """수집 문서를 근거로 자연어 질문에 답한다.
+
+    P0: 질문으로 본문 BM25 검색(최근 N건이 아니라 관련 문서). 후보를 넉넉히 뽑고
+    P1: 게이트웨이로 재랭킹해 상위 N건만 답변 컨텍스트로 사용한다.
+    """
+    # 후보를 limit 의 2~3배로 뽑아 재랭킹 여지를 둔다(최대 24).
+    candidate_k = min(max(req.limit * 3, 12), 24)
+    docs = collection.documents_for_rag(req.question, limit=candidate_k, topic=req.topic)
     if not docs:
         raise HTTPException(
             status_code=422,
-            detail="답변 근거로 쓸 문서가 없습니다. (문서를 업로드하거나 topic/q 를 조정하세요)",
+            detail="답변 근거로 쓸 문서가 없습니다. (문서를 업로드하거나 topic 을 조정하세요)",
         )
     client = _client(req.profile)
     try:
-        return {"question": req.question, **await rag.answer_question(client, req.question, docs)}
+        ranked = await rag.rerank(client, req.question, docs, top_n=req.limit)
+        return {"question": req.question, **await rag.answer_question(client, req.question, ranked)}
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:

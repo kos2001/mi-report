@@ -8,6 +8,7 @@ AI agent 개입 지점 #6: 사용자의 자연어 질문 + 수집 문서(검색/
 
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol
 
 RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
@@ -17,6 +18,11 @@ RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널�
 - 제공된 문서에 없는 내용은 추측하지 말고 "제공된 문서에서 확인되지 않음"이라고 답한다.
 - 답변 중 근거가 된 부분에는 [문서 N] 형태로 출처를 인용한다.
 - 한국어로 간결하고 분석적으로 답한다."""
+
+RERANK_SYSTEM_PROMPT = """질문과 번호가 매겨진 후보 문서 목록이 주어진다.
+질문에 답하는 데 실제로 관련 있는 문서만 관련도 높은 순으로 골라, 그 번호만 반환한다.
+- 최대 {top_n}개. 관련 없는 문서는 빼라.
+- 출력은 번호만(예: 3, 1, 5). 다른 설명 금지."""
 
 
 class ChatClient(Protocol):
@@ -48,6 +54,55 @@ def extract_content(completion: Any) -> str:
         raise ValueError(f"예상치 못한 completion 형식: {completion!r}") from e
 
 
+def _parse_indices(content: str, n: int) -> list[int]:
+    """응답에서 1..n 범위의 번호를 등장 순서대로(중복 제거) 추출한다."""
+    out: list[int] = []
+    for tok in re.findall(r"\d+", content):
+        i = int(tok)
+        if 1 <= i <= n and i not in out:
+            out.append(i)
+    return out
+
+
+def _cited_indices(answer: str, n: int) -> list[int]:
+    """답변의 [문서 N] 인용에서 실제 인용된 문서 번호를 추출한다."""
+    found = {int(m) for m in re.findall(r"\[\s*문서\s*(\d+)\s*\]", answer)}
+    return sorted(i for i in found if 1 <= i <= n)
+
+
+async def rerank(
+    client: ChatClient,
+    question: str,
+    docs: list[dict[str, Any]],
+    *,
+    top_n: int = 6,
+    temperature: float = 0.0,
+) -> list[dict[str, Any]]:
+    """게이트웨이로 후보 문서를 관련도 재정렬해 상위 top_n 만 남긴다(2단계 검색).
+
+    후보가 top_n 이하면 그대로 둔다. 재랭킹 실패 시 입력 상위 top_n 으로 폴백.
+    """
+    if len(docs) <= top_n:
+        return docs
+    lines = [
+        f"[{i}] {d.get('title', '')}: {(d.get('content', '') or '')[:300]}"
+        for i, d in enumerate(docs, 1)
+    ]
+    messages = [
+        {"role": "system", "content": RERANK_SYSTEM_PROMPT.format(top_n=top_n)},
+        {"role": "user", "content": f"질문: {question}\n\n후보 문서:\n" + "\n".join(lines)},
+    ]
+    try:
+        completion = await client.chat(messages, temperature=temperature)
+        order = _parse_indices(extract_content(completion), len(docs))
+        chosen = [docs[i - 1] for i in order][:top_n]
+        if chosen:
+            return chosen
+    except (ValueError, KeyError, IndexError, TypeError):
+        pass
+    return docs[:top_n]  # 폴백: 입력 순서 상위
+
+
 async def answer_question(
     client: ChatClient,
     question: str,
@@ -55,13 +110,22 @@ async def answer_question(
     *,
     temperature: float = 0.2,
 ) -> dict[str, Any]:
-    """질문 + 문서로 근거 기반 답변을 생성한다. 사용한 문서를 sources 로 함께 반환."""
+    """질문 + 문서로 근거 기반 답변을 생성한다. 답변이 실제 인용한 문서만 sources 로 반환."""
     if not docs:
         raise ValueError("답변 근거로 쓸 본문 있는 문서가 없습니다.")
     completion = await client.chat(build_messages(question, docs), temperature=temperature)
     answer = extract_content(completion)
-    sources = [
+
+    all_sources = [
         {"index": i, "title": d.get("title", ""), "source": d.get("source", "")}
         for i, d in enumerate(docs, 1)
     ]
-    return {"answer": answer, "sources": sources, "usedDocCount": len(docs)}
+    cited = _cited_indices(answer, len(docs))
+    # 실제 인용된 문서만 근거로 표시(인용이 없으면 전체로 폴백)
+    sources = [all_sources[i - 1] for i in cited] if cited else all_sources
+    return {
+        "answer": answer,
+        "sources": sources,
+        "usedDocCount": len(docs),
+        "citedCount": len(cited),
+    }
