@@ -283,9 +283,8 @@ async def rag_query(req: RagQueryRequest):
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
-@app.post("/report/generate")
-async def report_generate(req: ReportGenerateRequest):
-    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트 초안을 생성한다."""
+async def _generate_report_result(req: ReportGenerateRequest) -> dict:
+    """리포트 생성 공통 로직(문서 수집 → 생성 → 자산 저장). 엔드포인트들이 공유."""
     digest_docs = collection.documents_for_digest(limit=req.digestLimit)
     topic_docs: dict[str, list] = {}
     for t in collection.list_topics()[: req.maxTopics]:
@@ -315,6 +314,24 @@ async def report_generate(req: ReportGenerateRequest):
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"리포트 생성 실패: {e}") from e
+
+
+@app.post("/report/generate")
+async def report_generate(req: ReportGenerateRequest):
+    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트 초안을 생성한다."""
+    return await _generate_report_result(req)
+
+
+@app.post("/report/document")
+async def report_document(req: ReportGenerateRequest):
+    """리포트를 생성하고 (선택) 템플릿을 적용해 Markdown 문서로 반환한다."""
+    result = await _generate_report_result(req)
+    markdown = report.render_report_markdown(result, template=req.template)
+    return {
+        "filename": f"MI리포트_제{req.issueNo}호.md",
+        "markdown": markdown,
+        "report": result,
+    }
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────

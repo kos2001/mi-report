@@ -138,3 +138,51 @@ def test_report_generate_no_documents_422(client, monkeypatch):
     monkeypatch.setattr(main, "get_client", lambda profile=None: RoutingFakeClient())
     r = client.post("/report/generate", json={})
     assert r.status_code == 422
+
+
+# ── 문서(Markdown) 렌더 + 템플릿 ──────────────────────────────────────────
+_SAMPLE_REPORT = {
+    "generatedAt": "2026-06-15",
+    "period": "6월 2주",
+    "issueNo": 53,
+    "overview": "이번 주 핵심은 HBM4 전환.",
+    "digest": {
+        "issueNo": 53,
+        "items": [
+            {"title": "HBM4 12단 전환", "impact": "high", "summary": "양산 2027",
+             "slsiRelevance": "베이스 다이 기회", "demandImpact": "수요 증가", "risk": "패키징 병목"},
+        ],
+    },
+    "topics": [
+        {"title": "HBM 수요", "category": "수요/시황", "summary": "가파른 증가", "insight": "캐파 병목"},
+    ],
+}
+
+
+def test_render_report_markdown_default_template():
+    from app import report
+    md = report.render_report_markdown(_SAMPLE_REPORT)
+    assert "주간 MI 리포트 제53호" in md
+    assert "6월 2주" in md and "2026-06-15" in md
+    assert "이번 주 핵심은 HBM4 전환." in md
+    assert "HBM4 12단 전환" in md and "패키징 병목" in md  # 다이제스트 항목 렌더
+    assert "HBM 수요" in md and "인사이트" in md            # 주제 렌더
+    assert "{{" not in md  # 모든 토큰 치환됨
+
+
+def test_render_report_markdown_custom_template():
+    from app import report
+    tmpl = "제{{issue_no}}호 / {{period}}\n총평: {{overview}}"
+    md = report.render_report_markdown(_SAMPLE_REPORT, template=tmpl)
+    assert md.startswith("제53호 / 6월 2주")
+    assert "총평: 이번 주 핵심은 HBM4 전환." in md
+    assert "다이제스트" not in md  # 템플릿에 없는 섹션은 나오지 않음
+
+
+def test_render_report_markdown_empty_sections():
+    from app import report
+    md = report.render_report_markdown(
+        {"issueNo": 1, "period": "", "generatedAt": "", "overview": "", "digest": None, "topics": []}
+    )
+    assert "생성된 다이제스트 항목이 없습니다" in md
+    assert "요약된 주제가 없습니다" in md
