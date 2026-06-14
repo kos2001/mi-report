@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type CollectedDoc,
@@ -12,11 +12,29 @@ import { Card, PageHeader, Tag } from "@/components/ui";
 
 type Tab = "sources" | "status" | "upload" | "documents";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "sources", label: "소스" },
-  { key: "status", label: "상태·수집" },
-  { key: "upload", label: "업로드" },
-  { key: "documents", label: "문서" },
+// 4개 탭을 두 엔티티 그룹으로 묶어 시각적으로 구분한다.
+// 소스(어디서) = 소스 정의 + 상태·수집 / 문서(무엇을) = 업로드 + 조회.
+const TAB_GROUPS: {
+  group: string;
+  hint: string;
+  tabs: { key: Tab; label: string }[];
+}[] = [
+  {
+    group: "소스",
+    hint: "어디서 들어오나",
+    tabs: [
+      { key: "sources", label: "소스" },
+      { key: "status", label: "상태·수집" },
+    ],
+  },
+  {
+    group: "문서",
+    hint: "무엇이 들어왔나",
+    tabs: [
+      { key: "upload", label: "업로드" },
+      { key: "documents", label: "문서" },
+    ],
+  },
 ];
 
 const CONNECTOR_TYPES: SourceType[] = ["edm", "confluence", "news", "broker", "consensus"];
@@ -74,20 +92,43 @@ export default function CollectionPage() {
         </div>
       )}
 
-      <div className="mb-6 flex gap-1 border-b border-zinc-800">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm transition-colors ${
-              tab === t.key
-                ? "border-sky-400 font-medium text-zinc-50"
-                : "border-transparent text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-6">
+        <div className="flex flex-wrap items-end gap-3">
+          {TAB_GROUPS.map((g, gi) => (
+            <Fragment key={g.group}>
+              {gi > 0 && (
+                <span className="mb-2 select-none px-1 text-lg text-zinc-600" aria-hidden>
+                  →
+                </span>
+              )}
+              <div>
+                <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                  {g.group} <span className="text-zinc-600">· {g.hint}</span>
+                </p>
+                <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+                  {g.tabs.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setTab(t.key)}
+                      className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${
+                        tab === t.key
+                          ? "bg-zinc-800 font-medium text-zinc-50"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          <span className="text-zinc-400">소스</span>(어디서) →{" "}
+          <span className="text-zinc-400">문서</span>(무엇을). ‘상태·수집’의 ‘지금 수집’(자동)과
+          ‘업로드’(수동)가 각각 문서를 만들고, 모든 문서는 소스에 귀속됩니다.
+        </p>
       </div>
 
       {loading ? (
@@ -227,10 +268,54 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
   );
 }
 
+// 소스 출처 설정(config)을 사람이 읽기 쉬운 문자열로.
+function formatConfigValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+const CONFIG_LABEL: Record<string, string> = {
+  url: "URL",
+  urls: "URL 목록",
+  keywords: "키워드",
+  path: "경로",
+  space: "스페이스",
+  base_url: "기본 URL",
+  tickers: "티커",
+  sources: "하위 소스",
+  house: "리서치하우스",
+};
+
 // ── 상태·수집 탭 ─────────────────────────────────────────────────────
 function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [result, setResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [docsBySource, setDocsBySource] = useState<Record<string, CollectedDoc[]>>({});
+  const [docsLoading, setDocsLoading] = useState<string | null>(null);
+
+  const loadDocs = async (id: string) => {
+    setDocsLoading(id);
+    try {
+      const docs = await api.listDocuments({ source: id });
+      setDocsBySource((prev) => ({ ...prev, [id]: docs }));
+    } catch {
+      setDocsBySource((prev) => ({ ...prev, [id]: [] }));
+    } finally {
+      setDocsLoading(null);
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (!docsBySource[id]) loadDocs(id);
+  };
 
   const collect = async (s: Source) => {
     setBusyId(s.id);
@@ -240,6 +325,8 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
         ? "URL 미설정 — 실행 기록만 갱신(스텁)"
         : `${r.ingested}건 수집됨${r.errors && r.errors.length ? ` · 실패 ${r.errors.length}` : ""}`;
       setResult((prev) => ({ ...prev, [s.id]: { ok: true, msg } }));
+      // 수집 후 해당 소스의 문서 목록을 갱신(펼쳐져 있으면 즉시 반영)
+      loadDocs(s.id);
       onChange();
     } catch (e) {
       // 수집 실패(예: 본문 추출 실패)를 사용자에게 노출한다.
@@ -267,47 +354,137 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
         <tbody>
           {sources.map((s) => {
             const connector = CONNECTOR_TYPES.includes(s.type);
+            const open = expandedId === s.id;
+            const configEntries = Object.entries(s.config ?? {});
+            const docs = docsBySource[s.id];
             return (
-              <tr key={s.id} className="border-b border-zinc-800/60 last:border-0">
-                <td className="px-5 py-3 text-zinc-200">
-                  {s.name}{" "}
-                  <span className="ml-1 text-xs text-zinc-500">
-                    {SOURCE_TYPE_LABEL[s.type]}
-                  </span>
-                </td>
-                <td className="px-5 py-3">
-                  <span className={statusColor(s.status)}>● {s.status}</span>
-                </td>
-                <td className="px-5 py-3 font-mono text-xs text-zinc-400">
-                  {s.lastRun ?? "—"}
-                </td>
-                <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
-                  {s.count}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  {connector ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <button
-                        onClick={() => collect(s)}
-                        disabled={!s.enabled || busyId === s.id}
-                        title={!s.enabled ? "비활성 소스" : "URL 이 있으면 실제 수집, 없으면 스텁"}
-                        className="rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
-                      >
-                        {busyId === s.id ? "수집 중…" : "지금 수집"}
-                      </button>
-                      {result[s.id] && (
-                        <span
-                          className={`text-[11px] ${result[s.id].ok ? "text-emerald-400" : "text-red-400"}`}
-                        >
-                          {result[s.id].msg.slice(0, 60)}
+              <Fragment key={s.id}>
+                <tr className="border-b border-zinc-800/60 last:border-0">
+                  <td className="px-5 py-3 text-zinc-200">
+                    <button
+                      onClick={() => toggleExpand(s.id)}
+                      title="출처 상세 보기"
+                      className="flex items-center gap-2 text-left hover:text-sky-300"
+                    >
+                      <span className="w-3 text-xs text-zinc-500">{open ? "▾" : "▸"}</span>
+                      <span>
+                        {s.name}{" "}
+                        <span className="ml-1 text-xs text-zinc-500">
+                          {SOURCE_TYPE_LABEL[s.type]}
                         </span>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-zinc-600">업로드 전용</span>
-                  )}
-                </td>
-              </tr>
+                      </span>
+                    </button>
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={statusColor(s.status)}>● {s.status}</span>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-xs text-zinc-400">
+                    {s.lastRun ?? "—"}
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
+                    {s.count}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {connector ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <button
+                          onClick={() => collect(s)}
+                          disabled={!s.enabled || busyId === s.id}
+                          title={!s.enabled ? "비활성 소스" : "URL 이 있으면 실제 수집, 없으면 스텁"}
+                          className="rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+                        >
+                          {busyId === s.id ? "수집 중…" : "지금 수집"}
+                        </button>
+                        {result[s.id] && (
+                          <span
+                            className={`text-[11px] ${result[s.id].ok ? "text-emerald-400" : "text-red-400"}`}
+                          >
+                            {result[s.id].msg.slice(0, 60)}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-zinc-600">업로드 전용</span>
+                    )}
+                  </td>
+                </tr>
+                {open && (
+                  <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
+                    <td colSpan={5} className="px-5 py-4">
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        {/* 출처 설정 */}
+                        <div>
+                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                            출처 설정
+                          </p>
+                          <dl className="flex flex-col gap-1 text-xs">
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-zinc-500">타입</dt>
+                              <dd className="text-zinc-300">{SOURCE_TYPE_LABEL[s.type]}</dd>
+                            </div>
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-zinc-500">활성</dt>
+                              <dd className="text-zinc-300">{s.enabled ? "예" : "아니오"}</dd>
+                            </div>
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-zinc-500">생성일</dt>
+                              <dd className="font-mono text-zinc-400">{s.createdAt}</dd>
+                            </div>
+                            {configEntries.length === 0 ? (
+                              <p className="mt-1 text-zinc-600">추가 설정 없음</p>
+                            ) : (
+                              configEntries.map(([k, v]) => (
+                                <div key={k} className="flex gap-2">
+                                  <dt className="w-20 shrink-0 text-zinc-500">
+                                    {CONFIG_LABEL[k] ?? k}
+                                  </dt>
+                                  <dd className="break-all text-zinc-300">
+                                    {k === "url" ? (
+                                      <a
+                                        href={String(v)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-sky-400 hover:underline"
+                                      >
+                                        {formatConfigValue(v)}
+                                      </a>
+                                    ) : (
+                                      formatConfigValue(v)
+                                    )}
+                                  </dd>
+                                </div>
+                              ))
+                            )}
+                          </dl>
+                        </div>
+                        {/* 수집된 문서 */}
+                        <div>
+                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                            수집된 문서 {docs ? `(${docs.length})` : ""}
+                          </p>
+                          {docsLoading === s.id ? (
+                            <p className="text-xs text-zinc-500">불러오는 중…</p>
+                          ) : !docs || docs.length === 0 ? (
+                            <p className="text-xs text-zinc-600">이 소스로 수집된 문서가 없습니다.</p>
+                          ) : (
+                            <ul className="flex flex-col gap-1.5">
+                              {docs.map((d) => (
+                                <li key={d.id} className="flex items-center gap-2 text-xs">
+                                  <span className="truncate text-zinc-300">{d.title}</span>
+                                  {d.topic && <Tag>{d.topic}</Tag>}
+                                  <span className="ml-auto shrink-0 font-mono text-zinc-500">
+                                    {d.createdAt}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>
