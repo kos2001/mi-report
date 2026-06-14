@@ -1,48 +1,69 @@
-"""게이트웨이 클라이언트의 URL/헤더 구성 테스트 (네트워크 없음)."""
+"""LLM 클라이언트(agno + OpenRouter) 테스트 — 네트워크 없이 검증.
+
+agno Agent 구성을 페이크로 치환해, 메시지→프롬프트 매핑과 OpenAI 호환 응답
+래핑, API 키 누락 처리만 단위 검증한다.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 
-from app.gateway import HermesGatewayClient
-from app.profiles import Profile, ProviderConfig
+import pytest
+
+from app import gateway
 
 
-def _fake_profile() -> Profile:
-    provider = ProviderConfig(
-        name="hermes-gateway",
-        type="openai-compatible",
-        base_url="http://127.0.0.1:8642/v1",
-        key_env="HERMES_GATEWAY_API_KEY",
-        extra_headers={"X-Test": "1"},
+class FakeResp:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class FakeAgent:
+    """agno Agent 대역 — arun 이 .content 를 가진 응답을 돌려준다."""
+
+    def __init__(self, content: str = "응답"):
+        self._content = content
+        self.last_prompt: str | None = None
+
+    async def arun(self, prompt: str):
+        self.last_prompt = prompt
+        return FakeResp(self._content)
+
+
+def test_chat_wraps_openai_shape(monkeypatch):
+    fake = FakeAgent("안녕하세요")
+    monkeypatch.setattr(
+        gateway.LLMClient, "_build_agent",
+        lambda self, model, temperature, instructions: fake,
     )
-    return Profile(
-        name="test", path=Path("/tmp/test"), model="hermes-agent",
-        provider_name="hermes-gateway", base_url="http://127.0.0.1:8642/v1",
-        providers={"hermes-gateway": provider}, has_env=True, has_soul=False,
-    )
+    c = gateway.LLMClient()
+    out = asyncio.run(c.chat(
+        [{"role": "system", "content": "시스템"}, {"role": "user", "content": "질문입니다"}],
+        temperature=0.2,
+    ))
+    # OpenAI 호환 형태로 content 추출 가능
+    assert out["choices"][0]["message"]["content"] == "안녕하세요"
+    # 단일 user 메시지는 그대로 프롬프트가 된다(시스템은 instructions 로 분리)
+    assert fake.last_prompt == "질문입니다"
 
 
-def test_url_building_for_v1_and_api_paths():
-    c = HermesGatewayClient(_fake_profile())
-    assert c._url("/v1/chat/completions") == "http://127.0.0.1:8642/v1/chat/completions"
-    assert c._url("/v1/runs") == "http://127.0.0.1:8642/v1/runs"
-    assert c._url("/api/sessions") == "http://127.0.0.1:8642/api/sessions"
-    assert c._url("/health") == "http://127.0.0.1:8642/health"
+def test_to_prompt_separates_system_and_joins_convo():
+    system, prompt = gateway.LLMClient._to_prompt([
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "U1"},
+        {"role": "assistant", "content": "A1"},
+        {"role": "user", "content": "U2"},
+    ])
+    assert system == ["S"]
+    assert "U1" in prompt and "A1" in prompt and "U2" in prompt
 
 
-def test_headers_include_bearer_and_session(monkeypatch):
-    monkeypatch.setenv("HERMES_GATEWAY_API_KEY", "test-token-123")
-    c = HermesGatewayClient(_fake_profile())
-    h = c._headers(session_id="sess-1", session_key="key-1")
-    assert h["Authorization"] == "Bearer test-token-123"
-    assert h["X-Hermes-Session-Id"] == "sess-1"
-    assert h["X-Hermes-Session-Key"] == "key-1"
-    assert h["X-Test"] == "1"  # provider extra_headers 병합
+def test_chat_requires_api_key(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    c = gateway.LLMClient()
+    with pytest.raises(gateway.LLMError):
+        asyncio.run(c.chat([{"role": "user", "content": "x"}]))
 
 
-def test_headers_without_key(monkeypatch):
-    monkeypatch.delenv("HERMES_GATEWAY_API_KEY", raising=False)
-    c = HermesGatewayClient(_fake_profile())
-    h = c._headers()
-    assert "Authorization" not in h
+def test_hermes_alias_kept_for_compat():
+    assert gateway.HermesGatewayError is gateway.LLMError

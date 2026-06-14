@@ -1,27 +1,24 @@
-# MI Report 전용 Hermes Gateway 연결 프로파일 (OpenAI 호환)
-# Hermes Agent 프로파일 'mi-report'(gpt-5.5, default 복제)의 api_server 에 연결한다.
-# 해당 게이트웨이: `mi-report gateway run` → api_server 포트 8644.
+# MI Report 전용 LLM 연결 프로파일 — agno + OpenRouter (OpenAI 호환)
+# 참조: gitspace/lsi_error_analyzer. LLM 호출은 app/gateway.py(LLMClient)가
+# OPENROUTER_* 환경변수(.env)를 직접 읽어 agno 의 OpenRouter 모델로 수행한다.
 
 model:
-  default: "hermes-agent"          # Hermes Gateway 가 /v1/models 로 광고하는 모델명
-  provider: "hermes-gateway"       # 아래 providers 맵의 키와 일치
-  base_url: "http://127.0.0.1:8644/v1"
+  default: "deepseek/deepseek-v4-flash"  # OPENROUTER_MODEL 로 재정의 가능
+  provider: "openrouter"
+  base_url: "https://openrouter.ai/api/v1"
 
-# OpenAI 호환 provider 정의.
-# api_key 는 .env 의 key_env 변수에서 읽는다 (코드에 키를 넣지 않는다).
+# OpenAI 호환 provider 정의. api_key 는 .env 의 key_env 변수에서 읽는다.
 providers:
-  hermes-gateway:
+  openrouter:
     type: "openai-compatible"
-    base_url: "http://127.0.0.1:8644/v1"
-    key_env: "HERMES_GATEWAY_API_KEY"
+    base_url: "https://openrouter.ai/api/v1"
+    key_env: "OPENROUTER_API_KEY"
     extra_headers:
       {}
 
 fallback_providers: []
 
-# 에이전트 호출 기본값
+# 호출 기본값
 agent:
-  max_turns: 30
-  request_timeout: 1800
+  request_timeout: 120
   api_max_retries: 3
-  reasoning_effort: medium

@@ -10,6 +10,8 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.7",
     "python-multipart>=0.0.9",
+    "agno>=2.6",          # LLM 엔진(OpenRouter 모델 래핑)
+    "openai>=1.0",        # agno OpenRouter 백엔드 의존
 ]
 
 [project.optional-dependencies]
