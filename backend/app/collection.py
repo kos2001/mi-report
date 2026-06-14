@@ -285,7 +285,7 @@ def add_crawled_document(
             "UPDATE sources SET count = count + 1, status='정상', last_run=? WHERE id=?",
             (_now(), source_id),
         )
-        _index_content(conn, doc_id, body)  # 본문 RAG 검색 색인
+        _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
 
@@ -310,16 +310,18 @@ def collect_source(sid: str) -> dict[str, Any]:
 
 
 # ── 문서 ───────────────────────────────────────────────────────────────
-def _fts_match(q: str) -> str | None:
+def _fts_match(q: str, *, op: str = "AND") -> str | None:
     """사용자 검색어를 안전한 FTS5 MATCH 식으로 변환(토큰별 접두 매칭).
 
     각 토큰을 따옴표로 감싸(특수문자 무력화) 접두(*)로 매칭한다.
-    예: 'HBM 시장' -> '"HBM"* "시장"*'
+    op="AND"(기본): 모든 토큰 포함(정밀 검색). 예: 'HBM 시장' -> '"HBM"* "시장"*'
+    op="OR": 한 토큰이라도 포함(재현율 우선, RAG 검색용). BM25 가 관련도로 정렬한다.
     """
     tokens = [t for t in re.split(r"\s+", q.strip()) if t]
     if not tokens:
         return None
-    return " ".join('"' + t.replace('"', '""') + '"*' for t in tokens)
+    joiner = " OR " if op == "OR" else " "
+    return joiner.join('"' + t.replace('"', '""') + '"*' for t in tokens)
 
 
 def _read_path_text(path: str | None, *, max_chars: int | None = None) -> str | None:
@@ -338,34 +340,61 @@ def _read_path_text(path: str | None, *, max_chars: int | None = None) -> str | 
     return text[:max_chars] if max_chars else text
 
 
-def _index_content(conn: sqlite3.Connection, doc_id: str, text: str | None) -> None:
-    """본문 FTS 색인 갱신(있으면 교체). RAG 검색이 본문까지 매칭하도록."""
+def _index_content(conn: sqlite3.Connection, doc_id: str, text: str | None,
+                   *, title: str | None = None, topic: str | None = None) -> None:
+    """본문 FTS 색인 갱신(있으면 교체). RAG 검색이 제목·주제·본문까지 매칭하도록.
+
+    제목·주제를 본문 앞에 함께 색인한다(핵심어가 제목에만 있는 경우의 회수율 개선).
+    """
     conn.execute("DELETE FROM documents_content_fts WHERE doc_id=?", (doc_id,))
-    if text and text.strip():
+    body = "\n".join(p.strip() for p in (title, topic, text) if p and p.strip())
+    if body:
         conn.execute(
-            "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (doc_id, text)
+            "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (doc_id, body)
         )
 
 
 def _backfill_content_fts(conn: sqlite3.Connection) -> None:
     """본문 FTS 에 아직 없는 문서를 디스크에서 읽어 색인(기존 DB 마이그레이션)."""
     rows = conn.execute(
-        "SELECT d.id, d.path FROM documents d "
+        "SELECT d.id, d.path, d.title, d.topic FROM documents d "
         "LEFT JOIN documents_content_fts f ON f.doc_id = d.id "
         "WHERE f.doc_id IS NULL"
     ).fetchall()
     for r in rows:
         text = _read_path_text(r["path"])
-        if text:
+        body = "\n".join(
+            p.strip() for p in (r["title"], r["topic"], text) if p and p.strip()
+        )
+        if body:
             conn.execute(
-                "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (r["id"], text)
+                "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (r["id"], body)
             )
+
+
+def rebuild_content_fts() -> int:
+    """모든 문서의 본문 FTS 를 제목+주제+본문으로 재구축한다(일회성 유지보수).
+
+    기존에 본문만 색인된 문서를 제목·주제 포함으로 갱신해 회수율 개선을 소급 적용한다.
+    재색인된 문서 수를 반환한다.
+    """
+    n = 0
+    with _conn() as conn:
+        rows = conn.execute("SELECT id, path, title, topic FROM documents").fetchall()
+        for r in rows:
+            text = _read_path_text(r["path"])
+            _index_content(conn, r["id"], text, title=r["title"], topic=r["topic"])
+            n += 1
+    return n
 
 
 def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
                      source_id: str | None = None) -> list[dict[str, Any]]:
-    """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트)."""
-    match = _fts_match(query) if query else None
+    """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트).
+
+    RAG 회수율을 위해 OR 매칭(한 토큰이라도 포함)을 쓰고 BM25 로 관련도 정렬한다.
+    """
+    match = _fts_match(query, op="OR") if query else None
     if not match:
         return []
     params: list[Any] = [match]
@@ -654,6 +683,6 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
             "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
             (_now(), src["id"]),
         )
-        _index_content(conn, doc_id, text)  # 본문 RAG 검색 색인
+        _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
