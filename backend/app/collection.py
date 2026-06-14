@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import assets, config
+from . import assets, config, synonyms
 
 SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
@@ -393,8 +393,9 @@ def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
     """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트).
 
     RAG 회수율을 위해 OR 매칭(한 토큰이라도 포함)을 쓰고 BM25 로 관련도 정렬한다.
+    도메인 동의어로 질의를 확장해 동의어/약어 격차를 메운다.
     """
-    match = _fts_match(query, op="OR") if query else None
+    match = _fts_match(synonyms.expand_query(query), op="OR") if query else None
     if not match:
         return []
     params: list[Any] = [match]
