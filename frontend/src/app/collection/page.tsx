@@ -46,6 +46,20 @@ function statusColor(status: string) {
   return "text-zinc-400";
 }
 
+// 소스 삭제(확인창 포함). 소스와 그 소스로 수집된 문서까지 함께 제거된다.
+async function deleteSourceWithConfirm(s: Source, onChange: () => void) {
+  const msg =
+    s.count > 0
+      ? `'${s.name}' 소스와 수집된 문서 ${s.count}건을 모두 삭제할까요?`
+      : `'${s.name}' 소스를 삭제할까요?`;
+  if (!window.confirm(msg)) return;
+  try {
+    await api.deleteSource(s.id);
+  } finally {
+    onChange();
+  }
+}
+
 export default function CollectionPage() {
   const [tab, setTab] = useState<Tab>("sources");
   const [sources, setSources] = useState<Source[]>([]);
@@ -255,7 +269,7 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
                 {s.enabled ? "활성" : "비활성"}
               </button>
               <button
-                onClick={() => api.deleteSource(s.id).then(onChange)}
+                onClick={() => deleteSourceWithConfirm(s, onChange)}
                 className="rounded-md px-2.5 py-1 text-xs text-zinc-500 hover:text-red-400"
               >
                 삭제

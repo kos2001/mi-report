@@ -92,6 +92,20 @@ def test_delete_missing_returns_404(client):
     assert client.delete("/collection/documents/nope").status_code == 404
 
 
+def test_delete_source_removes_its_documents(client):
+    """소스 삭제 시 그 소스로 수집된 문서까지 제거되어 고아로 남지 않는다."""
+    from app import collection
+
+    sid = client.post("/collection/sources", json={"name": "삭제대상", "type": "news"}).json()["id"]
+    collection.add_crawled_document(sid, "삭제대상", "페이지", "본문내용", url="http://x/1")
+    assert len(client.get("/collection/documents", params={"source": sid}).json()["documents"]) == 1
+
+    assert client.delete(f"/collection/sources/{sid}").status_code == 204
+    assert all(s["id"] != sid for s in client.get("/collection/sources").json()["sources"])
+    all_docs = client.get("/collection/documents").json()["documents"]
+    assert all(d["sourceName"] != "삭제대상" for d in all_docs)
+
+
 def test_com_ingest_endpoint_registers_extracted_text(client):
     """COM 워커가 보내는 추출 텍스트 등록 경로."""
     r = client.post(
