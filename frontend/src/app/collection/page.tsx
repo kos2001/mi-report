@@ -12,11 +12,29 @@ import { Card, PageHeader, Tag } from "@/components/ui";
 
 type Tab = "sources" | "status" | "upload" | "documents";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "sources", label: "소스" },
-  { key: "status", label: "상태·수집" },
-  { key: "upload", label: "업로드" },
-  { key: "documents", label: "문서" },
+// 4개 탭을 두 엔티티 그룹으로 묶어 시각적으로 구분한다.
+// 소스(어디서) = 소스 정의 + 상태·수집 / 문서(무엇을) = 업로드 + 조회.
+const TAB_GROUPS: {
+  group: string;
+  hint: string;
+  tabs: { key: Tab; label: string }[];
+}[] = [
+  {
+    group: "소스",
+    hint: "어디서 들어오나",
+    tabs: [
+      { key: "sources", label: "소스" },
+      { key: "status", label: "상태·수집" },
+    ],
+  },
+  {
+    group: "문서",
+    hint: "무엇이 들어왔나",
+    tabs: [
+      { key: "upload", label: "업로드" },
+      { key: "documents", label: "문서" },
+    ],
+  },
 ];
 
 const CONNECTOR_TYPES: SourceType[] = ["edm", "confluence", "news", "broker", "consensus"];
@@ -74,20 +92,43 @@ export default function CollectionPage() {
         </div>
       )}
 
-      <div className="mb-6 flex gap-1 border-b border-zinc-800">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm transition-colors ${
-              tab === t.key
-                ? "border-sky-400 font-medium text-zinc-50"
-                : "border-transparent text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-6">
+        <div className="flex flex-wrap items-end gap-3">
+          {TAB_GROUPS.map((g, gi) => (
+            <Fragment key={g.group}>
+              {gi > 0 && (
+                <span className="mb-2 select-none px-1 text-lg text-zinc-600" aria-hidden>
+                  →
+                </span>
+              )}
+              <div>
+                <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                  {g.group} <span className="text-zinc-600">· {g.hint}</span>
+                </p>
+                <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+                  {g.tabs.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setTab(t.key)}
+                      className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${
+                        tab === t.key
+                          ? "bg-zinc-800 font-medium text-zinc-50"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          <span className="text-zinc-400">소스</span>(어디서) →{" "}
+          <span className="text-zinc-400">문서</span>(무엇을). ‘상태·수집’의 ‘지금 수집’(자동)과
+          ‘업로드’(수동)가 각각 문서를 만들고, 모든 문서는 소스에 귀속됩니다.
+        </p>
       </div>
 
       {loading ? (
