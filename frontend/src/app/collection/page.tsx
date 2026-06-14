@@ -161,26 +161,80 @@ export default function CollectionPage() {
 }
 
 // ── 소스 탭 ──────────────────────────────────────────────────────────
+// 소스 타입마다 필요한 입력(config)이 다르므로 타입별 필드 정의로 폼을 동적 구성한다.
+type FieldKind = "text" | "csv";
+type FieldDef = { key: string; label: string; placeholder: string; kind: FieldKind };
+
+// 폼에서 생성 가능한 타입(업로드는 ‘업로드’ 탭에서 파일로 생성되므로 제외).
+const CREATE_TYPES: SourceType[] = ["news", "broker", "consensus", "confluence", "edm"];
+
+const TYPE_FIELDS: Record<SourceType, FieldDef[]> = {
+  news: [
+    { key: "url", label: "수집 URL", placeholder: "https://news.naver.com/section/105", kind: "text" },
+    { key: "keywords", label: "키워드 (쉼표 구분)", placeholder: "반도체, HBM, 파운드리", kind: "csv" },
+  ],
+  broker: [
+    { key: "url", label: "수집 URL", placeholder: "https://consensus.hankyung.com/", kind: "text" },
+  ],
+  consensus: [
+    { key: "tickers", label: "티커 (쉼표 구분)", placeholder: "QCOM, MTK, 005930", kind: "csv" },
+  ],
+  confluence: [
+    { key: "base_url", label: "Confluence 기본 URL", placeholder: "https://<site>.atlassian.net/wiki", kind: "text" },
+  ],
+  edm: [
+    { key: "path", label: "EDM 경로", placeholder: "EDM 루트 경로", kind: "text" },
+  ],
+  upload: [],
+};
+
+const TYPE_HINT: Record<SourceType, string> = {
+  news: "기사/섹션 URL 의 본문을 가져와 문서로 저장합니다. 동적 포털 홈보다 기사 URL 을 권장.",
+  broker: "증권사 리포트 집계 페이지 URL. ‘지금 수집’이 실제로 페이지를 가져옵니다.",
+  consensus: "추적할 종목 티커 목록(쉼표 구분). 목표주가·투자의견 변동 감지용.",
+  confluence: "Atlassian Cloud wiki 기본 URL. 자격증명은 백엔드 .env(CONFLUENCE_EMAIL/API_TOKEN).",
+  edm: "사내 EDM 루트 경로(인제스트 워커가 사용).",
+  upload: "",
+};
+
 function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("news");
-  const [url, setUrl] = useState("");
+  const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const changeType = (t: SourceType) => {
+    setType(t);
+    setFields({}); // 타입이 바뀌면 이전 타입의 입력값은 초기화
+  };
+  const setField = (k: string, v: string) =>
+    setFields((prev) => ({ ...prev, [k]: v }));
 
   const add = async () => {
     if (!name.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      // URL 을 넣으면 config.url 로 저장 → '지금 수집'이 실제로 그 페이지를 가져온다.
-      const config = url.trim() ? { url: url.trim() } : undefined;
-      await api.createSource({ name: name.trim(), type, config });
+      // 타입별 필드를 config 로 변환(csv 는 배열로, 빈 값은 생략).
+      const config: Record<string, unknown> = {};
+      for (const f of TYPE_FIELDS[type]) {
+        const raw = (fields[f.key] ?? "").trim();
+        if (!raw) continue;
+        config[f.key] =
+          f.kind === "csv"
+            ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+            : raw;
+      }
+      await api.createSource({
+        name: name.trim(),
+        type,
+        config: Object.keys(config).length ? config : undefined,
+      });
       setName("");
-      setUrl("");
+      setFields({});
       onChange();
     } catch (e) {
-      // 실패를 조용히 무시하지 않고 사용자에게 노출한다(백엔드 미연동/오류 등).
       setError(
         e instanceof Error
           ? e.message
@@ -191,52 +245,65 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
     }
   };
 
+  const defs = TYPE_FIELDS[type];
+
   return (
     <div className="flex flex-col gap-5">
       <Card>
         <p className="mb-3 text-sm font-medium text-zinc-200">소스 추가</p>
-        <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !busy) add();
-            }}
-            placeholder="소스 이름"
-            className="w-44 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-          />
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !busy) add();
-            }}
-            placeholder="수집할 URL (선택) — 예: https://example.com/article"
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-          />
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value as SourceType)}
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-          >
-            {Object.entries(SOURCE_TYPE_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={add}
-            disabled={busy || !name.trim()}
-            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
-          >
-            {busy ? "추가 중…" : "추가"}
-          </button>
+        <div className="flex flex-col gap-3">
+          {/* 1행: 이름 + 타입 — 타입에 따라 아래 입력 폼이 바뀐다 */}
+          <div className="flex gap-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="소스 이름"
+              className="w-52 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+            />
+            <select
+              value={type}
+              onChange={(e) => changeType(e.target.value as SourceType)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+            >
+              {CREATE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {SOURCE_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 2행: 타입별 동적 입력 필드 */}
+          {defs.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {defs.map((f) => (
+                <label key={f.key} className="flex flex-col gap-1">
+                  <span className="text-[11px] text-zinc-500">{f.label}</span>
+                  <input
+                    value={fields[f.key] ?? ""}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !busy) add();
+                    }}
+                    placeholder={f.placeholder}
+                    className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-zinc-500">{TYPE_HINT[type]}</p>
+            <button
+              onClick={add}
+              disabled={busy || !name.trim()}
+              className="shrink-0 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+            >
+              {busy ? "추가 중…" : "추가"}
+            </button>
+          </div>
         </div>
-        <p className="mt-2 text-[11px] text-zinc-500">
-          URL 을 넣으면 ‘상태·수집’ 탭의 ‘지금 수집’이 그 페이지를 실제로 가져와 문서로 저장합니다.
-          (포털 홈처럼 동적인 페이지는 본문 추출이 부실할 수 있어 기사 URL 을 권장)
-        </p>
         {error && (
           <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
             {error}
@@ -258,15 +325,18 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* 활성 ↔ 비활성 토글: 현재 상태를 보여주고 클릭하면 전환된다 */}
               <button
                 onClick={() => api.updateSource(s.id, { enabled: !s.enabled }).then(onChange)}
-                className={`rounded-md px-2.5 py-1 text-xs ${
+                title={s.enabled ? "클릭하면 비활성화" : "클릭하면 활성화"}
+                aria-pressed={s.enabled}
+                className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                   s.enabled
-                    ? "bg-emerald-950/60 text-emerald-400"
-                    : "bg-zinc-800 text-zinc-500"
+                    ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/40"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-500 hover:text-zinc-300"
                 }`}
               >
-                {s.enabled ? "활성" : "비활성"}
+                {s.enabled ? "● 활성" : "○ 비활성"}
               </button>
               <button
                 onClick={() => deleteSourceWithConfirm(s, onChange)}
@@ -350,6 +420,16 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
       }));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // 하위 문서(subitem) 삭제 — 해당 소스의 문서 목록과 누적 카운트를 갱신한다.
+  const deleteDoc = async (sourceId: string, docId: string) => {
+    try {
+      await api.deleteDocument(docId);
+    } finally {
+      loadDocs(sourceId);
+      onChange();
     }
   };
 
@@ -489,6 +569,13 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                                   <span className="ml-auto shrink-0 font-mono text-zinc-500">
                                     {d.createdAt}
                                   </span>
+                                  <button
+                                    onClick={() => deleteDoc(s.id, d.id)}
+                                    title="이 문서 삭제"
+                                    className="shrink-0 rounded px-1.5 py-0.5 text-zinc-500 hover:text-red-400"
+                                  >
+                                    삭제
+                                  </button>
                                 </li>
                               ))}
                             </ul>
