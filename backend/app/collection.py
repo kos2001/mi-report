@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import assets, config
 
 SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
@@ -129,6 +129,8 @@ def init_db() -> None:
                     (uuid.uuid4().hex, name, type_, json.dumps(cfg, ensure_ascii=False),
                      status, last_run, count, _now()),
                 )
+    # 지식 자산(생성물·피드백) 테이블도 함께 초기화
+    assets.init_assets()
 
 
 def _row_to_source(row: sqlite3.Row) -> dict[str, Any]:

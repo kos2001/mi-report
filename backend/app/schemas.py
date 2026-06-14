@@ -113,6 +113,15 @@ class DigestGenerateRequest(BaseModel):
     profile: str | None = None
 
 
+class FeedbackRequest(BaseModel):
+    """생성물 피드백(자기 개선 신호)."""
+
+    kind: str = Field(..., description="대상 종류(digest/topic/competitor/report 등).")
+    ref: str | None = Field(default=None, description="대상 식별자(호수/주제/티커 등).")
+    rating: Literal["up", "down"]
+    note: str = ""
+
+
 class DigestSendRequest(BaseModel):
     """다이제스트 메일 발송 요청(생성된 초안을 그대로 전달)."""
 

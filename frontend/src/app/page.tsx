@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   api,
+  artifactsApi,
   digestApi,
   topicsApi,
   type GeneratedDigest,
@@ -65,22 +66,25 @@ export default function DashboardPage() {
   const [docCount, setDocCount] = useState(0);
   const [topicList, setTopicList] = useState<TopicListItem[]>([]);
   const [latest, setLatest] = useState<GeneratedDigest | null>(null);
+  const [assetCount, setAssetCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [overview, topics, digest] = await Promise.all([
+        const [overview, topics, digest, artifacts] = await Promise.all([
           api.collectionOverview(),
           topicsApi.list().catch(() => [] as TopicListItem[]),
           digestApi.latest().catch(() => null),
+          artifactsApi.count().catch(() => 0),
         ]);
         if (!alive) return;
         setSources(overview.sources);
         setDocCount(overview.documentCount);
         setTopicList(topics);
         setLatest(digest);
+        setAssetCount(artifacts);
         setError(null);
       } catch {
         if (alive) setError("백엔드 미연결 (http://localhost:8000)");
@@ -135,9 +139,9 @@ export default function DashboardPage() {
           <FlowStage
             href="/topics"
             step="③ AI 인텔리전스"
-            title="요약·분석·Q&A"
-            metric={`${taggedCount}건`}
-            sub="다이제스트·주제·경쟁사·Q&A"
+            title="생성물 누적"
+            metric={`${assetCount}건`}
+            sub="다이제스트·주제·경쟁사·리포트 (자산화)"
             accent={STAGE.ai}
           />
           <Arrow />
