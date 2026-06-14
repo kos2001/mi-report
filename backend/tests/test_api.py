@@ -24,7 +24,7 @@ def test_profiles_endpoint(client):
     names = [p["name"] for p in body["profiles"]]
     # 활성 프로파일은 환경(active_profile 파일)에 따라 달라지므로, 목록에 존재하는지만 검증.
     assert body["active"] in names
-    assert "hermes" in names  # 기본 프로파일은 항상 존재
+    assert "mi-report" in names  # 기본 프로파일은 항상 존재
 
 
 def test_sources_seeded(client):

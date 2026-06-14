@@ -34,10 +34,6 @@ class LLMError(RuntimeError):
         super().__init__(f"LLM 오류 {status}: {detail}")
 
 
-# 기존 import 명 하위호환(점진적 정리용 별칭).
-HermesGatewayError = LLMError
-
-
 class LLMClient:
     """agno + OpenRouter 백엔드의 OpenAI 호환 chat 클라이언트."""
 

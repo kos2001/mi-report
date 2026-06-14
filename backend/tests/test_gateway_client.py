@@ -63,7 +63,3 @@ def test_chat_requires_api_key(monkeypatch):
     c = gateway.LLMClient()
     with pytest.raises(gateway.LLMError):
         asyncio.run(c.chat([{"role": "user", "content": "x"}]))
-
-
-def test_hermes_alias_kept_for_compat():
-    assert gateway.HermesGatewayError is gateway.LLMError

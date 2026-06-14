@@ -92,9 +92,9 @@ export default function ManualPage() {
             문서 수집 → (자동 분류) → AI 생성(다이제스트 · 주제 · 경쟁사 · Q&A) → 주간 리포트 종합
           </p>
           <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-            수집된 문서를 입력으로, OpenAI 호환 게이트웨이(Hermes Gateway)에 연결된
-            에이전트가 구조화된 인텔리전스를 산출한다. 모든 생성물은 제공된 문서에만
-            근거하도록 제약하며, 단일 출처 항목은 교차검증 필요로 표시한다.
+            수집된 문서를 입력으로, OpenAI 호환 LLM(agno + OpenRouter)이 구조화된
+            인텔리전스를 산출한다. 모든 생성물은 제공된 문서에만 근거하도록 제약하며,
+            단일 출처 항목은 교차검증 필요로 표시한다.
           </p>
         </Card>
 
@@ -113,14 +113,14 @@ export default function ManualPage() {
               <p className="mt-1 text-xs text-zinc-500">localhost:8000 · /docs</p>
             </div>
             <div className="rounded-lg bg-zinc-800/50 px-4 py-3">
-              <p className="text-xs font-medium text-zinc-400">에이전트 게이트웨이</p>
-              <p className="mt-1 text-sm text-zinc-200">Hermes Gateway</p>
-              <p className="mt-1 text-xs text-zinc-500">OpenAI 호환 · 프로파일 교체 가능</p>
+              <p className="text-xs font-medium text-zinc-400">LLM 엔진</p>
+              <p className="mt-1 text-sm text-zinc-200">agno + OpenRouter</p>
+              <p className="mt-1 text-xs text-zinc-500">OpenAI 호환 · 모델 교체 가능</p>
             </div>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-zinc-500">
             수집 문서는 백엔드 SQLite(전문검색 FTS5 포함)에 저장된다. AI 생성 기능은
-            백엔드를 통해 게이트웨이를 호출하므로, 게이트웨이가 떠 있어야 동작한다.
+            OpenRouter API 키가 설정돼 있어야 동작한다.
           </p>
         </Card>
 
@@ -184,8 +184,8 @@ export default function ManualPage() {
               교차검증 필요로 표시된다. 다이제스트 초안·경쟁사 수치는 발송/인용 전 검토를 권장한다.
             </li>
             <li>
-              · <strong className="text-zinc-100">게이트웨이 의존</strong> — AI 생성 기능은
-              Hermes Gateway가 떠 있을 때만 동작한다. 데이터 수집·문서 관리는 게이트웨이 없이도 동작한다.
+              · <strong className="text-zinc-100">LLM 키 의존</strong> — AI 생성 기능은
+              OpenRouter API 키가 설정돼 있을 때만 동작한다. 데이터 수집·문서 관리·검색은 키 없이도 동작한다.
             </li>
             <li>
               · <strong className="text-zinc-100">현황</strong> — 데이터 수집은 백엔드

@@ -1,8 +1,8 @@
 """MI 파이프라인 단독 실행기 (cron/launchd 용).
 
 수집(소스 URL fetch → 본문 추출 → 문서 저장) → 다이제스트 생성·저장을 한 번에
-돌린다. uvicorn 없이 동작하지만, 다이제스트 생성은 Hermes 게이트웨이가 떠 있어야
-한다(활성 프로파일의 base_url).
+돌린다. uvicorn 없이 동작하지만, 다이제스트 생성은 OPENROUTER_API_KEY 가 설정돼
+있어야 한다(활성 프로파일 .env).
 
 사용:
   cd backend && .venv/bin/python -m tools.run_pipeline [--issue N] [--period STR] [--limit N]

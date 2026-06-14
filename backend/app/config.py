@@ -1,7 +1,7 @@
 """백엔드 전역 설정.
 
 프로파일 루트와 활성 프로파일 위치를 결정한다.
-구조는 hermes-desktop-new 를 따른다:
+프로파일 구조:
   - <root>/profiles/<name>/config.yaml | .env | SOUL.md
   - <root>/active_profile           (활성 프로파일 이름; 없으면 DEFAULT)
 환경변수로 재정의 가능:
@@ -21,7 +21,7 @@ PROFILES_DIR = BACKEND_HOME / "profiles"
 ACTIVE_PROFILE_FILE = BACKEND_HOME / "active_profile"
 
 # active_profile 파일도 없고 환경변수도 없을 때의 폴백
-DEFAULT_PROFILE = "hermes"
+DEFAULT_PROFILE = "mi-report"
 
 # 데이터 수집 저장소 (SQLite + 업로드 파일)
 DATA_DIR = Path(os.environ.get("MI_DATA_DIR", BACKEND_HOME / "data"))
