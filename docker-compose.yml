@@ -1,0 +1,24 @@
+# MI Report Agent — 백엔드 + 프론트엔드 로컬 오케스트레이션
+# 사용: OPENROUTER_API_KEY 등은 backend/profiles/mi-report/.env 에 두고 `docker compose up --build`
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MI_EMBEDDINGS=1
+      - MI_EMBED_MODEL=intfloat/multilingual-e5-large
+    env_file:
+      - ./backend/profiles/mi-report/.env   # OPENROUTER_API_KEY / CONFLUENCE_* 등
+    volumes:
+      - mi-data:/app/data                   # 수집 DB·업로드 영속화
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mi-data:
