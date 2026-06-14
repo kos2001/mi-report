@@ -12,16 +12,18 @@ from typing import Any
 
 import httpx
 
-from . import collection, confluence, config, digest, fetcher
+from . import collection, confluence, config, digest, fetcher, jira
 from .gateway import get_client
 
 
 async def collect_source(
     source: dict[str, Any], client: httpx.AsyncClient
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """한 소스를 수집한다. confluence 타입은 API 동기화, 그 외는 URL fetch."""
+    """한 소스를 수집한다. confluence/jira 는 API 동기화, 그 외는 URL fetch."""
     if source["type"] == "confluence":
         return await collect_confluence_source(source, client)
+    if source["type"] == "jira":
+        return await collect_jira_source(source, client)
 
     documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -64,6 +66,29 @@ async def collect_confluence_source(
     return documents, []
 
 
+async def collect_jira_source(
+    source: dict[str, Any], client: httpx.AsyncClient, *, limit: int = 50
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Jira 프로젝트 이슈를 가져와 문서로 동기화한다(기존 문서는 교체)."""
+    base, project, email, token = jira.config_from_source(source)
+    if not base or not project or not email or not token:
+        return [], [{"url": base or "(미설정)",
+                     "error": "Jira base_url/project_key/이메일/토큰 설정 필요"}]
+    try:
+        issues = await jira.fetch_issues(client, base, project, email, token, limit=limit)
+    except httpx.HTTPError as e:
+        return [], [{"url": base, "error": f"Jira API 실패: {e}"}]
+    # 재동기화: 기존 문서 제거 후 현재 이슈로 갱신
+    collection.delete_documents_by_source(source["id"])
+    documents = [
+        collection.add_crawled_document(
+            source["id"], source["name"], it["title"], it["text"], url=it["url"]
+        )
+        for it in issues
+    ]
+    return documents, []
+
+
 async def run_collection() -> dict[str, Any]:
     """URL 이 있는 활성 커넥터 소스를 모두 수집한다."""
     ingested = 0
@@ -72,8 +97,8 @@ async def run_collection() -> dict[str, Any]:
         for source in collection.list_sources():
             if source["type"] not in collection.CONNECTOR_TYPES or not source["enabled"]:
                 continue
-            # confluence 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
-            if source["type"] != "confluence" and not collection.source_urls(source):
+            # confluence/jira 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
+            if source["type"] not in ("confluence", "jira") and not collection.source_urls(source):
                 continue
             docs, errors = await collect_source(source, http)
             if not docs and errors:

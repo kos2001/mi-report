@@ -7,6 +7,7 @@ export const API_BASE =
 export type SourceType =
   | "edm"
   | "confluence"
+  | "jira"
   | "news"
   | "broker"
   | "consensus"
@@ -329,6 +330,7 @@ export const feedbackApi = {
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",
+  jira: "Jira",
   news: "뉴스",
   broker: "증권사",
   consensus: "컨센서스",
