@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import collection
-from tests.eval_data import EVAL_CORPUS, EVAL_QUERIES, HARD_QUERIES
+from app import collection, embeddings
+from tests.eval_data import EVAL_CORPUS, EVAL_QUERIES, HARD_QUERIES, PARAPHRASE_QUERIES
 
 K_VALUES = (1, 3, 5)
 # 현재 구현(제목+주제 색인 + OR 매칭)에서 달성되는 수준을 회귀 가드로 고정.
@@ -88,6 +88,46 @@ def test_synonym_coverage(isolated, capsys):
             print(line)
         print(f"  recall@5={recall:.2f}  (BM25 단독 0.75 → 동의어 확장)")
     assert recall == 1.0, f"동의어 사전 커버리지 회귀: {recall:.2f}"
+
+
+def _recall_at_5(queries, id_map, search_fn) -> tuple[float, list[str]]:
+    hit = 0
+    rows = []
+    for question, expected_ids, note in queries:
+        want = {id_map[e] for e in expected_ids}
+        ranked = [d["id"] for d in search_fn(question, limit=5)]
+        ok = bool(want & set(ranked))
+        hit += int(ok)
+        rows.append(f"  {'hit ' if ok else 'miss'}  {question}  ({note})")
+    return hit / len(queries), rows
+
+
+def test_hybrid_beats_bm25_on_paraphrase(isolated, monkeypatch, capsys):
+    """사전 밖 패러프레이즈 셋에서 의미 임베딩 하이브리드가 BM25(+동의어)를 능가/동률.
+
+    fastembed/모델이 없으면 skip(코어 회귀 가드와 독립). 측정으로 가치를 입증한다.
+    """
+    pytest.importorskip("fastembed")
+    pytest.importorskip("numpy")
+    monkeypatch.setenv("MI_EMBEDDINGS", "1")
+    embeddings.reset_for_test()
+    if not embeddings.active():
+        pytest.skip("임베딩 모델 로드 불가(오프라인) — 하이브리드 평가 생략")
+
+    id_map = _load_corpus()  # 임베딩 활성 상태 → 적재 시 문서 임베딩도 저장됨
+    assert collection.rebuild_embeddings() >= len(EVAL_CORPUS)
+
+    bm25_recall, _ = _recall_at_5(PARAPHRASE_QUERIES, id_map, collection.search_documents)
+    hybrid_recall, rows = _recall_at_5(PARAPHRASE_QUERIES, id_map, collection.hybrid_search)
+
+    with capsys.disabled():
+        print("\n── 사전 밖 패러프레이즈 셋 (하이브리드) ─────────────")
+        for line in rows:
+            print(line)
+        print(f"  BM25+동의어 recall@5={bm25_recall:.2f}  →  하이브리드 recall@5={hybrid_recall:.2f}")
+
+    assert hybrid_recall >= bm25_recall, (bm25_recall, hybrid_recall)
+    assert hybrid_recall >= 0.66, hybrid_recall
 
 
 @pytest.mark.parametrize("question,expected_ids,note", EVAL_QUERIES)
