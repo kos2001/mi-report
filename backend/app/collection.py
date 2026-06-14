@@ -109,7 +109,11 @@ def init_db() -> None:
         if cur.fetchone()["n"] == 0:
             seed = [
                 ("EDM 수집", "edm", {"path": "EDM 루트 경로"}, "정상", "2026-06-12 06:00", 128),
-                ("Confluence 동기화", "confluence", {"space": "MI", "base_url": ""}, "정상", "2026-06-12 06:10", 54),
+                # 실제 Confluence Cloud(wiki) — '지금 수집'이 API 로 페이지를 가져온다.
+                # 자격증명은 .env 의 CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN.
+                ("Confluence 동기화", "confluence",
+                 {"base_url": "https://oseokkim2001-1776691210112.atlassian.net/wiki"},
+                 "정상", "2026-06-12 06:10", 54),
                 # 실제 뉴스 섹션(네이버 IT/과학) — '지금 수집'이 실제 fetch.
                 ("뉴스 크롤링", "news",
                  {"url": "https://news.naver.com/section/105", "keywords": ["반도체", "HBM", "파운드리"]},
@@ -528,6 +532,21 @@ def delete_document(doc_id: str) -> None:
             Path(row["path"]).unlink(missing_ok=True)
         conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
         _index_content(conn, doc_id, None)  # 본문 FTS 에서도 제거
+
+
+def delete_documents_by_source(source_id: str) -> int:
+    """소스의 모든 문서를 삭제한다(커넥터 재동기화용). 삭제 건수 반환."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, path FROM documents WHERE source_id=?", (source_id,)
+        ).fetchall()
+        for r in rows:
+            if r["path"]:
+                Path(r["path"]).unlink(missing_ok=True)
+            conn.execute("DELETE FROM documents WHERE id=?", (r["id"],))
+            _index_content(conn, r["id"], None)
+        conn.execute("UPDATE sources SET count=0 WHERE id=?", (source_id,))
+    return len(rows)
 
 
 def _ensure_named_source(conn: sqlite3.Connection, name: str, type_: str) -> sqlite3.Row:

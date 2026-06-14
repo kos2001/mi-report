@@ -237,15 +237,15 @@ async def collection_collect(source_id: str):
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"소스 없음: {source_id}") from e
 
-    urls = collection.source_urls(source)
-    if not urls:
-        # URL 없음 → 기존 스텁 동작(검증 포함)
+    is_confluence = source["type"] == "confluence"
+    if not is_confluence and not collection.source_urls(source):
+        # URL 없는 비-confluence 커넥터 → 기존 스텁 동작(검증 포함)
         try:
             return collection.collect_source(source_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # URL 있음 → 실제 수집. 커넥터/활성 검증.
+    # 실제 수집(URL 또는 confluence). 커넥터/활성 검증.
     if source["type"] not in collection.CONNECTOR_TYPES:
         raise HTTPException(status_code=400, detail="업로드 소스는 수집 트리거 대상이 아닙니다.")
     if not source["enabled"]:
