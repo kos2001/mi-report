@@ -158,6 +158,7 @@ export default function CompetitorsPage() {
   const [generated, setGenerated] = useState<GeneratedCompetitor | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(true);
 
   async function handleAnalyze() {
     if (!name.trim()) {
@@ -187,6 +188,60 @@ export default function CompetitorsPage() {
         title="경쟁사 IR 트래킹"
         description="분기 IR 발표 기반 재무 요약 자동 생성, 컨퍼런스 콜 요약, 전분기 대비 변화, 증권사 컨센서스 갱신 추적"
       />
+
+      {/* 왜 필요한가 · 사용법 (의도 안내) */}
+      <Card className="mb-6 border-violet-900/40 bg-violet-950/20">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-violet-200">
+            ⓘ 왜 필요한가 · 사용법
+          </h2>
+          <button
+            onClick={() => setShowHelp((v) => !v)}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            {showHelp ? "접기" : "펼치기"}
+          </button>
+        </div>
+        {showHelp && (
+          <div className="mt-3 grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-400">
+                왜 필요한가
+              </p>
+              <p className="mt-1.5 leading-relaxed text-zinc-300">
+                경쟁사 분기 실적·컨퍼런스콜은 수요·ASP·전방시장(핸드셋/차량/AI)·고객 동향의
+                <strong className="text-zinc-100"> 선행 신호</strong>입니다. 자사 SoC 경쟁 포지셔닝과
+                직결되지만, 길고 분산된 IR 문서를 매분기 모두 읽기는 어렵습니다. 이를
+                <strong className="text-zinc-100"> 구조화·비교 가능한 인텔리전스</strong>로 자동화합니다.
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-400">
+                무엇을 산출
+              </p>
+              <ul className="mt-1.5 flex flex-col gap-1 leading-relaxed text-zinc-300">
+                <li>· 재무 요약 (QoQ/YoY)</li>
+                <li>· 컨퍼런스콜 요약</li>
+                <li>· 전분기 대비 변화 (톤·내러티브)</li>
+                <li>· 증권사 컨센서스 갱신 (상향/하향)</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-400">
+                사용법
+              </p>
+              <ol className="mt-1.5 flex flex-col gap-1 leading-relaxed text-zinc-300">
+                <li>① 데이터 수집에 경쟁사 IR·실적·콜 문서를 넣고 주제 태깅</li>
+                <li>② 아래에 이름·티커·문서 주제 입력</li>
+                <li>③ ‘AI 분석 생성’ 클릭</li>
+              </ol>
+              <p className="mt-2 text-[11px] text-zinc-500">
+                문서에 없는 수치는 비워 둡니다(환각 방지). 단일 출처는 교차검증 필요로 표시됩니다.
+              </p>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* AI 경쟁사 분석 생성 패널 */}
       <Card className="mb-8">
