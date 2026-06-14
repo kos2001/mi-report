@@ -21,6 +21,8 @@ from .profiles import load_profile
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+# 다이제스트/리포트는 긴 JSON 을 산출하므로 충분한 출력 토큰이 필요(미설정 시 truncation).
+DEFAULT_MAX_TOKENS = 8000
 
 
 class LLMError(RuntimeError):
@@ -42,6 +44,10 @@ class LLMClient:
     def __init__(self) -> None:
         self.model = os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL)
         self.base_url = os.getenv("OPENROUTER_BASE_URL", DEFAULT_BASE_URL)
+        try:
+            self.max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
+        except ValueError:
+            self.max_tokens = DEFAULT_MAX_TOKENS
 
     def _build_agent(self, model: str | None, temperature: float, instructions: list[str]):
         """요청마다 가벼운 Agent 를 구성한다(시스템 메시지는 instructions 로)."""
@@ -58,6 +64,7 @@ class LLMClient:
                 api_key=api_key,
                 base_url=self.base_url,
                 temperature=temperature,
+                max_tokens=self.max_tokens,
             ),
             instructions=instructions or None,
             markdown=False,
