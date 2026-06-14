@@ -63,11 +63,16 @@ def test_run_collection_only_url_connectors(client, monkeypatch):
         "/collection/sources",
         json={"name": "URL뉴스", "type": "news", "config": {"url": "https://a.com/1"}},
     )
-    # URL 없는 커넥터(시드된 것들) + 업로드는 건너뛰어야 한다
     monkeypatch.setattr(fetcher, "fetch_url", _fake_fetch)
     result = asyncio.run(pipeline.run_collection())
-    assert result["ingested"] == 1
-    assert [s["source"] for s in result["sources"]] == ["URL뉴스"]
+    names = [s["source"] for s in result["sources"]]
+    # URL 이 있는 커넥터만 수집된다: 추가한 URL뉴스 + 시드 broker(한경 컨센서스).
+    assert "URL뉴스" in names
+    assert "증권사 리포트 수집" in names
+    # URL 없는 시드 커넥터는 제외
+    assert "뉴스 크롤링" not in names
+    assert "EDM 수집" not in names
+    assert result["ingested"] == len(names)
 
 
 def test_run_digest_saves_and_latest_loads(client, monkeypatch, isolated):
@@ -101,7 +106,9 @@ def test_run_pipeline_end_to_end(client, monkeypatch):
     monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
 
     result = asyncio.run(pipeline.run_pipeline(issue_no=1, period="자동"))
-    assert result["collected"]["ingested"] == 1
+    # 추가한 URL뉴스 + 시드 broker 가 수집된다.
+    assert result["collected"]["ingested"] >= 1
+    assert "URL뉴스" in [s["source"] for s in result["collected"]["sources"]]
     assert result["digest"] is not None
     assert result["digest"]["items"][0]["title"] == "수집 기반 항목"
 
