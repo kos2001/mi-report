@@ -1,54 +1,54 @@
 # MI Report Agent — Backend
 
-Hermes Gateway(OpenAI 호환)를 **LLM/에이전트 게이트웨이**로 사용하는 FastAPI 백엔드.
-Hermes Agent CLI 의 전체 기능(에이전틱 run + 툴셋, 세션, 승인, 스트리밍)을 HTTP 로 노출한다.
+**agno + OpenRouter**(OpenAI 호환)를 LLM 엔진으로 쓰는 FastAPI 백엔드.
+수집 → 분류 → AI 생성(다이제스트·주제·경쟁사·RAG·리포트)을 제공한다.
 
-## 프로파일 구조 (hermes-desktop-new 참조)
+## 프로파일 구조
 
-연결 설정은 **프로파일**로 관리한다. 프로파일만 갈아끼우면 다른 게이트웨이로도 동작한다.
+LLM 연결 설정은 **프로파일**로 관리한다. provider 만 갈아끼우면 다른 OpenAI 호환
+엔드포인트(온프렘 모델 등)로도 동작한다.
 
 ```
 backend/
-  active_profile            # 활성 프로파일 이름 (예: hermes)
+  active_profile            # 활성 프로파일 이름 (기본: mi-report)
   profiles/
-    hermes/
+    mi-report/
       config.yaml           # model.default / model.provider / model.base_url / providers
-      .env                  # 시크릿 (HERMES_GATEWAY_API_KEY) — .env.example 복사해서 생성
-      .env.example
-      SOUL.md               # 페르소나 (선택)
+      .env                  # 시크릿 (OPENROUTER_API_KEY 등) — .gitignore 처리
 ```
 
-- 프로파일 이름 규칙: `^[a-z0-9_][a-z0-9_-]{0,63}$` (hermes-desktop-new 와 동일)
-- 활성 프로파일 우선순위: 환경변수 `MI_ACTIVE_PROFILE` > `active_profile` 파일 > 기본값 `hermes`
+- 프로파일 이름 규칙: `^[a-z0-9_][a-z0-9_-]{0,63}$`
+- 활성 프로파일 우선순위: 환경변수 `MI_ACTIVE_PROFILE` > `active_profile` 파일 > 기본값 `mi-report`
 
 ## 설정
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e '.[embeddings]'      # 임베딩 하이브리드 검색 포함
 
-# 게이트웨이 토큰 설정 (Hermes 설치본의 platforms.api_server.token 값)
-cp profiles/hermes/.env.example profiles/hermes/.env
-# .env 의 HERMES_GATEWAY_API_KEY= 에 토큰을 채운다
+# profiles/mi-report/.env 에 LLM 키 설정
+#   OPENROUTER_API_KEY=sk-or-...
+#   OPENROUTER_MODEL=deepseek/deepseek-v4-flash   (선택, 기본값)
+#   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1  (선택)
+#   MI_EMBEDDINGS=1                               (선택, 의미 임베딩 검색)
 
-# 실행
 uvicorn app.main:app --reload --port 8000
 ```
 
-`profiles/hermes/config.yaml` 의 `base_url` 은 Hermes Gateway 주소(`http://127.0.0.1:8642/v1`)를 가리킨다.
-게이트웨이가 떠 있어야 한다(`hermes` 실행 시 api_server 플랫폼이 8642 포트로 기동).
+LLM 호출은 `app/gateway.py`(`LLMClient`)가 `OPENROUTER_*` 환경변수를 읽어 agno 의
+OpenRouter 모델로 수행한다. 키가 없으면 AI 생성 엔드포인트는 401 로 안내하고,
+데이터 수집·문서 관리·임베딩 검색은 키 없이도 동작한다.
 
-## 엔드포인트
+## 엔드포인트(주요)
 
 | 분류 | 메서드/경로 | 설명 |
 |---|---|---|
 | 프로파일 | `GET /profiles` | 프로파일 목록 + 활성 프로파일 |
-| 디스커버리 | `GET /gateway/capabilities` `…/models` `…/skills` `…/toolsets` | 게이트웨이 기능/모델/스킬/툴셋 |
-| 대화 | `POST /chat` | 단순 OpenAI 호환 chat completion |
-| 에이전틱 | `POST /runs` | 전체 툴셋으로 에이전트 run 시작 (run_id 반환) |
-| 에이전틱 | `GET /runs/{id}` `…/events`(SSE) `POST …/approval` `…/stop` | run 상태/이벤트/승인/중단 |
-| 세션 | `GET/POST /sessions`, `…/{id}/messages`, `…/chat`, `…/fork`, `DELETE …/{id}` | 세션 관리 |
+| 수집 | `… /collection/*` | 소스·문서·업로드·수집 트리거 |
+| AI 생성 | `POST /digest/generate` `…/topics/summarize` `…/competitors/analyze` `…/report/generate` | LLM 생성물 |
+| 문서 Q&A | `POST /rag/query` | 하이브리드 검색 + LLM 답변(근거 인용) |
+| 지식 자산 | `GET /artifacts` `POST /feedback` | 생성물 이력 + 피드백 |
 
 대화형 문서: 실행 후 `http://localhost:8000/docs`.
 
@@ -81,11 +81,11 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-격리된 임시 SQLite/업로드 디렉토리에서 수집·프로파일·게이트웨이 구성·COM 추출을 검증한다
+격리된 임시 SQLite/업로드 디렉토리에서 수집·프로파일·LLM 클라이언트·COM 추출을 검증한다
 (실제 DB·네트워크·COM 미사용).
 
 ## 보안
 
-- 게이트웨이 토큰은 프로파일 `.env` 에만 둔다. `.env` 와 `profiles/*/.env` 는 `.gitignore` 처리됨.
+- LLM API 키(OPENROUTER_API_KEY)는 프로파일 `.env` 에만 둔다. `.env` 와 `profiles/*/.env` 는 `.gitignore` 처리됨.
 - 코드에는 키를 넣지 않는다 (`config.yaml` 은 `key_env` 로 환경변수 이름만 가리킴).
 - COM 인제스트는 인가된 사용자의 정식 열람을 자동화하는 것이며, 추출 평문의 보관은 사내 정책을 따른다.

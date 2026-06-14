@@ -1,10 +1,8 @@
 """프로파일 로더.
 
-hermes-desktop-new 의 src/main/profiles.ts + utils.ts 구조를 미러링한다.
   - 프로파일 = profiles/<name>/ 디렉토리
   - config.yaml: model.default / model.provider / model.base_url / providers
   - .env: 시크릿 (key_env 가 가리키는 변수)
-  - SOUL.md: 페르소나 (게이트웨이 단순 패스스루에서는 선택)
   - active_profile 파일: 활성 프로파일 이름
   - 이름 규칙: ^[a-z0-9_][a-z0-9_-]{0,63}$
 """
@@ -35,7 +33,7 @@ def is_valid_profile_name(name: object) -> bool:
 
 @dataclass
 class ProviderConfig:
-    """OpenAI 호환 provider 연결 정보 (Hermes Gateway 등)."""
+    """OpenAI 호환 provider 연결 정보 (OpenRouter 등)."""
 
     name: str
     type: str
@@ -63,14 +61,14 @@ class Profile:
         """model.provider 가 가리키는 provider 를 반환.
 
         명시적 provider 정의가 없으면 model.base_url 기준으로 합성한다
-        (key_env 기본값: HERMES_GATEWAY_API_KEY)."""
+        (key_env 기본값: OPENROUTER_API_KEY)."""
         if self.provider_name in self.providers:
             return self.providers[self.provider_name]
         return ProviderConfig(
-            name=self.provider_name or "hermes-gateway",
+            name=self.provider_name or "openrouter",
             type="openai-compatible",
             base_url=self.base_url,
-            key_env="HERMES_GATEWAY_API_KEY",
+            key_env="OPENROUTER_API_KEY",
             extra_headers={},
         )
 

@@ -1,7 +1,7 @@
 [project]
 name = "mi-report-backend"
 version = "0.1.0"
-description = "MI Report Agent backend — Hermes Gateway(OpenAI 호환)를 통해 Hermes Agent 전체 기능 사용"
+description = "MI Report Agent backend — agno + OpenRouter(OpenAI 호환) LLM 으로 MI 자동화"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

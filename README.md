@@ -8,7 +8,7 @@
 ```
 mi-report/
 ├── frontend/   # Next.js 16 + React 19 + Tailwind v4 대시보드
-└── backend/    # FastAPI — Hermes Gateway(OpenAI 호환)로 Hermes Agent 전체 기능 사용
+└── backend/    # FastAPI — agno + OpenRouter(OpenAI 호환) LLM 으로 AI 기능 제공
 ```
 
 ## 주요 기능
@@ -27,12 +27,12 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
-**백엔드** (Hermes Gateway 연동 — 자세한 설정은 `backend/README.md`)
+**백엔드** (agno + OpenRouter LLM — 자세한 설정은 `backend/README.md`)
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
-cp profiles/hermes/.env.example profiles/hermes/.env   # 게이트웨이 토큰 입력
+pip install -e '.[embeddings]'
+# profiles/mi-report/.env 에 OPENROUTER_API_KEY 입력 (모델 기본값: deepseek/deepseek-v4-flash)
 uvicorn app.main:app --reload --port 8000              # http://localhost:8000/docs
 ```
 
