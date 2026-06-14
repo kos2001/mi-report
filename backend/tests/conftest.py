@@ -19,6 +19,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", data_dir)
     monkeypatch.setattr(config, "COLLECTION_DB", data_dir / "collection.db")
     monkeypatch.setattr(config, "UPLOADS_DIR", data_dir / "uploads")
+    monkeypatch.setattr(config, "DIGESTS_DIR", data_dir / "digests")
     collection.init_db()  # 빈 tmp DB 에 스키마 + 기본 소스 시드
     return data_dir
 

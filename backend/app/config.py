@@ -27,3 +27,6 @@ DEFAULT_PROFILE = "hermes"
 DATA_DIR = Path(os.environ.get("MI_DATA_DIR", BACKEND_HOME / "data"))
 COLLECTION_DB = DATA_DIR / "collection.db"
 UPLOADS_DIR = DATA_DIR / "uploads"
+
+# 스케줄 파이프라인이 생성한 다이제스트 산출물 저장 위치(JSON)
+DIGESTS_DIR = DATA_DIR / "digests"

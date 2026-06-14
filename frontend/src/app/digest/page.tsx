@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { digestApi, type GeneratedDigest } from "@/lib/api";
 import { digests } from "@/lib/data";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
@@ -62,8 +62,25 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
 
 export default function DigestPage() {
   const [generated, setGenerated] = useState<GeneratedDigest | null>(null);
+  const [latest, setLatest] = useState<GeneratedDigest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 스케줄 파이프라인(cron)이 마지막으로 저장한 다이제스트를 표시
+  useEffect(() => {
+    let alive = true;
+    digestApi
+      .latest()
+      .then((d) => {
+        if (alive) setLatest(d);
+      })
+      .catch(() => {
+        /* 백엔드 구버전/미저장 시 무시 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function handleGenerate() {
     setLoading(true);
@@ -114,6 +131,33 @@ export default function DigestPage() {
       </Card>
 
       <div className="flex flex-col gap-8">
+        {/* 스케줄(cron) 자동 생성 — 마지막 저장본 */}
+        {latest && (
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-zinc-50">
+                제{latest.issueNo}호{" "}
+                <span className="ml-1 text-sm font-normal text-zinc-400">{latest.period}</span>
+              </h2>
+              <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
+                자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
+                {latest.sourceDocCount}건
+              </span>
+            </div>
+            {latest.items.length === 0 ? (
+              <Card>
+                <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
+              </Card>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {latest.items.map((item) => (
+                  <DigestItemCard key={item.id} item={item} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* AI 생성 초안 (있을 때 최상단) */}
         {generated && (
           <section>

@@ -156,6 +156,7 @@ export interface GeneratedDigest {
   generated: boolean;
   sourceDocCount: number;
   items: GeneratedDigestItem[];
+  generatedAt?: string; // 스케줄 파이프라인이 저장한 경우에만
 }
 
 export const digestApi = {
@@ -170,6 +171,10 @@ export const digestApi = {
       method: "POST",
       body: JSON.stringify(body ?? {}),
     }),
+
+  // 스케줄 파이프라인이 마지막으로 저장한 다이제스트(없으면 null)
+  latest: () =>
+    req<{ digest: GeneratedDigest | null }>("/digest/latest").then((d) => d.digest),
 };
 
 // ── 주제별 History (AI agent 생성) ────────────────────────────────────────

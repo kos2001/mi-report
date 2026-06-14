@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, fetcher, gateway, rag, report, topics
+from . import classify, collection, competitors, digest, gateway, pipeline, rag, report, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles
 from .schemas import (
@@ -251,23 +251,8 @@ async def collection_collect(source_id: str):
     if not source["enabled"]:
         raise HTTPException(status_code=400, detail="비활성 소스는 수집할 수 없습니다.")
 
-    documents: list[dict] = []
-    errors: list[dict] = []
     async with httpx.AsyncClient() as client:
-        for url in urls:
-            try:
-                fetched = await fetcher.fetch_url(client, url)
-            except httpx.HTTPError as e:
-                errors.append({"url": url, "error": f"가져오기 실패: {e}"})
-                continue
-            if not fetched["text"]:
-                errors.append({"url": url, "error": "본문 추출 실패(빈 텍스트)"})
-                continue
-            documents.append(
-                collection.add_crawled_document(
-                    source["id"], source["name"], fetched["title"], fetched["text"], url=url
-                )
-            )
+        documents, errors = await pipeline.collect_source(source, client)
 
     if not documents:
         collection.mark_source_status(source_id, "오류")
@@ -446,6 +431,24 @@ async def digest_generate(req: DigestGenerateRequest):
     except ValueError as e:
         # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
         raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+@app.get("/digest/latest")
+def digest_latest():
+    """스케줄 파이프라인이 마지막으로 저장한 다이제스트(없으면 null)."""
+    return {"digest": pipeline.load_latest_digest()}
+
+
+# ── 스케줄 파이프라인 (수집 → 다이제스트 생성·저장) ───────────────────────
+@app.post("/pipeline/run")
+async def pipeline_run(issueNo: int = 1, period: str = "자동 수집분", limit: int = 20):
+    """수집 + 다이제스트 생성·저장을 한 번에 실행한다(cron/수동 트리거 공용)."""
+    try:
+        return await pipeline.run_pipeline(issue_no=issueNo, period=period, limit=limit)
+    except HermesGatewayError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
 
 
 # ── 주제별 History (AI agent 생성) ────────────────────────────────────────

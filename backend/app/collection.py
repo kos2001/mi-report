@@ -105,8 +105,12 @@ def init_db() -> None:
             seed = [
                 ("EDM 수집", "edm", {"path": "EDM 루트 경로"}, "정상", "2026-06-12 06:00", 128),
                 ("Confluence 동기화", "confluence", {"space": "MI", "base_url": ""}, "정상", "2026-06-12 06:10", 54),
-                ("뉴스 크롤링", "news", {"keywords": ["반도체", "HBM", "파운드리"]}, "정상", "2026-06-12 07:00", 312),
-                ("증권사 리포트 수집", "broker", {"sources": []}, "지연", "2026-06-11 18:00", 9),
+                # 실제 뉴스 섹션(네이버 IT/과학) — '지금 수집'이 실제 fetch.
+                ("뉴스 크롤링", "news",
+                 {"url": "https://news.naver.com/section/105", "keywords": ["반도체", "HBM", "파운드리"]},
+                 "정상", "2026-06-12 07:00", 312),
+                # 실제 증권사 리포트 집계 사이트(한경 컨센서스) — '지금 수집'이 실제 fetch.
+                ("증권사 리포트 수집", "broker", {"url": "https://consensus.hankyung.com/"}, "정상", "2026-06-12 18:00", 9),
                 ("컨센서스 갱신 감지", "consensus", {"tickers": ["QCOM", "MTK"]}, "정상", "2026-06-12 08:00", 2),
             ]
             for name, type_, cfg, status, last_run, count in seed:
@@ -330,6 +334,11 @@ def count_documents() -> int:
 def today() -> str:
     """오늘 날짜(YYYY-MM-DD). 생성물 메타데이터(updatedAt 등)에 사용."""
     return _today()
+
+
+def now() -> str:
+    """현재 시각(YYYY-MM-DD HH:MM). 생성물 타임스탬프에 사용."""
+    return _now()
 
 
 def list_topics() -> list[dict[str, Any]]:
