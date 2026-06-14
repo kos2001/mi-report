@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics
+from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics
 from .gateway import HermesGatewayError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -21,6 +21,7 @@ from .schemas import (
     CompetitorAnalyzeRequest,
     DigestGenerateRequest,
     DigestSendRequest,
+    FeedbackRequest,
     IngestText,
     RagQueryRequest,
     ReportGenerateRequest,
@@ -80,6 +81,33 @@ def profiles():
 @app.get("/health")
 def health():
     return {"status": "ok", "active_profile": get_active_profile_name()}
+
+
+# ── 지식 자산 (생성물 누적) + 자기 개선 (피드백) ──────────────────────────
+@app.get("/artifacts")
+def artifacts_list(kind: str | None = None, ref: str | None = None, limit: int = 50):
+    """누적된 생성물(다이제스트·주제·경쟁사·리포트) 이력."""
+    return {"artifacts": assets.list_artifacts(kind=kind, ref=ref, limit=limit),
+            "count": assets.count_artifacts()}
+
+
+@app.get("/artifacts/{artifact_id}")
+def artifacts_get(artifact_id: str):
+    try:
+        return assets.get_artifact(artifact_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"생성물 없음: {artifact_id}") from e
+
+
+@app.post("/feedback", status_code=201)
+def feedback_create(req: FeedbackRequest):
+    """생성물에 대한 👍/👎·메모(자기 개선 신호)를 저장한다."""
+    return assets.add_feedback(req.kind, req.ref, req.rating, req.note)
+
+
+@app.get("/feedback/summary")
+def feedback_summary():
+    return assets.feedback_summary()
 
 
 @app.get("/gateway/health")
@@ -399,7 +427,7 @@ async def report_generate(req: ReportGenerateRequest):
         )
     client = _client(req.profile)
     try:
-        return await report.generate_report(
+        result = await report.generate_report(
             client,
             digest_docs=digest_docs,
             topic_docs=topic_docs,
@@ -407,6 +435,8 @@ async def report_generate(req: ReportGenerateRequest):
             period=req.period,
             generated_at=collection.today(),
         )
+        assets.save_artifact_safe("report", f"제{req.issueNo}호 리포트", str(req.issueNo), result)
+        return result
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
@@ -429,9 +459,11 @@ async def digest_generate(req: DigestGenerateRequest):
         )
     client = _client(req.profile)
     try:
-        return await digest.generate_digest(
+        result = await digest.generate_digest(
             client, docs, issue_no=req.issueNo, period=req.period
         )
+        assets.save_artifact_safe("digest", f"제{req.issueNo}호", str(req.issueNo), result)
+        return result
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
@@ -507,9 +539,11 @@ async def topics_summarize(req: TopicSummarizeRequest):
         )
     client = _client(req.profile)
     try:
-        return await topics.generate_topic_summary(
+        result = await topics.generate_topic_summary(
             client, req.topic, docs, updated_at=collection.today()
         )
+        assets.save_artifact_safe("topic", req.topic, req.topic, result)
+        return result
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
@@ -530,7 +564,9 @@ async def competitors_analyze(req: CompetitorAnalyzeRequest):
         )
     client = _client(req.profile)
     try:
-        return await competitors.analyze_competitor(client, req.name, req.ticker, docs)
+        result = await competitors.analyze_competitor(client, req.name, req.ticker, docs)
+        assets.save_artifact_safe("competitor", req.name, req.ticker or req.name, result)
+        return result
     except HermesGatewayError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:

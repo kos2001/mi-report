@@ -292,6 +292,35 @@ export const reportApi = {
     }),
 };
 
+// ── 지식 자산(생성물 누적) + 자기 개선(피드백) ─────────────────────────────
+export interface ArtifactMeta {
+  id: string;
+  kind: string;
+  title: string;
+  ref: string | null;
+  createdAt: string;
+}
+
+export const artifactsApi = {
+  list: (params?: { kind?: string; ref?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.kind) qs.set("kind", params.kind);
+    if (params?.ref) qs.set("ref", params.ref);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return req<{ artifacts: ArtifactMeta[]; count: number }>(`/artifacts${suffix}`);
+  },
+  count: () => req<{ count: number }>("/artifacts?limit=1").then((d) => d.count),
+};
+
+export const feedbackApi = {
+  send: (body: { kind: string; ref?: string; rating: "up" | "down"; note?: string }) =>
+    req<{ id: string; rating: string }>("/feedback", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",

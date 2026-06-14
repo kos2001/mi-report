@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { digestApi, type GeneratedDigest } from "@/lib/api";
+import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
 import { digests } from "@/lib/data";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 
@@ -67,6 +67,16 @@ export default function DigestPage() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [fb, setFb] = useState<"up" | "down" | null>(null);
+
+  async function handleFeedback(d: GeneratedDigest, rating: "up" | "down") {
+    setFb(rating);
+    try {
+      await feedbackApi.send({ kind: "digest", ref: String(d.issueNo), rating });
+    } catch {
+      /* 피드백 실패는 조용히 무시 */
+    }
+  }
 
   async function handleSend(d: GeneratedDigest) {
     setSending(true);
@@ -201,8 +211,34 @@ export default function DigestPage() {
                 >
                   {sending ? "발송 중…" : "메일 발송"}
                 </button>
+                {/* 자기 개선 피드백 */}
+                <div className="flex items-center gap-1" title="이 생성물 품질 피드백">
+                  <button
+                    onClick={() => handleFeedback(generated, "up")}
+                    className={`rounded-md border px-2 py-1 text-xs ${
+                      fb === "up"
+                        ? "border-emerald-700 bg-emerald-950/50 text-emerald-300"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                  >
+                    👍
+                  </button>
+                  <button
+                    onClick={() => handleFeedback(generated, "down")}
+                    className={`rounded-md border px-2 py-1 text-xs ${
+                      fb === "down"
+                        ? "border-red-800 bg-red-950/50 text-red-300"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                  >
+                    👎
+                  </button>
+                </div>
               </div>
             </div>
+            {fb && (
+              <p className="mb-3 text-[11px] text-zinc-500">피드백 감사합니다 — 품질 개선에 반영됩니다.</p>
+            )}
             {sendMsg && (
               <p
                 className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
