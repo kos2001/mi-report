@@ -11,7 +11,7 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics, voc
+from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -24,6 +24,7 @@ from .schemas import (
     ReportGenerateRequest,
     SourceCreate,
     SourceUpdate,
+    QaGoldenCreate,
     TopicSummarizeRequest,
     VocCreate,
     VocStatusUpdate,
@@ -141,6 +142,32 @@ def voc_delete(voc_id: str):
         voc.delete_voc(voc_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"VOC 없음: {voc_id}") from e
+
+
+# ── 문서 Q&A 골든 평가셋 ──────────────────────────────────────────────────
+@app.get("/qa-golden")
+def qa_golden_list(kind: str | None = None):
+    """평가용 골든 Q&A 목록(+개수). 평가셋 자산화."""
+    return {"items": qa_golden.list_qa(kind=kind), "count": qa_golden.count()}
+
+
+@app.post("/qa-golden", status_code=201)
+def qa_golden_create(req: QaGoldenCreate):
+    try:
+        return qa_golden.add_qa(
+            req.question, kind=req.kind,
+            expected_ids=req.expectedIds, keywords=req.keywords, note=req.note,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/qa-golden/{qa_id}", status_code=204)
+def qa_golden_delete(qa_id: str):
+    try:
+        qa_golden.delete_qa(qa_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"Q&A 없음: {qa_id}") from e
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────

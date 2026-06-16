@@ -29,6 +29,15 @@ class VocStatusUpdate(BaseModel):
     status: str = Field(..., description="처리 상태(신규/검토중/완료).")
 
 
+# ── 문서 Q&A 골든 평가셋 ──────────────────────────────────────────────────
+class QaGoldenCreate(BaseModel):
+    question: str = Field(..., min_length=1)
+    kind: str = Field(default="answerable", description="answerable | negative")
+    expectedIds: list[str] = Field(default_factory=list, description="근거 문서 라벨 목록.")
+    keywords: list[str] = Field(default_factory=list, description="정답 키워드 목록.")
+    note: str = ""
+
+
 # ── 데이터 수집 ────────────────────────────────────────────────────────
 SourceType = Literal["edm", "confluence", "news", "broker", "consensus", "upload"]
 
