@@ -147,3 +147,17 @@ def test_hybrid_search_falls_back_to_bm25_when_disabled(isolated):
     collection.ingest_text("HBM 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
     hits = collection.hybrid_search("HBM 수요", limit=5)
     assert any("HBM" in d["title"] for d in hits)
+
+
+def test_hybrid_search_falls_back_to_bm25_on_embedding_error(isolated, monkeypatch):
+    # 임베딩이 활성이지만 호출이 실패하면 BM25(어휘) 결과로 폴백해야 한다.
+    from app import embeddings
+    collection.ingest_text("HBM4 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
+    monkeypatch.setattr(embeddings, "active", lambda: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("embedding endpoint down")
+
+    monkeypatch.setattr(embeddings, "embed", boom)
+    hits = collection.hybrid_search("HBM4 수요", limit=5)
+    assert any("HBM4" in d["title"] for d in hits)  # 폴백으로 회수

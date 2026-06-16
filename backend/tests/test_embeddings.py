@@ -34,3 +34,13 @@ def test_active_openrouter_needs_only_key(monkeypatch):
 def test_parse_embed_payload_orders_by_index():
     payload = {"data": [{"embedding": [2.0], "index": 1}, {"embedding": [1.0], "index": 0}]}
     assert embeddings._parse_embed_payload(payload) == [[1.0], [2.0]]
+
+
+def test_embed_returns_none_on_backend_error(monkeypatch):
+    monkeypatch.setenv("MI_EMBED_BACKEND", "openrouter")
+
+    def boom(*a, **k):
+        raise RuntimeError("openrouter down")
+
+    monkeypatch.setattr(embeddings, "_embed_openrouter", boom)
+    assert embeddings.embed(["q"], is_query=True) is None  # 예외 삼키고 None → BM25 폴백

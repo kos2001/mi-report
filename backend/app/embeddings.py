@@ -111,18 +111,25 @@ def _embed_openrouter(texts: list[str], is_query: bool):
 
 
 def embed(texts: list[str], *, is_query: bool = False):
-    """텍스트들을 임베딩해 numpy 배열 (n, dim) 반환. 사용 불가 시 None."""
+    """텍스트들을 임베딩해 numpy 배열 (n, dim) 반환. 사용 불가/실패 시 None.
+
+    어떤 예외(네트워크·HTTP·모델 로드 실패)도 삼켜 None 을 돌려준다 → 호출부가
+    BM25(어휘) 검색으로 폴백한다(임베딩 장애가 검색·인입을 막지 않음).
+    """
     if not texts:
         return None
-    if backend() == "openrouter":
-        return _embed_openrouter(list(texts), is_query)
-    emb = _get()
-    if emb is None:
-        return None
-    import numpy as np
+    try:
+        if backend() == "openrouter":
+            return _embed_openrouter(list(texts), is_query)
+        emb = _get()
+        if emb is None:
+            return None
+        import numpy as np
 
-    vecs = list(emb.embed(_prefixed(list(texts), is_query)))
-    return np.asarray(vecs, dtype="float32")
+        vecs = list(emb.embed(_prefixed(list(texts), is_query)))
+        return np.asarray(vecs, dtype="float32")
+    except Exception:
+        return None
 
 
 def reset_for_test() -> None:

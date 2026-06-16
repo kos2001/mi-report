@@ -485,34 +485,38 @@ def hybrid_search(query: str, *, limit: int = 8, topic: str | None = None,
     """BM25(어휘) + 의미 임베딩(dense)을 RRF 로 결합한 하이브리드 검색.
 
     어휘가 안 겹치는 패러프레이즈도 dense 가 회수하고, 정확한 키워드는 BM25 가 잡는다.
-    임베딩 비활성 시 BM25(search_documents) 결과를 그대로 반환한다.
+    BM25 폴백 절차: 임베딩이 비활성이거나, 질의 임베딩/벡터 로드/dense 계산이 실패하면
+    항상 BM25(어휘) 결과로 폴백한다(임베딩 장애가 검색을 막지 않음).
     """
     bm25 = search_documents(query, limit=pool, topic=topic, source_id=source_id)
     if not embeddings.active():
-        return bm25[:limit]
-    import numpy as np
+        return bm25[:limit]  # 폴백 1: 임베딩 비활성
+    try:
+        import numpy as np
 
-    qmat = embeddings.embed([query], is_query=True)
-    with _conn() as conn:
-        ids, mat = _load_doc_vectors(conn, topic=topic, source_id=source_id)
-    if qmat is None or ids is None:
-        return bm25[:limit]
-    qv = qmat[0]
-    sims = mat @ qv / (np.linalg.norm(mat, axis=1) * np.linalg.norm(qv) + 1e-9)
-    dense_order = [ids[i] for i in np.argsort(-sims)]
-    fused = _rrf([[d["id"] for d in bm25], dense_order])
-    top_ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]]
-    docs = {d["id"]: d for d in bm25}
-    missing = [i for i in top_ids if i not in docs]
-    if missing:
+        qmat = embeddings.embed([query], is_query=True)
         with _conn() as conn:
-            qmarks = ",".join("?" * len(missing))
-            rows = conn.execute(
-                f"SELECT * FROM documents WHERE id IN ({qmarks})", missing
-            ).fetchall()
-        for r in rows:
-            docs[r["id"]] = _row_to_document(r)
-    return [docs[i] for i in top_ids if i in docs]
+            ids, mat = _load_doc_vectors(conn, topic=topic, source_id=source_id)
+        if qmat is None or ids is None:
+            return bm25[:limit]  # 폴백 2: 임베딩/벡터 없음(임베딩 호출 실패 포함)
+        qv = qmat[0]
+        sims = mat @ qv / (np.linalg.norm(mat, axis=1) * np.linalg.norm(qv) + 1e-9)
+        dense_order = [ids[i] for i in np.argsort(-sims)]
+        fused = _rrf([[d["id"] for d in bm25], dense_order])
+        top_ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]]
+        docs = {d["id"]: d for d in bm25}
+        missing = [i for i in top_ids if i not in docs]
+        if missing:
+            with _conn() as conn:
+                qmarks = ",".join("?" * len(missing))
+                rows = conn.execute(
+                    f"SELECT * FROM documents WHERE id IN ({qmarks})", missing
+                ).fetchall()
+            for r in rows:
+                docs[r["id"]] = _row_to_document(r)
+        return [docs[i] for i in top_ids if i in docs]
+    except Exception:
+        return bm25[:limit]  # 폴백 3: dense 단계 예외 → 어휘 검색으로 안전 복귀
 
 
 def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
