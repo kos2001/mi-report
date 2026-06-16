@@ -34,7 +34,8 @@ class QaGoldenCreate(BaseModel):
     question: str = Field(..., min_length=1)
     kind: str = Field(default="answerable", description="answerable | negative")
     expectedIds: list[str] = Field(default_factory=list, description="근거 문서 라벨 목록.")
-    keywords: list[str] = Field(default_factory=list, description="정답 키워드 목록.")
+    keywords: list[str] = Field(default_factory=list, description="정답(반드시 포함) 키워드/수치.")
+    forbidden: list[str] = Field(default_factory=list, description="나오면 안 되는 값(반올림/왜곡/환각).")
     note: str = ""
 
 

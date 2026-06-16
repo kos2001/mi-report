@@ -33,7 +33,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_qa_golden() -> None:
-    """골든 Q&A 테이블 생성(멱등)."""
+    """골든 Q&A 테이블 생성(멱등) + 기존 DB 컬럼 마이그레이션."""
     with _conn() as conn:
         conn.executescript(
             """
@@ -42,13 +42,18 @@ def init_qa_golden() -> None:
                 question     TEXT NOT NULL,
                 kind         TEXT NOT NULL,
                 expected_ids TEXT NOT NULL,   -- JSON: 근거 문서 라벨 목록
-                keywords     TEXT NOT NULL,   -- JSON: 정답 키워드 목록
+                keywords     TEXT NOT NULL,   -- JSON: 정답(반드시 포함) 키워드/수치
+                forbidden    TEXT NOT NULL DEFAULT '[]',  -- JSON: 나오면 안 되는 값(반올림/왜곡/환각)
                 note         TEXT,
                 created_at   TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_qa_golden_kind ON qa_golden(kind, created_at DESC);
             """
         )
+        # 기존 테이블에 forbidden 컬럼이 없으면 추가(마이그레이션).
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(qa_golden)").fetchall()}
+        if "forbidden" not in cols:
+            conn.execute("ALTER TABLE qa_golden ADD COLUMN forbidden TEXT NOT NULL DEFAULT '[]'")
 
 
 def _row(r: sqlite3.Row) -> dict[str, Any]:
@@ -58,6 +63,7 @@ def _row(r: sqlite3.Row) -> dict[str, Any]:
         "kind": r["kind"],
         "expectedIds": json.loads(r["expected_ids"]),
         "keywords": json.loads(r["keywords"]),
+        "forbidden": json.loads(r["forbidden"] if "forbidden" in r.keys() else "[]"),
         "note": r["note"] or "",
         "createdAt": r["created_at"],
     }
@@ -65,7 +71,7 @@ def _row(r: sqlite3.Row) -> dict[str, Any]:
 
 def add_qa(question: str, *, kind: str = "answerable",
            expected_ids: list[str] | None = None, keywords: list[str] | None = None,
-           note: str = "") -> dict[str, Any]:
+           forbidden: list[str] | None = None, note: str = "") -> dict[str, Any]:
     if not question.strip():
         raise ValueError("질문은 필수입니다.")
     if kind not in KINDS:
@@ -73,11 +79,12 @@ def add_qa(question: str, *, kind: str = "answerable",
     qid = uuid.uuid4().hex
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO qa_golden (id, question, kind, expected_ids, keywords, note, created_at)"
-            " VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO qa_golden (id, question, kind, expected_ids, keywords, forbidden, note, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             (qid, question.strip(), kind,
              json.dumps(expected_ids or [], ensure_ascii=False),
-             json.dumps(keywords or [], ensure_ascii=False), note, _now()),
+             json.dumps(keywords or [], ensure_ascii=False),
+             json.dumps(forbidden or [], ensure_ascii=False), note, _now()),
         )
         row = conn.execute("SELECT * FROM qa_golden WHERE id=?", (qid,)).fetchone()
     return _row(row)
@@ -113,14 +120,26 @@ def seed_defaults() -> int:
     if count() > 0:
         return 0
     try:
-        from tests.eval_data import QA_NEGATIVES, QA_QUERIES
+        from tests.eval_data import (
+            NUMERIC_NEGATIVES,
+            NUMERIC_QUERIES,
+            QA_NEGATIVES,
+            QA_QUERIES,
+        )
     except Exception:
         return 0
     n = 0
     for q, exp, kws in QA_QUERIES:
         add_qa(q, kind="answerable", expected_ids=list(exp), keywords=list(kws))
         n += 1
+    for q, exp, inc, forb in NUMERIC_QUERIES:  # 수치 정밀도: 정확 수치 포함 + 반올림/왜곡 금지
+        add_qa(q, kind="answerable", expected_ids=list(exp), keywords=list(inc),
+               forbidden=list(forb), note="numeric")
+        n += 1
     for q in QA_NEGATIVES:
         add_qa(q, kind="negative")
+        n += 1
+    for q in NUMERIC_NEGATIVES:
+        add_qa(q, kind="negative", note="numeric")
         n += 1
     return n
