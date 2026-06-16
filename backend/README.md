@@ -32,6 +32,9 @@ pip install -e '.[embeddings]'      # 임베딩 하이브리드 검색 포함
 #   OPENROUTER_MODEL=deepseek/deepseek-v4-flash   (선택, 기본값)
 #   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1  (선택; 사내 게이트웨이면 그 주소)
 #   MI_EMBEDDINGS=1                               (선택, 의미 임베딩 검색)
+#   MI_EMBED_BACKEND=openrouter                   (선택; fastembed(로컬, 기본) | openrouter)
+#   MI_EMBED_MODEL=baai/bge-m3                     (선택; 다국어·한국어 강함. openrouter 기본 bge-m3)
+#   MI_RERANK_MODEL=cohere/rerank-v3.5            (선택; 설정 시 OpenRouter 전용 rerank, 미설정 시 LLM 재정렬)
 #   LLM_SERVICE_ID / LLM_USER_ID                  (선택; 사내 LLM 요청에 x-service-id / x-user-id 헤더 첨부)
 
 uvicorn app.main:app --reload --port 8000
