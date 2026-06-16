@@ -25,6 +25,23 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MAX_TOKENS = 8000
 
 
+def _custom_headers() -> dict[str, str]:
+    """사내 LLM 게이트웨이가 요구하는 식별 헤더를 환경변수에서 구성한다.
+
+    환경변수 → 헤더:
+      LLM_SERVICE_ID → x-service-id
+      LLM_USER_ID    → x-user-id
+    값이 없으면 해당 헤더는 보내지 않는다(공개 OpenRouter 등에는 불필요).
+    """
+    mapping = {"LLM_SERVICE_ID": "x-service-id", "LLM_USER_ID": "x-user-id"}
+    headers: dict[str, str] = {}
+    for env_name, header_name in mapping.items():
+        val = (os.getenv(env_name) or "").strip()
+        if val:
+            headers[header_name] = val
+    return headers
+
+
 class LLMError(RuntimeError):
     """LLM 호출 오류(엔드포인트가 HTTP 상태로 변환)."""
 
@@ -44,6 +61,10 @@ class LLMClient:
             self.max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
         except ValueError:
             self.max_tokens = DEFAULT_MAX_TOKENS
+        self.headers = _custom_headers()
+
+    def default_headers(self) -> dict[str, str]:
+        return dict(self.headers)
 
     def _build_agent(self, model: str | None, temperature: float, instructions: list[str]):
         """요청마다 가벼운 Agent 를 구성한다(시스템 메시지는 instructions 로)."""
@@ -61,6 +82,8 @@ class LLMClient:
                 base_url=self.base_url,
                 temperature=temperature,
                 max_tokens=self.max_tokens,
+                # 사내 LLM 게이트웨이 식별 헤더(x-service-id/x-user-id). 매 요청에 첨부.
+                default_headers=self.headers or None,
             ),
             instructions=instructions or None,
             markdown=False,

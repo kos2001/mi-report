@@ -63,3 +63,26 @@ def test_chat_requires_api_key(monkeypatch):
     c = gateway.LLMClient()
     with pytest.raises(gateway.LLMError):
         asyncio.run(c.chat([{"role": "user", "content": "x"}]))
+
+
+def test_custom_headers_from_env(monkeypatch):
+    monkeypatch.setenv("LLM_SERVICE_ID", "mi-report-svc")
+    monkeypatch.setenv("LLM_USER_ID", "u-123")
+    c = gateway.LLMClient()
+    assert c.headers == {"x-service-id": "mi-report-svc", "x-user-id": "u-123"}
+
+
+def test_no_custom_headers_when_unset(monkeypatch):
+    monkeypatch.delenv("LLM_SERVICE_ID", raising=False)
+    monkeypatch.delenv("LLM_USER_ID", raising=False)
+    assert gateway.LLMClient().headers == {}
+
+
+def test_build_agent_attaches_headers(monkeypatch):
+    monkeypatch.setenv("LLM_SERVICE_ID", "svc")
+    monkeypatch.setenv("LLM_USER_ID", "user")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "dummy")
+    c = gateway.LLMClient()
+    agent = c._build_agent(None, 0.2, [])
+    # 사내 식별 헤더가 OpenRouter 모델의 default_headers 로 전달된다.
+    assert agent.model.default_headers == {"x-service-id": "svc", "x-user-id": "user"}
