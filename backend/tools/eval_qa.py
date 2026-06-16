@@ -61,10 +61,13 @@ def _load_corpus() -> dict[str, str]:
     return title_to_id
 
 
-def _load_golden() -> tuple[list[tuple[str, list[str], list[str]]], list[str]]:
-    """DB(qa_golden)에서 골든 Q&A 를 로드한다(평가셋 자산화)."""
+def _load_golden():
+    """DB(qa_golden)에서 골든 Q&A 를 로드한다(평가셋 자산화).
+
+    answerable: (질문, 근거 라벨, 반드시 포함, 금지값)
+    """
     answerable = [
-        (i["question"], i["expectedIds"], i["keywords"])
+        (i["question"], i["expectedIds"], i["keywords"], i.get("forbidden", []))
         for i in qa_golden.list_qa(kind="answerable")
     ]
     negatives = [i["question"] for i in qa_golden.list_qa(kind="negative")]
@@ -86,7 +89,8 @@ async def _eval_config(client, title_to_id, qa_queries, qa_negatives, name, limi
         os.environ["MI_RERANK_MODEL"] = ""  # 리랭크 비활성(LLM 폴백)
     try:
         cite_hits = kw_hits = 0
-        for q, exp_ids, kws in qa_queries:
+        num_total = num_hits = 0  # 수치 정밀도(forbidden 보유 질문)
+        for q, exp_ids, kws, forb in qa_queries:
             res = await _run_query(client, q, limit=limit, cand_mult=mult)
             ans = res.get("answer", "")
             cited_ids = (
@@ -95,8 +99,13 @@ async def _eval_config(client, title_to_id, qa_queries, qa_negatives, name, limi
             )
             if set(exp_ids) & cited_ids:
                 cite_hits += 1
-            if kws and all(k in ans for k in kws):
+            # 정답: 필수 키워드 모두 포함 + 금지값(반올림/왜곡)은 하나도 없어야
+            ok = bool(kws) and all(k in ans for k in kws) and not any(f in ans for f in forb)
+            if ok:
                 kw_hits += 1
+            if forb:  # 수치 정밀도 전용 집계
+                num_total += 1
+                num_hits += int(ok)
         ref_hits = 0
         for q in qa_negatives:
             res = await _run_query(client, q, limit=limit, cand_mult=mult)
@@ -107,8 +116,9 @@ async def _eval_config(client, title_to_id, qa_queries, qa_negatives, name, limi
 
     nq, nn = len(qa_queries), len(qa_negatives)
     cite, kw, ref = cite_hits / nq, kw_hits / nq, ref_hits / nn
+    num = (num_hits / num_total) if num_total else 1.0
     overall = (cite + kw + ref) / 3
-    print(f"{name:<26} citation={cite:.2f}  keyword={kw:.2f}  refusal={ref:.2f}  overall={overall:.2f}")
+    print(f"{name:<26} citation={cite:.2f}  keyword={kw:.2f}  numeric={num:.2f}  refusal={ref:.2f}  overall={overall:.2f}")
     return name, overall
 
 
@@ -117,8 +127,8 @@ async def main():
     qa_queries, qa_negatives = _load_golden()
     print(f"[golden] answerable={len(qa_queries)} negative={len(qa_negatives)} (DB: qa_golden)")
     client = get_client()
-    print(f"\n{'config':<26}{'citation':>10}{'keyword':>9}{'refusal':>9}{'overall':>9}")
-    print("-" * 63)
+    print(f"\n{'config':<26}  citation keyword numeric refusal overall")
+    print("-" * 70)
     results = []
     for name, (limit, mult, rerank) in CONFIGS.items():
         results.append(

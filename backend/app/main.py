@@ -156,7 +156,8 @@ def qa_golden_create(req: QaGoldenCreate):
     try:
         return qa_golden.add_qa(
             req.question, kind=req.kind,
-            expected_ids=req.expectedIds, keywords=req.keywords, note=req.note,
+            expected_ids=req.expectedIds, keywords=req.keywords,
+            forbidden=req.forbidden, note=req.note,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

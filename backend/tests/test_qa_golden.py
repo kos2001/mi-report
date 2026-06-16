@@ -42,3 +42,13 @@ def test_endpoints(client):
     assert created["expectedIds"] == ["cxl"]
     assert client.delete(f"/qa-golden/{created['id']}").status_code == 204
     assert client.post("/qa-golden", json={"question": "", "kind": "answerable"}).status_code == 422
+
+
+def test_forbidden_field_and_numeric_seed(isolated):
+    # add_qa 가 forbidden 을 저장/반환한다
+    v = qa_golden.add_qa("수치 질문?", kind="answerable",
+                         expected_ids=["competitor_q"], keywords=["29.1%"], forbidden=["29%", "30%"])
+    assert v["forbidden"] == ["29%", "30%"]
+    # 시드에 수치 정밀도 질문(forbidden 보유)이 포함됐다
+    with_forbidden = [i for i in qa_golden.list_qa(kind="answerable") if i["forbidden"]]
+    assert with_forbidden, "수치 정밀도(forbidden) 질문이 시드돼야 한다"
