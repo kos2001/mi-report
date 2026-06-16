@@ -21,9 +21,9 @@ from typing import Any
 
 from . import assets, config, embeddings, qa_golden, synonyms, voc
 
-SOURCE_TYPES = ("edm", "confluence", "news", "broker", "consensus", "upload")
+SOURCE_TYPES = ("edm", "confluence", "sec", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
-CONNECTOR_TYPES = ("edm", "confluence", "news", "broker", "consensus")
+CONNECTOR_TYPES = ("edm", "confluence", "sec", "news", "broker", "consensus")
 
 
 def _now() -> str:
@@ -128,6 +128,9 @@ def init_db() -> None:
                 # 실제 증권사 리포트 집계 사이트(한경 컨센서스) — '지금 수집'이 실제 fetch.
                 ("증권사 리포트 수집", "broker", {"url": "https://consensus.hankyung.com/"}, "정상", "2026-06-12 18:00", 9),
                 ("컨센서스 갱신 감지", "consensus", {"tickers": ["QCOM", "MTK"]}, "정상", "2026-06-12 08:00", 2),
+                # 실제 SEC EDGAR 경쟁사 IR(퀄컴) — '지금 수집'이 공시·재무를 API 로 가져온다.
+                ("경쟁사 IR · SEC", "sec",
+                 {"cik": "0000804328", "name": "Qualcomm"}, "정상", "2026-06-12 06:30", 0),
             ]
             for name, type_, cfg, status, last_run, count in seed:
                 conn.execute(

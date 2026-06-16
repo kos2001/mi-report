@@ -8,11 +8,11 @@ from app import collection
 from tests.fixtures import VIRTUAL_DOCUMENTS, VIRTUAL_SOURCES
 
 
-def test_seed_creates_five_default_sources(isolated):
+def test_seed_creates_default_sources(isolated):
     sources = collection.list_sources()
-    assert len(sources) == 5
+    assert len(sources) == 6
     names = {s["name"] for s in sources}
-    assert {"EDM 수집", "Confluence 동기화", "뉴스 크롤링"} <= names
+    assert {"EDM 수집", "Confluence 동기화", "뉴스 크롤링", "경쟁사 IR · SEC"} <= names
 
 
 def test_create_virtual_sources(isolated):
@@ -21,7 +21,7 @@ def test_create_virtual_sources(isolated):
         assert created["id"]
         assert created["enabled"] is True
         assert created["config"] == spec["config"]
-    assert len(collection.list_sources()) == 5 + len(VIRTUAL_SOURCES)
+    assert len(collection.list_sources()) == 6 + len(VIRTUAL_SOURCES)
 
 
 def test_create_source_rejects_bad_type(isolated):
