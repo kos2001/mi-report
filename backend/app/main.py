@@ -11,7 +11,7 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics
+from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, rag, report, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -25,6 +25,8 @@ from .schemas import (
     SourceCreate,
     SourceUpdate,
     TopicSummarizeRequest,
+    VocCreate,
+    VocStatusUpdate,
 )
 
 @asynccontextmanager
@@ -100,6 +102,45 @@ def feedback_create(req: FeedbackRequest):
 @app.get("/feedback/summary")
 def feedback_summary():
     return assets.feedback_summary()
+
+
+# ── VOC (Voice of Customer) ───────────────────────────────────────────────
+@app.get("/voc")
+def voc_list(status: str | None = None, sentiment: str | None = None):
+    """고객의 목소리 목록 + 상태/감정 집계."""
+    return {
+        "voc": voc.list_voc(status=status, sentiment=sentiment),
+        "summary": voc.voc_summary(),
+    }
+
+
+@app.post("/voc", status_code=201)
+def voc_create(req: VocCreate):
+    try:
+        return voc.add_voc(
+            req.customer, req.content,
+            channel=req.channel, sentiment=req.sentiment, priority=req.priority,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.patch("/voc/{voc_id}")
+def voc_update(voc_id: str, req: VocStatusUpdate):
+    try:
+        return voc.update_status(voc_id, req.status)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"VOC 없음: {voc_id}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/voc/{voc_id}", status_code=204)
+def voc_delete(voc_id: str):
+    try:
+        voc.delete_voc(voc_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"VOC 없음: {voc_id}") from e
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────

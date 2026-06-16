@@ -16,6 +16,19 @@ class ProfileInfo(BaseModel):
     hasSoul: bool
 
 
+# ── VOC (Voice of Customer) ───────────────────────────────────────────────
+class VocCreate(BaseModel):
+    customer: str = Field(..., min_length=1, description="고객/현장 주체.")
+    content: str = Field(..., min_length=1, description="VOC 내용.")
+    channel: str = Field(default="기타", description="채널(영업/CS/고객사/뉴스/리포트/기타).")
+    sentiment: str = Field(default="중립", description="감정(긍정/중립/부정).")
+    priority: str = Field(default="중", description="우선순위(상/중/하).")
+
+
+class VocStatusUpdate(BaseModel):
+    status: str = Field(..., description="처리 상태(신규/검토중/완료).")
+
+
 # ── 데이터 수집 ────────────────────────────────────────────────────────
 SourceType = Literal["edm", "confluence", "news", "broker", "consensus", "upload"]
 
