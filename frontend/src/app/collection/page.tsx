@@ -166,7 +166,7 @@ type FieldKind = "text" | "csv";
 type FieldDef = { key: string; label: string; placeholder: string; kind: FieldKind };
 
 // 폼에서 생성 가능한 타입(업로드는 ‘업로드’ 탭에서 파일로 생성되므로 제외).
-const CREATE_TYPES: SourceType[] = ["news", "broker", "consensus", "confluence", "edm"];
+const CREATE_TYPES: SourceType[] = ["news", "broker", "consensus", "confluence", "sec", "edm"];
 
 const TYPE_FIELDS: Record<SourceType, FieldDef[]> = {
   news: [
@@ -182,6 +182,10 @@ const TYPE_FIELDS: Record<SourceType, FieldDef[]> = {
   confluence: [
     { key: "base_url", label: "Confluence 기본 URL", placeholder: "https://<site>.atlassian.net/wiki", kind: "text" },
   ],
+  sec: [
+    { key: "cik", label: "SEC CIK", placeholder: "0000804328 (Qualcomm)", kind: "text" },
+    { key: "name", label: "회사명 (선택)", placeholder: "Qualcomm", kind: "text" },
+  ],
   edm: [
     { key: "path", label: "EDM 경로", placeholder: "EDM 루트 경로", kind: "text" },
   ],
@@ -193,6 +197,7 @@ const TYPE_HINT: Record<SourceType, string> = {
   broker: "증권사 리포트 집계 페이지 URL. ‘지금 수집’이 실제로 페이지를 가져옵니다.",
   consensus: "추적할 종목 티커 목록(쉼표 구분). 목표주가·투자의견 변동 감지용.",
   confluence: "Atlassian Cloud wiki 기본 URL. 자격증명은 백엔드 .env(CONFLUENCE_EMAIL/API_TOKEN).",
+  sec: "SEC EDGAR(미국 공시)에서 경쟁사 실 IR·재무를 수집. CIK 는 SEC 기업 고유번호(예: 퀄컴 0000804328).",
   edm: "사내 EDM 루트 경로(인제스트 워커가 사용).",
   upload: "",
 };

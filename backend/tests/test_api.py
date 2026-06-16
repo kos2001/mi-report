@@ -31,7 +31,7 @@ def test_sources_seeded(client):
     r = client.get("/collection/sources")
     assert r.status_code == 200
     body = r.json()
-    assert len(body["sources"]) == 5
+    assert len(body["sources"]) == 6
     assert body["documentCount"] == 0  # 대시보드 단일 호출용 카운트
 
 
