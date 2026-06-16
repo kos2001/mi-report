@@ -119,8 +119,9 @@ def voc_list(status: str | None = None, sentiment: str | None = None):
 def voc_create(req: VocCreate):
     try:
         return voc.add_voc(
-            req.customer, req.content,
-            channel=req.channel, sentiment=req.sentiment, priority=req.priority,
+            req.reporter, req.content,
+            area=req.area, category=req.category,
+            sentiment=req.sentiment, priority=req.priority,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -18,9 +18,10 @@ class ProfileInfo(BaseModel):
 
 # ── VOC (Voice of Customer) ───────────────────────────────────────────────
 class VocCreate(BaseModel):
-    customer: str = Field(..., min_length=1, description="고객/현장 주체.")
-    content: str = Field(..., min_length=1, description="VOC 내용.")
-    channel: str = Field(default="기타", description="채널(영업/CS/고객사/뉴스/리포트/기타).")
+    reporter: str = Field(..., min_length=1, description="작성자(사용자).")
+    content: str = Field(..., min_length=1, description="이 서비스에 대한 의견/요청/버그 내용.")
+    area: str = Field(default="기타", description="기능 영역(대시보드/데이터수집/다이제스트/주제/경쟁사/문서Q&A/리포트/기타).")
+    category: str = Field(default="문의", description="유형(기능요청/버그/개선/문의/칭찬).")
     sentiment: str = Field(default="중립", description="감정(긍정/중립/부정).")
     priority: str = Field(default="중", description="우선순위(상/중/하).")
 

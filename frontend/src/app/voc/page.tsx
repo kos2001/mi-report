@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   vocApi,
-  VOC_CHANNELS,
+  VOC_AREAS,
+  VOC_CATEGORIES,
   VOC_SENTIMENTS,
   VOC_PRIORITIES,
   VOC_STATUSES,
@@ -22,6 +23,13 @@ const PRIORITY_COLOR: Record<string, string> = {
   중: "border-amber-800/60 bg-amber-950/40 text-amber-300",
   하: "border-zinc-700 bg-zinc-800 text-zinc-400",
 };
+const CATEGORY_COLOR: Record<string, string> = {
+  버그: "border-red-800/60 bg-red-950/40 text-red-300",
+  기능요청: "border-sky-800/60 bg-sky-950/40 text-sky-300",
+  개선: "border-violet-800/60 bg-violet-950/40 text-violet-300",
+  문의: "border-zinc-700 bg-zinc-800 text-zinc-300",
+  칭찬: "border-emerald-800/60 bg-emerald-950/40 text-emerald-300",
+};
 
 export default function VocPage() {
   const [items, setItems] = useState<VocItem[]>([]);
@@ -31,9 +39,10 @@ export default function VocPage() {
   const [loading, setLoading] = useState(true);
 
   // 입력 폼
-  const [customer, setCustomer] = useState("");
+  const [reporter, setReporter] = useState("");
   const [content, setContent] = useState("");
-  const [channel, setChannel] = useState<string>("영업");
+  const [area, setArea] = useState<string>("대시보드");
+  const [category, setCategory] = useState<string>("기능요청");
   const [sentiment, setSentiment] = useState<string>("중립");
   const [priority, setPriority] = useState<string>("중");
   const [busy, setBusy] = useState(false);
@@ -62,12 +71,12 @@ export default function VocPage() {
   }, [reloadKey, statusFilter]);
 
   async function add() {
-    if (!customer.trim() || !content.trim()) return;
+    if (!reporter.trim() || !content.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      await vocApi.create({ customer: customer.trim(), content: content.trim(), channel, sentiment, priority });
-      setCustomer("");
+      await vocApi.create({ reporter: reporter.trim(), content: content.trim(), area, category, sentiment, priority });
+      setReporter("");
       setContent("");
       refresh();
     } catch (e) {
@@ -81,7 +90,7 @@ export default function VocPage() {
     <>
       <PageHeader
         title="VOC"
-        description="고객의 목소리(요청·불만·문의·피드백)를 채널·감정·우선순위로 기록하고 처리 상태를 추적"
+        description="이 서비스(MI Report)에 대한 사용자 의견·요청·버그·개선 제안을 기능 영역별로 기록하고 처리 상태를 추적"
       />
 
       {error && (
@@ -108,36 +117,39 @@ export default function VocPage() {
 
       {/* 입력 폼 */}
       <Card className="mb-6">
-        <p className="mb-3 text-sm font-medium text-zinc-200">VOC 등록</p>
+        <p className="mb-3 text-sm font-medium text-zinc-200">의견 등록</p>
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
             <input
-              value={customer}
-              onChange={(e) => setCustomer(e.target.value)}
-              placeholder="고객/현장 (예: A고객사, 영업팀)"
-              className="w-56 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              value={reporter}
+              onChange={(e) => setReporter(e.target.value)}
+              placeholder="작성자 (예: 기획팀 김OO)"
+              className="w-48 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
             />
-            <select value={channel} onChange={(e) => setChannel(e.target.value)} className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
-              {VOC_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <select value={area} onChange={(e) => setArea(e.target.value)} title="기능 영역" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+              {VOC_AREAS.map((a) => <option key={a} value={a}>{`영역: ${a}`}</option>)}
             </select>
-            <select value={sentiment} onChange={(e) => setSentiment(e.target.value)} className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={category} onChange={(e) => setCategory(e.target.value)} title="유형" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+              {VOC_CATEGORIES.map((c) => <option key={c} value={c}>{`유형: ${c}`}</option>)}
+            </select>
+            <select value={sentiment} onChange={(e) => setSentiment(e.target.value)} title="감정" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
               {VOC_SENTIMENTS.map((s) => <option key={s} value={s}>{`감정: ${s}`}</option>)}
             </select>
-            <select value={priority} onChange={(e) => setPriority(e.target.value)} className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={priority} onChange={(e) => setPriority(e.target.value)} title="우선순위" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
               {VOC_PRIORITIES.map((p) => <option key={p} value={p}>{`우선순위: ${p}`}</option>)}
             </select>
           </div>
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="VOC 내용 (요청·불만·문의·피드백)"
+            placeholder="이 서비스에 대한 의견·요청·버그·개선 제안"
             rows={3}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
           />
           <div className="flex justify-end">
             <button
               onClick={add}
-              disabled={busy || !customer.trim() || !content.trim()}
+              disabled={busy || !reporter.trim() || !content.trim()}
               className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
             >
               {busy ? "등록 중…" : "등록"}
@@ -170,7 +182,7 @@ export default function VocPage() {
         <p className="text-sm text-zinc-500">불러오는 중…</p>
       ) : items.length === 0 ? (
         <Card>
-          <p className="text-sm text-zinc-400">등록된 VOC 가 없습니다.</p>
+          <p className="text-sm text-zinc-400">등록된 의견이 없습니다.</p>
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
@@ -178,8 +190,11 @@ export default function VocPage() {
             <Card key={v.id} className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-100">{v.customer}</span>
-                  <Tag>{v.channel}</Tag>
+                  <Tag>{v.area}</Tag>
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${CATEGORY_COLOR[v.category] ?? "border-zinc-700 bg-zinc-800 text-zinc-300"}`}>
+                    {v.category}
+                  </span>
+                  <span className="text-sm font-medium text-zinc-100">{v.reporter}</span>
                   <span className={`text-xs ${SENTIMENT_COLOR[v.sentiment] ?? "text-zinc-400"}`}>● {v.sentiment}</span>
                   <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${PRIORITY_COLOR[v.priority] ?? ""}`}>
                     {v.priority}
