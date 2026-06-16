@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ragApi, type RagAnswer } from "@/lib/api";
 import { Card, PageHeader, Tag } from "@/components/ui";
+import { Markdown } from "@/components/markdown";
 
 export default function AskPage() {
   const [question, setQuestion] = useState("");
@@ -107,9 +108,7 @@ export default function AskPage() {
       {answer && (
         <Card>
           <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">답변</p>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-            {answer.answer}
-          </p>
+          <Markdown text={answer.answer} className="mt-2 text-sm text-zinc-200" />
           <div className="mt-4 border-t border-zinc-800 pt-3">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
               근거 문서 ({answer.usedDocCount})
