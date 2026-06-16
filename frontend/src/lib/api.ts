@@ -332,6 +332,49 @@ export const artifactsApi = {
   count: () => req<{ count: number }>("/artifacts?limit=1").then((d) => d.count),
 };
 
+// ── VOC (Voice of Customer) ───────────────────────────────────────────────
+export interface VocItem {
+  id: string;
+  customer: string;
+  channel: string;
+  content: string;
+  sentiment: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface VocSummary {
+  total: number;
+  byStatus: Record<string, number>;
+  bySentiment: Record<string, number>;
+}
+
+export const VOC_CHANNELS = ["영업", "CS", "고객사", "뉴스", "리포트", "기타"] as const;
+export const VOC_SENTIMENTS = ["긍정", "중립", "부정"] as const;
+export const VOC_PRIORITIES = ["상", "중", "하"] as const;
+export const VOC_STATUSES = ["신규", "검토중", "완료"] as const;
+
+export const vocApi = {
+  list: (params?: { status?: string; sentiment?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.sentiment) qs.set("sentiment", params.sentiment);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return req<{ voc: VocItem[]; summary: VocSummary }>(`/voc${suffix}`);
+  },
+  create: (body: {
+    customer: string;
+    content: string;
+    channel?: string;
+    sentiment?: string;
+    priority?: string;
+  }) => req<VocItem>("/voc", { method: "POST", body: JSON.stringify(body) }),
+  updateStatus: (id: string, status: string) =>
+    req<VocItem>(`/voc/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  remove: (id: string) => req<void>(`/voc/${id}`, { method: "DELETE" }),
+};
+
 export const feedbackApi = {
   send: (body: { kind: string; ref?: string; rating: "up" | "down"; note?: string }) =>
     req<{ id: string; rating: string }>("/feedback", {
