@@ -29,6 +29,12 @@ from .schemas import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 활성 프로파일 .env(OPENROUTER_*/MI_EMBED_*/MI_RERANK_*/CONFLUENCE_* 등)를 시작 시
+    # os.environ 에 로드 → 임베딩/리랭커/LLM 이 일관된 설정을 본다(요청 시점 의존 제거).
+    try:
+        load_profile()
+    except Exception:
+        pass
     collection.init_db()
     yield
     await gateway.close_all()  # 영속 게이트웨이 커넥션 정리

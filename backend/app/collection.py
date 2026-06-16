@@ -415,7 +415,7 @@ def store_embedding(conn: sqlite3.Connection, doc_id: str, *, title: str | None 
         return
     conn.execute(
         "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
-        (doc_id, embeddings.MODEL_NAME, mat[0].tobytes()),
+        (doc_id, embeddings.model_name(), mat[0].tobytes()),
     )
 
 
@@ -439,7 +439,7 @@ def rebuild_embeddings() -> int:
         for did, vec in zip(ids, mat):
             conn.execute(
                 "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
-                (did, embeddings.MODEL_NAME, vec.tobytes()),
+                (did, embeddings.model_name(), vec.tobytes()),
             )
     return len(ids)
 

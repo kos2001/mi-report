@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
+from . import reranker
+
 RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
 아래에 번호가 매겨진 수집 문서들만 근거로 사용자 질문에 답한다.
 
@@ -78,12 +80,24 @@ async def rerank(
     top_n: int = 6,
     temperature: float = 0.0,
 ) -> list[dict[str, Any]]:
-    """게이트웨이로 후보 문서를 관련도 재정렬해 상위 top_n 만 남긴다(2단계 검색).
+    """후보 문서를 관련도 재정렬해 상위 top_n 만 남긴다(2단계 검색).
 
-    후보가 top_n 이하면 그대로 둔다. 재랭킹 실패 시 입력 상위 top_n 으로 폴백.
+    MI_RERANK_MODEL 가 설정되면 OpenRouter 전용 rerank 모델(다국어·한국어)을 쓰고,
+    아니면 LLM(게이트웨이)으로 재정렬한다. 후보가 top_n 이하면 그대로 둔다.
+    모든 경로 실패 시 입력 상위 top_n 으로 폴백.
     """
     if len(docs) <= top_n:
         return docs
+
+    # 1순위: 전용 rerank 모델(설정 시)
+    if reranker.enabled():
+        try:
+            ranked = await reranker.rerank_documents(question, docs, top_n=top_n)
+            if ranked:
+                return ranked
+        except Exception:
+            pass  # rerank 실패 → LLM 재정렬로 폴백
+
     lines = [
         f"[{i}] {d.get('title', '')}: {(d.get('content', '') or '')[:300]}"
         for i, d in enumerate(docs, 1)
