@@ -30,8 +30,9 @@ pip install -e '.[embeddings]'      # 임베딩 하이브리드 검색 포함
 # profiles/mi-report/.env 에 LLM 키 설정
 #   OPENROUTER_API_KEY=sk-or-...
 #   OPENROUTER_MODEL=deepseek/deepseek-v4-flash   (선택, 기본값)
-#   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1  (선택)
+#   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1  (선택; 사내 게이트웨이면 그 주소)
 #   MI_EMBEDDINGS=1                               (선택, 의미 임베딩 검색)
+#   LLM_SERVICE_ID / LLM_USER_ID                  (선택; 사내 LLM 요청에 x-service-id / x-user-id 헤더 첨부)
 
 uvicorn app.main:app --reload --port 8000
 ```

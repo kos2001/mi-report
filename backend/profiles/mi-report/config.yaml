@@ -8,6 +8,8 @@ model:
   base_url: "https://openrouter.ai/api/v1"
 
 # OpenAI 호환 provider 정의. api_key 는 .env 의 key_env 변수에서 읽는다.
+# 사내 LLM 게이트웨이 사용 시: base_url 을 사내 엔드포인트로 바꾸고, .env 에
+# LLM_SERVICE_ID / LLM_USER_ID 를 채우면 매 요청에 x-service-id / x-user-id 헤더가 첨부된다.
 providers:
   openrouter:
     type: "openai-compatible"
