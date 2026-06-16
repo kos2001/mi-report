@@ -332,11 +332,12 @@ export const artifactsApi = {
   count: () => req<{ count: number }>("/artifacts?limit=1").then((d) => d.count),
 };
 
-// ── VOC (Voice of Customer) ───────────────────────────────────────────────
+// ── VOC (이 서비스에 대한 사용자 피드백) ──────────────────────────────────
 export interface VocItem {
   id: string;
-  customer: string;
-  channel: string;
+  reporter: string;
+  area: string;
+  category: string;
   content: string;
   sentiment: string;
   priority: string;
@@ -350,7 +351,8 @@ export interface VocSummary {
   bySentiment: Record<string, number>;
 }
 
-export const VOC_CHANNELS = ["영업", "CS", "고객사", "뉴스", "리포트", "기타"] as const;
+export const VOC_AREAS = ["대시보드", "데이터수집", "다이제스트", "주제", "경쟁사", "문서Q&A", "리포트", "기타"] as const;
+export const VOC_CATEGORIES = ["기능요청", "버그", "개선", "문의", "칭찬"] as const;
 export const VOC_SENTIMENTS = ["긍정", "중립", "부정"] as const;
 export const VOC_PRIORITIES = ["상", "중", "하"] as const;
 export const VOC_STATUSES = ["신규", "검토중", "완료"] as const;
@@ -364,9 +366,10 @@ export const vocApi = {
     return req<{ voc: VocItem[]; summary: VocSummary }>(`/voc${suffix}`);
   },
   create: (body: {
-    customer: string;
+    reporter: string;
     content: string;
-    channel?: string;
+    area?: string;
+    category?: string;
     sentiment?: string;
     priority?: string;
   }) => req<VocItem>("/voc", { method: "POST", body: JSON.stringify(body) }),
