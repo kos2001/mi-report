@@ -247,12 +247,22 @@ export interface GeneratedCompetitor {
   generated: boolean;
 }
 
+export interface CompetitorCandidate {
+  name: string;
+  ticker: string;
+  via: string;
+}
+
 export const competitorsApi = {
   analyze: (body: { name: string; ticker?: string; topic?: string; q?: string; limit?: number }) =>
     req<GeneratedCompetitor>("/competitors/analyze", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // 수집된 데이터에서 분석 가능한 경쟁사 후보(이름·티커)
+  candidates: () =>
+    req<{ candidates: CompetitorCandidate[] }>("/competitors/candidates").then((d) => d.candidates),
 };
 
 // ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────

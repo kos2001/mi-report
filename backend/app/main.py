@@ -591,6 +591,12 @@ async def topics_summarize(req: TopicSummarizeRequest):
 
 
 # ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
+@app.get("/competitors/candidates")
+def competitors_candidates():
+    """수집된 데이터(SEC/DART 소스·한경 리포트)에서 분석 가능한 경쟁사 후보 목록."""
+    return {"candidates": collection.competitor_candidates()}
+
+
 @app.post("/competitors/analyze")
 async def competitors_analyze(req: CompetitorAnalyzeRequest):
     """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다.

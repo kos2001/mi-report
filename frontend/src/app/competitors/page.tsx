@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { competitorsApi, type GeneratedCompetitor } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
 import { competitors } from "@/lib/data";
 import { Card, Delta, PageHeader } from "@/components/ui";
 
@@ -159,6 +159,19 @@ export default function CompetitorsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
+  const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
+
+  // 수집된 데이터로 결정되는 분석 가능 경쟁사 후보를 불러온다.
+  useEffect(() => {
+    competitorsApi.candidates().then(setCandidates).catch(() => setCandidates([]));
+  }, []);
+
+  function pick(c: CompetitorCandidate) {
+    setName(c.name);
+    setTicker(c.ticker);
+    setTopic("");
+    setError(null);
+  }
 
   async function handleAnalyze() {
     if (!name.trim()) {
@@ -247,8 +260,38 @@ export default function CompetitorsPage() {
       <Card className="mb-8">
         <h2 className="text-sm font-semibold text-zinc-100">AI 경쟁사 분석 생성</h2>
         <p className="mt-1 text-xs text-zinc-500">
-          수집된 IR·실적 문서를 분석합니다. 경쟁사 이름과 (선택) 문서 주제를 입력하세요.
+          수집된 데이터(SEC·DART·한경 리포트)로 정해진 경쟁사를 선택하거나 직접 입력하세요.
         </p>
+
+        {/* 수집 데이터로 결정되는 경쟁사 후보 — 클릭하면 이름·티커가 채워짐 */}
+        {candidates.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              수집된 경쟁사 ({candidates.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {candidates.map((c) => {
+                const active = name === c.name;
+                return (
+                  <button
+                    key={`${c.name}-${c.ticker}`}
+                    onClick={() => pick(c)}
+                    title={`출처: ${c.via}`}
+                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-violet-700 bg-violet-950/50 text-violet-200"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                  >
+                    {c.name}
+                    {c.ticker && <span className="ml-1 font-mono text-zinc-500">{c.ticker}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <input
             value={name}
