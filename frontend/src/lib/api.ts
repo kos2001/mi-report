@@ -260,6 +260,8 @@ export interface RagAnswer {
   answer: string;
   sources: { index: number; title: string; source: string }[];
   usedDocCount: number;
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
 }
 
 export const ragApi = {

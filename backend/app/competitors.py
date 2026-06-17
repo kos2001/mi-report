@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from . import grounding
 from .llm_json import extract_json
 from .schemas import CompetitorAnalysisOut
 from .topics import slugify
@@ -83,6 +84,13 @@ async def analyze_competitor(
         raise ValueError("분석할 본문 있는 문서가 없습니다.")
     completion = await client.chat(build_messages(name, ticker, docs), temperature=temperature)
     out = parse_analysis(extract_content(completion))
+
+    # 환각 방어: 재무·요약의 수치가 근거 문서에 실재하는지 검증(재무 서비스 — 미근거 수치 플래그).
+    src = [d.get("content", "") for d in docs]
+    fin_text = " ".join(f"{f.metric} {f.value}" for f in out.financials)
+    summary_text = " ".join([*out.callSummary, *out.qoqChanges])
+    g = grounding.check(f"{fin_text} {summary_text}", src)
+
     return {
         "id": slugify(name),
         "name": name,
@@ -95,4 +103,6 @@ async def analyze_competitor(
         "consensus": [c.model_dump() for c in out.consensus],
         "sourceDocCount": len(docs),
         "generated": True,
+        "numbersGrounded": g["numbersGrounded"],
+        "ungroundedNumbers": g["ungroundedNumbers"],
     }

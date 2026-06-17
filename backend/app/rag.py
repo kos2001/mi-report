@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import reranker
+from . import grounding, reranker
 
 RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
 아래에 번호가 매겨진 수집 문서들만 근거로 사용자 질문에 답한다.
@@ -139,9 +139,17 @@ async def answer_question(
     cited = _cited_indices(answer, len(docs))
     # 실제 인용된 문서만 근거로 표시(인용이 없으면 전체로 폴백)
     sources = [all_sources[i - 1] for i in cited] if cited else all_sources
+
+    # 환각 방어: 답변의 수치가 근거 문서에 실재하는지 검증 → 미근거 수치 플래그 + 경고 부기
+    g = grounding.check(answer, [d.get("content", "") for d in docs])
+    if not g["numbersGrounded"]:
+        answer = answer + grounding.caveat_line(g["ungroundedNumbers"])
+
     return {
         "answer": answer,
         "sources": sources,
         "usedDocCount": len(docs),
         "citedCount": len(cited),
+        "numbersGrounded": g["numbersGrounded"],
+        "ungroundedNumbers": g["ungroundedNumbers"],
     }
