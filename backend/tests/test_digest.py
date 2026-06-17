@@ -104,6 +104,38 @@ def test_generate_digest_empty_docs_raises():
         asyncio.run(digest.generate_digest(FakeClient(""), [], issue_no=1, period=""))
 
 
+def test_generate_digest_flags_ungrounded_numbers():
+    # 문서엔 35.2% 만 있고 LLM 이 1,234억(미근거)을 지어냄 → 플래그.
+    resp = json.dumps({"items": [{
+        "title": "HBM4 12단 채택", "source": "기술뉴스", "publishedAt": "2026-06-10",
+        "summary": "점유율 35.2% 기록, 매출 1,234억원 전망.", "slsiRelevance": "HBM 컨트롤러.",
+        "demandImpact": "수요 강세.", "risk": "단일 출처.", "impact": "high", "tags": [],
+    }]}, ensure_ascii=False)
+    docs = [{"title": "HBM4 12단 채택", "source": "기술뉴스",
+             "publishedAt": "2026-06-10", "content": "HBM4 12단 채택. 점유율 35.2% 기록."}]
+    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, issue_no=1, period="P"))
+    item = res["items"][0]
+    assert "1234" in item["ungroundedNumbers"]   # 지어낸 수치
+    assert "35.2" not in item["ungroundedNumbers"]  # 문서 근거 수치는 통과
+    assert item["numbersGrounded"] is False
+    assert item["sourceVerified"] is True           # 출처명 일치
+    assert res["numbersGrounded"] is False and "1234" in res["ungroundedNumbers"]
+
+
+def test_generate_digest_flags_unverified_source():
+    # 출처명 불일치 + 제목 무관 → 거짓 출처 귀속으로 플래그.
+    resp = json.dumps({"items": [{
+        "title": "전혀 무관한 제목 XYZ", "source": "조작된출처", "publishedAt": "2026-06-10",
+        "summary": "내용.", "slsiRelevance": "", "demandImpact": "", "risk": "",
+        "impact": "low", "tags": [],
+    }]}, ensure_ascii=False)
+    docs = [{"title": "HBM4 12단 채택", "source": "기술뉴스",
+             "publishedAt": "2026-06-10", "content": "HBM4 채택."}]
+    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, issue_no=1, period="P"))
+    assert res["items"][0]["sourceVerified"] is False
+    assert res["unverifiedSourceCount"] == 1
+
+
 # ── 엔드포인트 (페이크 클라이언트 주입) ────────────────────────────────────
 def _upload(client, name, body, topic=None):
     return client.post(

@@ -10,10 +10,14 @@
 
 from __future__ import annotations
 
+import math
 import re
 
 # 콤마/소수 포함 숫자 토큰. 통화기호·% 는 경계로 둔다.
 _NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# 가수(mantissa) 일치 허용오차 — 단위 환산/반올림 흡수, 우연 일치 억제.
+_MANTISSA_TOL = 0.005
 
 
 def _norm(tok: str) -> str:
@@ -21,12 +25,25 @@ def _norm(tok: str) -> str:
     return tok.replace(",", "").rstrip(".")
 
 
-def _sig(tok: str) -> str:
-    """유효숫자열 — 콤마·소수점·앞뒤 0 제거. 단위 재환산/반올림 비교용.
+def _mantissa(x: float) -> float:
+    """x(>0)의 10의 거듭제곱을 제거한 가수 ∈ [1,10). 단위 환산 무시 비교용.
 
-    예: 61,157(백만) · 61.157(십억) · 61,157,000,000 → 모두 '61157'.
+    예: 403.19 · 40,319,000,000 → 모두 ≈4.0319. 반올림(46.988→46.99)은 허용오차로 흡수.
     """
-    return tok.replace(",", "").replace(".", "").strip("0")
+    return x / (10 ** math.floor(math.log10(x)))
+
+
+def _floats(s: str) -> list[float]:
+    """문자열에서 양수 실수 목록을 추출(콤마 정규화)."""
+    out: list[float] = []
+    for m in _NUM.findall(s):
+        try:
+            v = float(_norm(m))
+        except ValueError:
+            continue
+        if v > 0:
+            out.append(v)
+    return out
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -50,20 +67,24 @@ def extract_numbers(text: str) -> list[str]:
 def ungrounded_numbers(text: str, source_texts: list[str]) -> list[str]:
     """답변의 수치 중 근거 문서 원문에 등장하지 않는 것을 반환.
 
-    1) 직접 매칭: 콤마 정규화 후 부분문자열로 등장하는가.
-    2) 재환산 매칭(폴백): 유효숫자열이 원문 어느 수치의 유효숫자열과 접두 관계인가
-       (예: 원문 61,157 → 답변 61.157B/61.1B). 짧은 수(<3자리)는 폴백을 쓰지 않아
-       우연한 자릿수 일치로 환각을 놓치지 않는다.
+    1) 직접 매칭: 콤마 정규화 후 부분문자열로 등장하는가(연도·날짜·표기 그대로).
+    2) 가수 매칭(폴백): 원문 어느 수치와 10의 거듭제곱·반올림을 무시하고 같은가
+       (예: 원문 40,319,000,000 → 답변 403.19억/40.3B). 단위 환산·반올림을 흡수하되
+       허용오차(0.5%)로 우연 일치를 억제해 진짜 환각은 계속 잡는다.
     """
     src = _norm(" ".join(t for t in source_texts if t))
-    src_sigs = [s for s in (_sig(m) for m in _NUM.findall(src)) if len(s) >= 3]
+    src_mant = [_mantissa(v) for v in _floats(src)]
     bad: list[str] = []
     for n in extract_numbers(text):
         if n in src:
             continue
-        nsig = _sig(n)
-        if len(nsig) >= 3 and any(s.startswith(nsig) or nsig.startswith(s) for s in src_sigs):
-            continue  # 단위 재환산/반올림 — 같은 수치로 인정
+        try:
+            m = _mantissa(float(n))
+        except (ValueError, OverflowError):
+            bad.append(n)
+            continue
+        if any(abs(m - sm) <= _MANTISSA_TOL * sm for sm in src_mant):
+            continue  # 단위 환산/반올림 — 같은 수치로 인정
         bad.append(n)
     return bad
 

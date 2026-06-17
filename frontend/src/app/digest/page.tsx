@@ -19,9 +19,14 @@ type DigestItemLike = {
   risk: string;
   impact: "high" | "medium" | "low";
   tags: string[];
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sourceVerified?: boolean;
 };
 
 function DigestItemCard({ item }: { item: DigestItemLike }) {
+  const ungrounded = item.ungroundedNumbers ?? [];
+  const sourceUnverified = item.sourceVerified === false;
   return (
     <Card>
       <div className="flex items-start justify-between gap-4">
@@ -29,10 +34,27 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
           <h3 className="text-sm font-semibold text-zinc-100">{item.title}</h3>
           <p className="mt-1 text-xs text-zinc-500">
             {item.source} · {item.publishedAt}
+            {sourceUnverified && (
+              <span className="ml-1 text-amber-400">· ⚠ 출처 미검증</span>
+            )}
           </p>
         </div>
         <ImpactBadge level={item.impact} />
       </div>
+
+      {(ungrounded.length > 0 || sourceUnverified) && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          {ungrounded.length > 0 && (
+            <>
+              ⚠ 환각 주의 — 제공 문서에서 확인되지 않은 수치:{" "}
+              <span className="font-mono">{ungrounded.join(", ")}</span>
+            </>
+          )}
+          {sourceUnverified && (
+            <span className="block">⚠ 출처를 입력 문서에서 추적할 수 없습니다 — 귀속 확인 필요</span>
+          )}
+        </p>
+      )}
 
       <p className="mt-3 text-sm leading-relaxed text-zinc-300">{item.summary}</p>
 
