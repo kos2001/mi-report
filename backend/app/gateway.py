@@ -6,7 +6,7 @@
 
 연결 정보는 환경변수로 설정한다(활성 프로파일 .env 자동 로드):
   - OPENROUTER_API_KEY  (필수)
-  - OPENROUTER_MODEL    (기본 deepseek/deepseek-v4-flash, .env 로 재정의)
+  - OPENROUTER_MODEL    (기본 minimax/minimax-m3, .env 로 재정의)
   - OPENROUTER_BASE_URL (기본 https://openrouter.ai/api/v1)
 
 참조 설계: gitspace/lsi_error_analyzer (agno.models.openrouter.OpenRouter + Agent).
@@ -19,7 +19,7 @@ from typing import Any
 
 from .profiles import load_profile
 
-DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_MODEL = "minimax/minimax-m3"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 # 다이제스트/리포트는 긴 JSON 을 산출하므로 충분한 출력 토큰이 필요(미설정 시 truncation).
 DEFAULT_MAX_TOKENS = 8000

@@ -32,7 +32,7 @@ npm run dev          # http://localhost:3000
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[embeddings]'
-# profiles/mi-report/.env 에 OPENROUTER_API_KEY 입력 (모델 기본값: deepseek/deepseek-v4-flash)
+# profiles/mi-report/.env 에 OPENROUTER_API_KEY 입력 (모델 기본값: minimax/minimax-m3)
 uvicorn app.main:app --reload --port 8000              # http://localhost:8000/docs
 ```
 

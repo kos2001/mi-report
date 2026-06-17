@@ -3,7 +3,7 @@
 # OPENROUTER_* 환경변수(.env)를 직접 읽어 agno 의 OpenRouter 모델로 수행한다.
 
 model:
-  default: "deepseek/deepseek-v4-flash"  # OPENROUTER_MODEL 로 재정의 가능
+  default: "minimax/minimax-m3"  # OPENROUTER_MODEL 로 재정의 가능
   provider: "openrouter"
   base_url: "https://openrouter.ai/api/v1"
 
