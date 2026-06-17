@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
 import { competitors } from "@/lib/data";
 import { Card, Delta, PageHeader } from "@/components/ui";
@@ -161,10 +161,23 @@ export default function CompetitorsPage() {
   const [showHelp, setShowHelp] = useState(true);
   const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
 
-  // 수집된 데이터로 결정되는 분석 가능 경쟁사 후보를 불러온다.
-  useEffect(() => {
+  // 수집된 데이터로 결정되는 분석 가능 경쟁사 후보(동적). 마운트 + 창 포커스 시 재조회.
+  const loadCandidates = useCallback(() => {
     competitorsApi.candidates().then(setCandidates).catch(() => setCandidates([]));
   }, []);
+
+  useEffect(() => {
+    loadCandidates();
+    const onFocus = () => {
+      if (document.visibilityState !== "hidden") loadCandidates();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [loadCandidates]);
 
   function pick(c: CompetitorCandidate) {
     setName(c.name);
@@ -266,9 +279,18 @@ export default function CompetitorsPage() {
         {/* 수집 데이터로 결정되는 경쟁사 후보 — 클릭하면 이름·티커가 채워짐 */}
         {candidates.length > 0 && (
           <div className="mt-3">
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-              수집된 경쟁사 ({candidates.length})
-            </p>
+            <div className="mb-1.5 flex items-center gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                수집된 경쟁사 ({candidates.length})
+              </p>
+              <button
+                onClick={loadCandidates}
+                title="수집 데이터 기준 후보 새로고침"
+                className="text-[11px] text-zinc-500 hover:text-zinc-300"
+              >
+                ↻ 새로고침
+              </button>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {candidates.map((c) => {
                 const active = name === c.name;
