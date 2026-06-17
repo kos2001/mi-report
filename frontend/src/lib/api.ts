@@ -9,6 +9,7 @@ export type SourceType =
   | "confluence"
   | "sec"
   | "dart"
+  | "hankyung"
   | "news"
   | "broker"
   | "consensus"
@@ -420,6 +421,7 @@ export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   confluence: "Confluence",
   sec: "SEC EDGAR",
   dart: "DART",
+  hankyung: "한경 컨센서스",
   news: "뉴스",
   broker: "증권사",
   consensus: "컨센서스",

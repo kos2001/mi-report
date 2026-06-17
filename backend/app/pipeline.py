@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from . import collection, confluence, config, dart, digest, fetcher, sec_edgar
+from . import collection, confluence, config, dart, digest, fetcher, hankyung, sec_edgar
 from .gateway import get_client
 
 
@@ -26,6 +26,8 @@ async def collect_source(
         return await collect_sec_source(source, client)
     if source["type"] == "dart":
         return await collect_dart_source(source, client)
+    if source["type"] == "hankyung":
+        return await collect_hankyung_source(source, client)
 
     documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -106,6 +108,32 @@ async def collect_dart_source(
     return [d], []
 
 
+async def collect_hankyung_source(
+    source: dict[str, Any], client: httpx.AsyncClient, *, topic: str = "컨센서스"
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """한경 컨센서스 리포트 PDF 본문을 추출해 문서로 동기화한다(기존 문서 교체)."""
+    cfg = source.get("config") or {}
+    base = (cfg.get("base_url") or hankyung.BASE_DEFAULT).strip()
+    try:
+        limit = int(cfg.get("limit") or hankyung.LIMIT_DEFAULT)
+    except (TypeError, ValueError):
+        limit = hankyung.LIMIT_DEFAULT
+    try:
+        reports = await hankyung.fetch_reports(client, base, limit=limit)
+    except httpx.HTTPError as e:
+        return [], [{"url": base, "error": f"한경 컨센서스 수집 실패: {e}"}]
+    if not reports:
+        return [], [{"url": base, "error": "리포트 목록을 찾지 못했습니다."}]
+    collection.delete_documents_by_source(source["id"])
+    docs = [
+        collection.add_crawled_document(
+            source["id"], source["name"], r["title"], r["text"], url=r["url"], topic=topic
+        )
+        for r in reports
+    ]
+    return docs, []
+
+
 async def run_collection() -> dict[str, Any]:
     """URL 이 있는 활성 커넥터 소스를 모두 수집한다."""
     ingested = 0
@@ -114,8 +142,8 @@ async def run_collection() -> dict[str, Any]:
         for source in collection.list_sources():
             if source["type"] not in collection.CONNECTOR_TYPES or not source["enabled"]:
                 continue
-            # confluence/sec/dart 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
-            if source["type"] not in ("confluence", "sec", "dart") and not collection.source_urls(source):
+            # confluence/sec/dart/hankyung 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
+            if source["type"] not in ("confluence", "sec", "dart", "hankyung") and not collection.source_urls(source):
                 continue
             docs, errors = await collect_source(source, http)
             if not docs and errors:

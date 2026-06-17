@@ -12,6 +12,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "agno>=2.6",          # LLM 엔진(OpenRouter 모델 래핑)
     "openai>=1.0",        # agno OpenRouter 백엔드 의존
+    "pypdf>=4.0",         # 한경 컨센서스 리포트 PDF 본문 추출
 ]
 
 [project.optional-dependencies]
