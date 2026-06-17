@@ -674,6 +674,27 @@ def documents_for_digest(
     return out
 
 
+def documents_for_competitor(name: str, ticker: str = "", *, limit: int = 8,
+                             max_chars: int = 4000) -> list[dict[str, Any]]:
+    """경쟁사 분석용 문서 검색.
+
+    회사명·티커를 하이브리드(BM25+의미)로 검색해 해당 기업의 한경 컨센서스 리포트·IR·
+    실적 문서를 관련도순으로 모은다(임베딩 비활성 시 BM25 폴백). 키워드 필터보다
+    정확히 '그 회사' 문서를 끌어와 분석을 실데이터에 근거하게 한다.
+    """
+    query = " ".join(p for p in [name, ticker, "실적 컨센서스 목표주가 투자의견"] if p)
+    out: list[dict[str, Any]] = []
+    for d in hybrid_search(query, limit=limit):
+        text = read_document_text(d["id"], max_chars=max_chars)
+        if not text:
+            continue
+        out.append({
+            "id": d["id"], "title": d["title"], "source": d["sourceName"],
+            "publishedAt": d["publishedAt"], "content": text,
+        })
+    return out
+
+
 def get_document(doc_id: str) -> dict[str, Any]:
     with _conn() as conn:
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()

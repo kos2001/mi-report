@@ -161,3 +161,13 @@ def test_hybrid_search_falls_back_to_bm25_on_embedding_error(isolated, monkeypat
     monkeypatch.setattr(embeddings, "embed", boom)
     hits = collection.hybrid_search("HBM4 수요", limit=5)
     assert any("HBM4" in d["title"] for d in hits)  # 폴백으로 회수
+
+
+def test_documents_for_competitor_finds_company_docs(isolated):
+    # 한경 리포트 스타일 문서 + 무관 문서
+    collection.ingest_text("[증권사 리포트] 삼성물산(028260) 지분가치 재평가",
+                           "삼성물산 목표주가 상향, 투자의견 매수 유지. 배당 확대.", topic="컨센서스")
+    collection.ingest_text("[증권사 리포트] SK스퀘어(402340) 동향",
+                           "SK스퀘어 SK하이닉스 지분가치 부각.", topic="컨센서스")
+    docs = collection.documents_for_competitor("삼성물산", "028260", limit=5)
+    assert any("삼성물산" in d["title"] for d in docs)  # 그 회사 문서를 회수
