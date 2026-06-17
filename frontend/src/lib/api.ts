@@ -382,6 +382,31 @@ export const vocApi = {
   remove: (id: string) => req<void>(`/voc/${id}`, { method: "DELETE" }),
 };
 
+// ── 스케줄(파이프라인 cron) ───────────────────────────────────────────────
+export interface ScheduleState {
+  enabled: boolean;
+  frequency: "daily" | "weekly";
+  hour: number;
+  minute: number;
+  weekday: number;
+  digestLimit: number;
+  lastRunAt: string | null;
+}
+export interface ScheduleView {
+  schedule: ScheduleState;
+  describe: string;
+  crontab: string;
+  nextRun: string | null;
+  inAppScheduler: boolean;
+}
+
+export const scheduleApi = {
+  get: () => req<ScheduleView>("/schedule"),
+  put: (body: Omit<ScheduleState, "lastRunAt">) =>
+    req<ScheduleView>("/schedule", { method: "PUT", body: JSON.stringify(body) }),
+  runNow: () => req<{ ingested?: number }>("/schedule/run-now", { method: "POST" }),
+};
+
 export const feedbackApi = {
   send: (body: { kind: string; ref?: string; rating: "up" | "down"; note?: string }) =>
     req<{ id: string; rating: string }>("/feedback", {
