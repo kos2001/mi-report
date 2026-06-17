@@ -91,3 +91,27 @@ def test_collect_sec_source_syncs_with_topic(client, monkeypatch):
     # 경쟁사 분석이 topic 으로 찾도록 '경쟁사IR' 주제로 인입됐는지
     found = client.get("/collection/documents", params={"topic": "경쟁사IR"}).json()["documents"]
     assert any("QUALCOMM" in d["title"] for d in found)
+
+
+# ── IFRS(외국 기업, 20-F) — 예: TSMC ──────────────────────────────────────
+_SUB_TSMC = {"name": "TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD", "cik": 1046179,
+             "filings": {"recent": {"form": ["6-K", "20-F"], "filingDate": ["2026-06-10", "2026-04-16"]}}}
+_FACTS_TSMC = {"entityName": "Taiwan Semiconductor Manufacturing Company Limited", "cik": 1046179,
+               "facts": {"ifrs-full": {
+                   "Revenue": {"units": {
+                       "TWD": [{"end": "2024-12-31", "val": 2894307700000, "form": "20-F", "fp": "FY"}],
+                       "USD": [{"end": "2024-12-31", "val": 90000000000, "form": "20-F", "fp": "FY"}],
+                   }},
+                   "ProfitLoss": {"units": {
+                       "USD": [{"end": "2024-12-31", "val": 36000000000, "form": "20-F", "fp": "FY"}],
+                   }},
+               }}}
+
+
+def test_parse_company_ir_ifrs_foreign_issuer():
+    doc = sec_edgar.parse_company_ir("", _SUB_TSMC, _FACTS_TSMC)
+    assert "Taiwan Semiconductor" in doc["title"]
+    assert "IFRS" in doc["text"] and "20-F" in doc["text"]
+    # USD 단위 우선 채택 + 매출/순이익 추출
+    assert "90,000,000,000 USD" in doc["text"]
+    assert "36,000,000,000 USD" in doc["text"]
