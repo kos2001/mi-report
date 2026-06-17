@@ -245,6 +245,9 @@ export interface GeneratedCompetitor {
   }[];
   sourceDocCount: number;
   generated: boolean;
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  droppedCount?: number;
 }
 
 export interface CompetitorCandidate {

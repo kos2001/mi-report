@@ -27,11 +27,11 @@ COMPETITOR_SYSTEM_PROMPT = """당신은 반도체/IT 기업 IR·실적을 분석
 - consensus: 증권사 컨센서스 갱신(metric/current/previous/revisedAt/broker/direction=up|down|flat).
 - 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다.
 
-출력 형식:
-{"fiscalQuarter":"...","reportedAt":"YYYY-MM-DD",
- "financials":[{"metric":"매출","value":"$11.7B","qoq":3.2,"yoy":12.4}],
- "callSummary":["..."],"qoqChanges":["..."],
- "consensus":[{"metric":"...","current":"...","previous":"...","revisedAt":"...","broker":"...","direction":"flat"}]}"""
+출력 형식(값은 반드시 제공 문서에서 가져오고, 아래 꺾쇠 자리표시자를 그대로 베끼지 말 것):
+{"fiscalQuarter":"<문서의 분기 표기>","reportedAt":"<YYYY-MM-DD 또는 미상>",
+ "financials":[{"metric":"<지표명>","value":"<문서의 값 그대로>","qoq":<숫자 또는 null>,"yoy":<숫자 또는 null>}],
+ "callSummary":["<문서 근거 요약>"],"qoqChanges":["<문서 근거 변화>"],
+ "consensus":[{"metric":"<지표>","current":"<문서 값>","previous":"<문서 값 또는 빈칸>","revisedAt":"<날짜>","broker":"<증권사>","direction":"up|down|flat"}]}"""
 
 
 class ChatClient(Protocol):
@@ -85,11 +85,23 @@ async def analyze_competitor(
     completion = await client.chat(build_messages(name, ticker, docs), temperature=temperature)
     out = parse_analysis(extract_content(completion))
 
-    # 환각 방어: 재무·요약의 수치가 근거 문서에 실재하는지 검증(재무 서비스 — 미근거 수치 플래그).
+    # 환각 방어(재무 서비스): 수치가 근거 문서에 실재하지 않으면 그 항목을 버린다.
+    # 재무·컨센서스의 '값'은 문서에 없는 숫자면 표시하지 않는다(환각 수치 노출 차단).
     src = [d.get("content", "") for d in docs]
-    fin_text = " ".join(f"{f.metric} {f.value}" for f in out.financials)
-    summary_text = " ".join([*out.callSummary, *out.qoqChanges])
-    g = grounding.check(f"{fin_text} {summary_text}", src)
+    dropped: list[str] = []
+
+    def _grounded_value(val: str) -> bool:
+        bad = grounding.ungrounded_numbers(val or "", src)
+        if bad:
+            dropped.extend(bad)
+            return False
+        return True
+
+    financials = [f for f in out.financials if _grounded_value(f.value)]
+    consensus = [c for c in out.consensus if _grounded_value(c.current)]
+    # 콜요약/변화의 미근거 수치도 함께 집계(표시는 유지하되 경고).
+    g = grounding.check(" ".join([*out.callSummary, *out.qoqChanges]), src)
+    ungrounded = list(dict.fromkeys([*dropped, *g["ungroundedNumbers"]]))
 
     return {
         "id": slugify(name),
@@ -97,12 +109,13 @@ async def analyze_competitor(
         "ticker": ticker,
         "fiscalQuarter": out.fiscalQuarter,
         "reportedAt": out.reportedAt,
-        "financials": [f.model_dump() for f in out.financials],
+        "financials": [f.model_dump() for f in financials],
         "callSummary": out.callSummary,
         "qoqChanges": out.qoqChanges,
-        "consensus": [c.model_dump() for c in out.consensus],
+        "consensus": [c.model_dump() for c in consensus],
         "sourceDocCount": len(docs),
         "generated": True,
-        "numbersGrounded": g["numbersGrounded"],
-        "ungroundedNumbers": g["ungroundedNumbers"],
+        "numbersGrounded": not ungrounded,
+        "ungroundedNumbers": ungrounded,
+        "droppedCount": len(dropped),
     }
