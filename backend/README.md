@@ -29,7 +29,7 @@ pip install -e '.[embeddings]'      # 임베딩 하이브리드 검색 포함
 
 # profiles/mi-report/.env 에 LLM 키 설정
 #   OPENROUTER_API_KEY=sk-or-...
-#   OPENROUTER_MODEL=deepseek/deepseek-v4-flash   (선택, 기본값)
+#   OPENROUTER_MODEL=minimax/minimax-m3           (선택, 기본값)
 #   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1  (선택; 사내 게이트웨이면 그 주소)
 #   MI_EMBEDDINGS=1                               (선택, 의미 임베딩 검색)
 #   MI_EMBED_BACKEND=openrouter                   (선택; fastembed(로컬, 기본) | openrouter)
