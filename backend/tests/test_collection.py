@@ -171,3 +171,14 @@ def test_documents_for_competitor_finds_company_docs(isolated):
                            "SK스퀘어 SK하이닉스 지분가치 부각.", topic="컨센서스")
     docs = collection.documents_for_competitor("삼성물산", "028260", limit=5)
     assert any("삼성물산" in d["title"] for d in docs)  # 그 회사 문서를 회수
+
+
+def test_competitor_candidates_from_data(isolated):
+    # 시드(Qualcomm)와 겹치지 않는 회사로 — config.ticker 가 후보에 실리는지 확인
+    collection.create_source("SEC AVGO", "sec", {"cik": "0001730168", "name": "Broadcom", "ticker": "AVGO"}, True)
+    collection.ingest_text("[증권사 리포트] 삼성물산(028260) 지분가치", "내용", topic="컨센서스")
+    cands = collection.competitor_candidates()
+    by = {c["name"]: c for c in cands}
+    assert "Broadcom" in by and by["Broadcom"]["ticker"] == "AVGO"
+    assert "삼성물산" in by and by["삼성물산"]["ticker"] == "028260"
+    assert "Qualcomm" in by  # 시드된 SEC 도 포함

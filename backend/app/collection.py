@@ -674,6 +674,39 @@ def documents_for_digest(
     return out
 
 
+_HANKYUNG_TITLE = re.compile(r"\[증권사 리포트\]\s*(.+?)\((\w+)\)")
+
+
+def competitor_candidates() -> list[dict[str, str]]:
+    """수집된 데이터에서 분석 가능한 경쟁사 후보 {name, ticker, via} 를 도출한다.
+
+    - sec/dart 소스: config.name(+ticker) → 추적 대상 기업.
+    - 한경 컨센서스 문서: 제목 '[증권사 리포트] 회사명(코드)' 에서 회사명·종목코드.
+    이름(소문자) 기준 중복 제거.
+    """
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(name: str, ticker: str, via: str) -> None:
+        name = (name or "").strip()
+        key = name.lower()
+        if not name or key in seen:
+            return
+        seen.add(key)
+        out.append({"name": name, "ticker": (ticker or "").strip(), "via": via})
+
+    for s in list_sources():
+        if s["type"] in ("sec", "dart"):
+            cfg = s.get("config") or {}
+            add(str(cfg.get("name") or s["name"]), str(cfg.get("ticker") or ""), s["type"])
+    # 한경 리포트 등 컨센서스 문서의 종목
+    for d in list_documents(topic="컨센서스", limit=200):
+        m = _HANKYUNG_TITLE.search(d.get("title", ""))
+        if m:
+            add(m.group(1), m.group(2), "hankyung")
+    return out
+
+
 def documents_for_competitor(name: str, ticker: str = "", *, limit: int = 8,
                              max_chars: int = 4000) -> list[dict[str, Any]]:
     """경쟁사 분석용 문서 검색.

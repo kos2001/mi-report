@@ -185,10 +185,12 @@ const TYPE_FIELDS: Record<SourceType, FieldDef[]> = {
   sec: [
     { key: "cik", label: "SEC CIK", placeholder: "0000804328 (Qualcomm)", kind: "text" },
     { key: "name", label: "회사명 (선택)", placeholder: "Qualcomm", kind: "text" },
+    { key: "ticker", label: "티커 (선택)", placeholder: "QCOM", kind: "text" },
   ],
   dart: [
     { key: "corp_code", label: "DART corp_code", placeholder: "00126380 (8자리 고유번호)", kind: "text" },
     { key: "name", label: "회사명 (선택)", placeholder: "삼성전자", kind: "text" },
+    { key: "ticker", label: "티커 (선택)", placeholder: "005930", kind: "text" },
   ],
   hankyung: [
     { key: "limit", label: "수집 건수", placeholder: "10 (기본, 최대 30)", kind: "text" },
