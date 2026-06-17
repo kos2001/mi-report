@@ -12,18 +12,20 @@ from typing import Any
 
 import httpx
 
-from . import collection, confluence, config, digest, fetcher, sec_edgar
+from . import collection, confluence, config, dart, digest, fetcher, sec_edgar
 from .gateway import get_client
 
 
 async def collect_source(
     source: dict[str, Any], client: httpx.AsyncClient
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """한 소스를 수집한다. confluence/sec 는 API 동기화, 그 외는 URL fetch."""
+    """한 소스를 수집한다. confluence/sec/dart 는 API 동기화, 그 외는 URL fetch."""
     if source["type"] == "confluence":
         return await collect_confluence_source(source, client)
     if source["type"] == "sec":
         return await collect_sec_source(source, client)
+    if source["type"] == "dart":
+        return await collect_dart_source(source, client)
 
     documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -84,6 +86,26 @@ async def collect_sec_source(
     return [d], []
 
 
+async def collect_dart_source(
+    source: dict[str, Any], client: httpx.AsyncClient, *, topic: str = "경쟁사IR"
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """DART 에서 한국 경쟁사 실 IR/재무를 가져와 문서로 동기화한다(기존 문서 교체)."""
+    corp_code, name = dart.config_from_source(source)
+    if not corp_code:
+        return [], [{"url": "(미설정)", "error": "DART corp_code 설정 필요(config.corp_code)"}]
+    try:
+        doc = await dart.fetch_company_ir(client, corp_code, name)
+    except ValueError as e:  # DART_API_KEY 미설정 등
+        return [], [{"url": "opendart.fss.or.kr", "error": str(e)}]
+    except httpx.HTTPError as e:
+        return [], [{"url": "opendart.fss.or.kr", "error": f"DART API 실패: {e}"}]
+    collection.delete_documents_by_source(source["id"])
+    d = collection.add_crawled_document(
+        source["id"], source["name"], doc["title"], doc["text"], url=doc["url"], topic=topic
+    )
+    return [d], []
+
+
 async def run_collection() -> dict[str, Any]:
     """URL 이 있는 활성 커넥터 소스를 모두 수집한다."""
     ingested = 0
@@ -92,8 +114,8 @@ async def run_collection() -> dict[str, Any]:
         for source in collection.list_sources():
             if source["type"] not in collection.CONNECTOR_TYPES or not source["enabled"]:
                 continue
-            # confluence/sec 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
-            if source["type"] not in ("confluence", "sec") and not collection.source_urls(source):
+            # confluence/sec/dart 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
+            if source["type"] not in ("confluence", "sec", "dart") and not collection.source_urls(source):
                 continue
             docs, errors = await collect_source(source, http)
             if not docs and errors:

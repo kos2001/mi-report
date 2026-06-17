@@ -21,9 +21,9 @@ from typing import Any
 
 from . import assets, config, embeddings, qa_golden, synonyms, voc
 
-SOURCE_TYPES = ("edm", "confluence", "sec", "news", "broker", "consensus", "upload")
+SOURCE_TYPES = ("edm", "confluence", "sec", "dart", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
-CONNECTOR_TYPES = ("edm", "confluence", "sec", "news", "broker", "consensus")
+CONNECTOR_TYPES = ("edm", "confluence", "sec", "dart", "news", "broker", "consensus")
 
 
 def _now() -> str:

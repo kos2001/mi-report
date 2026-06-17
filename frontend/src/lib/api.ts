@@ -8,6 +8,7 @@ export type SourceType =
   | "edm"
   | "confluence"
   | "sec"
+  | "dart"
   | "news"
   | "broker"
   | "consensus"
@@ -391,6 +392,7 @@ export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
   confluence: "Confluence",
   sec: "SEC EDGAR",
+  dart: "DART",
   news: "뉴스",
   broker: "증권사",
   consensus: "컨센서스",
