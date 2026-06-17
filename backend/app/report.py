@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from . import digest, topics
+from . import digest, grounding, topics
 
 REPORT_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
 이번 주 다이제스트 항목과 주제 요약을 종합해 주간 리포트의 '총평'을 작성한다.
@@ -30,8 +30,9 @@ def build_overview_messages(
 ) -> list[dict[str, str]]:
     parts: list[str] = []
     if digest_obj:
-        titles = "; ".join(it.get("title", "") for it in digest_obj.get("items", []))
-        parts.append(f"[다이제스트 제{digest_obj.get('issueNo')}호] {titles}")
+        # 제목뿐 아니라 (이미 근거검증된) 요약도 제공 — 총평이 실제 내용에 근거하도록.
+        for it in digest_obj.get("items", []):
+            parts.append(f"[다이제스트] {it.get('title', '')}: {it.get('summary', '')}")
     for t in topic_summaries:
         parts.append(f"[주제: {t.get('title', '')}] {t.get('summary', '')}")
     user = "다음 자료를 종합해 이번 주 MI 리포트 총평을 작성하라.\n\n" + "\n\n".join(parts)
@@ -88,13 +89,32 @@ async def generate_report(
         )
 
     overview = await generate_overview(client, digest_obj, topic_summaries)
+
+    # 환각 방어(MI 서비스): 총평의 수치를 실제 근거 문서(다이제스트·주제 원문)와 대조하고,
+    # 하위 산출물(다이제스트·주제 요약)의 미근거 수치를 리포트 수준으로 롤업한다.
+    src_texts = [d.get("content", "") for d in digest_docs]
+    for docs in topic_docs.values():
+        src_texts.extend(d.get("content", "") for d in docs)
+    overview_ungrounded = grounding.ungrounded_numbers(overview, src_texts)
+
+    rolled = list(overview_ungrounded)
+    if digest_obj:
+        rolled.extend(digest_obj.get("ungroundedNumbers", []))
+    for t in topic_summaries:
+        rolled.extend(t.get("ungroundedNumbers", []))
+    rolled = list(dict.fromkeys(rolled))
+
     return {
         "generatedAt": generated_at,
         "period": period,
         "issueNo": issue_no,
         "overview": overview,
+        "overviewGrounded": not overview_ungrounded,
+        "overviewUngroundedNumbers": overview_ungrounded,
         "digest": digest_obj,
         "topics": topic_summaries,
+        "numbersGrounded": not rolled,
+        "ungroundedNumbers": rolled,
     }
 
 
@@ -174,4 +194,16 @@ def render_report_markdown(report: dict[str, Any], template: str | None = None) 
     out = tmpl
     for key in REPORT_PLACEHOLDERS:
         out = out.replace("{{" + key + "}}", values[key])
+    # 환각 방어: 미근거 수치가 있으면 문서 상단(제목 다음)에 검토 경고를 덧붙인다.
+    ungrounded = report.get("ungroundedNumbers") or []
+    if ungrounded:
+        notice = (
+            "> ⚠ **검토 필요** — 다음 수치는 제공 문서에서 그대로 확인되지 않았습니다: "
+            + ", ".join(ungrounded[:10]) + "\n\n"
+        )
+        if out.startswith("# "):
+            nl = out.find("\n")
+            out = out[: nl + 1] + "\n" + notice + out[nl + 1:]
+        else:
+            out = notice + out
     return out

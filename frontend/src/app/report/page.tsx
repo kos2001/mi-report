@@ -139,6 +139,14 @@ export default function ReportPage() {
 
       {report && (
         <div className="flex flex-col gap-6">
+          {/* 환각 방어: 미근거 수치 검토 경고 */}
+          {report.ungroundedNumbers && report.ungroundedNumbers.length > 0 && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              ⚠ 검토 필요 — 다음 수치는 제공 문서에서 그대로 확인되지 않았습니다:{" "}
+              <span className="font-mono">{report.ungroundedNumbers.join(", ")}</span>
+            </p>
+          )}
+
           {/* 총평 */}
           <Card className="border-sky-900/50 bg-sky-950/20">
             <div className="flex items-center justify-between">
@@ -192,6 +200,17 @@ export default function ReportPage() {
                       <Tag>{t.category}</Tag>
                       <h4 className="text-sm font-semibold text-zinc-50">{t.title}</h4>
                     </div>
+                    {((t.ungroundedNumbers && t.ungroundedNumbers.length > 0) ||
+                      (t.unverifiedHistoryCount ?? 0) > 0) && (
+                      <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                        {t.ungroundedNumbers && t.ungroundedNumbers.length > 0 && (
+                          <>⚠ 미근거 수치: <span className="font-mono">{t.ungroundedNumbers.join(", ")}</span></>
+                        )}
+                        {(t.unverifiedHistoryCount ?? 0) > 0 && (
+                          <span className="block">⚠ 출처 미검증 이력 {t.unverifiedHistoryCount}건 — 귀속 확인 필요</span>
+                        )}
+                      </p>
+                    )}
                     <p className="mt-2 text-sm leading-relaxed text-zinc-300">{t.summary}</p>
                     <p className="mt-2 rounded-lg border border-sky-900/40 bg-sky-950/30 px-3 py-2 text-sm leading-relaxed text-zinc-200">
                       {t.insight}

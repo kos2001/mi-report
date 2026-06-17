@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
+from . import grounding
 from .llm_json import extract_json
 from .schemas import TopicSummaryOut
 
@@ -32,6 +33,11 @@ TOPIC_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애�
 
 class ChatClient(Protocol):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
+
+
+def _tokens(text: str) -> set[str]:
+    """제목/사건 대조용 토큰(2자 이상)."""
+    return {t for t in re.findall(r"[\w가-힣]{2,}", (text or "").lower())}
 
 
 def slugify(title: str) -> str:
@@ -86,6 +92,28 @@ async def generate_topic_summary(
         raise ValueError("요약할 본문 있는 문서가 없습니다.")
     completion = await client.chat(build_messages(topic_title, docs), temperature=temperature)
     out = parse_summary(extract_content(completion))
+
+    # 환각 방어(MI 서비스): 요약·인사이트·이력의 수치가 근거 문서에 실재하는지 검증.
+    src = [d.get("content", "") for d in docs]
+    prose = " ".join([out.summary, out.insight, *(h.event for h in out.history)])
+    g = grounding.check(prose, src)
+
+    # 이력 항목별 출처 귀속 검증 — 거짓 출처/사건(없는 매체·문서) 방지.
+    known_sources = [str(d.get("source", "")).strip().lower() for d in docs]
+    doc_titles = [str(d.get("title", "")) for d in docs]
+    history: list[dict[str, Any]] = []
+    unverified_history = 0
+    for h in out.history:
+        hd = h.model_dump()
+        s = (h.source or "").strip().lower()
+        ok = bool(s) and any(s in k or k in s for k in known_sources if k)
+        if not ok:  # 출처명이 안 맞으면 사건 텍스트가 어느 문서 제목과 겹치는지로 추적
+            toks = _tokens(h.event)
+            ok = any(len(toks & _tokens(t)) >= 2 for t in doc_titles)
+        hd["sourceVerified"] = ok
+        unverified_history += int(not ok)
+        history.append(hd)
+
     return {
         "id": slugify(topic_title),
         "title": topic_title,
@@ -95,5 +123,8 @@ async def generate_topic_summary(
         "sourceCount": len(docs),
         "updatedAt": updated_at,
         "generated": True,
-        "history": [h.model_dump() for h in out.history],
+        "history": history,
+        "numbersGrounded": g["numbersGrounded"],
+        "ungroundedNumbers": g["ungroundedNumbers"],
+        "unverifiedHistoryCount": unverified_history,
     }

@@ -80,6 +80,29 @@ def test_generate_topic_summary_assigns_metadata():
     assert len(client.calls) == 1
 
 
+def test_generate_topic_summary_grounds_numbers_and_history():
+    # summary 에 미근거 수치(999), history 에 거짓 출처(없는 매체) → 둘 다 플래그.
+    resp = json.dumps({
+        "category": "수요/시황",
+        "summary": "HBM 점유율 35% 기록, 매출 999억 전망.",
+        "insight": "S.LSI 연계.",
+        "history": [
+            {"date": "2026-06-10", "event": "HBM4 채택 공식화", "source": "기술뉴스"},
+            {"date": "2026-05-01", "event": "조작된 사건 ZZZ", "source": "없는매체"},
+        ],
+    }, ensure_ascii=False)
+    docs = [{"title": "HBM4 채택 공식화", "source": "기술뉴스",
+             "publishedAt": "2026-06-10", "content": "HBM4 채택. 점유율 35% 기록."}]
+    out = asyncio.run(
+        topics.generate_topic_summary(FakeClient(resp), "HBM", docs, updated_at="2026-06-13")
+    )
+    assert out["numbersGrounded"] is False and "999" in out["ungroundedNumbers"]
+    assert "35" not in out["ungroundedNumbers"]          # 문서 근거 수치는 통과
+    assert out["history"][0]["sourceVerified"] is True   # 출처·제목 일치
+    assert out["history"][1]["sourceVerified"] is False  # 거짓 출처
+    assert out["unverifiedHistoryCount"] == 1
+
+
 def test_generate_topic_summary_empty_docs_raises():
     with pytest.raises(ValueError):
         asyncio.run(

@@ -220,7 +220,11 @@ export interface GeneratedTopic {
   sourceCount: number;
   updatedAt: string;
   generated: boolean;
-  history: { date: string; event: string; source: string }[];
+  history: { date: string; event: string; source: string; sourceVerified?: boolean }[];
+  // 환각 방어(서버 부여)
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  unverifiedHistoryCount?: number;
 }
 
 export const topicsApi = {
@@ -302,6 +306,11 @@ export interface GeneratedReport {
   overview: string;
   digest: GeneratedDigest | null;
   topics: GeneratedTopic[];
+  // 환각 방어(서버 부여): 총평·하위 산출물 수치 근거 검증
+  overviewGrounded?: boolean;
+  overviewUngroundedNumbers?: string[];
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
 }
 
 export const reportApi = {
