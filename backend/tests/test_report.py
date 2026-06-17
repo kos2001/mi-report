@@ -99,6 +99,31 @@ def test_generate_report_orchestrates_all_parts():
     assert client.kinds == ["digest", "topic", "overview"]
 
 
+def test_generate_report_rolls_up_ungrounded_numbers():
+    # 총평이 문서에 없는 수치(777)를 지어냄 → 리포트 수준으로 롤업 + 마크다운 경고.
+    class F:
+        async def chat(self, messages, **kw):
+            sys = messages[0]["content"]
+            if "뉴스 다이제스트" in sys:
+                c = _DIGEST_JSON
+            elif "주제 이력" in sys:
+                c = _TOPIC_JSON
+            else:
+                c = "이번 주 매출 777억으로 급증했습니다."
+            return {"choices": [{"message": {"content": c}}]}
+
+    digest_docs = [{"title": "d", "source": "뉴스", "publishedAt": "2026-06-10", "content": "HBM 채택"}]
+    topic_docs = {"HBM": [{"title": "t", "source": "뉴스", "publishedAt": "2026-06-10", "content": "HBM 수요"}]}
+    res = asyncio.run(report.generate_report(
+        F(), digest_docs=digest_docs, topic_docs=topic_docs,
+        issue_no=1, period="P", generated_at="2026-06-13"))
+    assert res["overviewGrounded"] is False and "777" in res["overviewUngroundedNumbers"]
+    assert res["numbersGrounded"] is False and "777" in res["ungroundedNumbers"]
+    md = report.render_report_markdown(res)
+    assert "검토 필요" in md and "777" in md
+    assert md.startswith("# ")  # 제목은 맨 앞 유지, 경고는 그 다음 줄
+
+
 def test_generate_report_empty_raises():
     with pytest.raises(ValueError):
         asyncio.run(
