@@ -41,7 +41,7 @@ class QaGoldenCreate(BaseModel):
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────
-SourceType = Literal["edm", "confluence", "sec", "news", "broker", "consensus", "upload"]
+SourceType = Literal["edm", "confluence", "sec", "dart", "news", "broker", "consensus", "upload"]
 
 
 class SourceCreate(BaseModel):

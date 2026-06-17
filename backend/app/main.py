@@ -214,7 +214,7 @@ async def collection_collect(source_id: str):
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"소스 없음: {source_id}") from e
 
-    is_api_sync = source["type"] in ("confluence", "sec")
+    is_api_sync = source["type"] in ("confluence", "sec", "dart")
     if not is_api_sync and not collection.source_urls(source):
         # URL 없는 비-API동기화 커넥터 → 기존 스텁 동작(검증 포함)
         try:
