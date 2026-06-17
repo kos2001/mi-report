@@ -27,6 +27,19 @@ KEY_TAGS: list[tuple[str, str]] = [
     ("EarningsPerShareDiluted", "희석주당순이익(EPS)"),
 ]
 
+# 외국 기업(IFRS, 20-F/6-K) 태그 — 예: TSMC. data.sec.gov 의 ifrs-full 택소노미.
+KEY_TAGS_IFRS: list[tuple[str, str]] = [
+    ("Revenue", "매출"),
+    ("GrossProfit", "매출총이익"),
+    ("ProfitLossFromOperatingActivities", "영업이익"),
+    ("ProfitLoss", "순이익"),
+    ("ResearchAndDevelopmentExpense", "R&D비용"),
+    ("DilutedEarningsLossPerShare", "희석주당순이익(EPS)"),
+]
+_US_FORMS = ("10-Q", "10-K")
+_FOREIGN_FORMS = ("20-F", "6-K", "40-F")
+_FILING_FORMS = ("10-Q", "10-K", "8-K", "20-F", "6-K", "40-F")
+
 
 class HttpClient(Protocol):
     async def get(self, url: str, **kwargs: Any) -> Any: ...
@@ -59,24 +72,34 @@ def _period_days(r: dict[str, Any]) -> int | None:
         return None
 
 
-def _latest_quarterly(facts: dict[str, Any], tag: str):
-    """태그의 '최근 분기(3개월)' 값(end,val,form,fp) 반환(없으면 None).
+def _pick_unit(units: dict[str, Any]) -> tuple[str, list]:
+    """통화 단위 선택 — USD(또는 USD/shares) 우선, 없으면 첫 단위. (단위명, 시계열) 반환."""
+    for key in ("USD", "USD/shares"):
+        if units.get(key):
+            return key, units[key]
+    for key, series in units.items():  # TWD 등 외화
+        if series:
+            return key, series
+    return "", []
 
-    같은 분기 보고에 분기(3개월)와 누적(YTD) 값이 함께 있어, 흐름 지표는 약 3개월
-    구간(60~100일) 값을 우선해 누적치 혼입을 막는다.
+
+def _latest_fact(facts: dict[str, Any], taxonomy: str, tag: str, forms: tuple[str, ...],
+                 *, quarterly: bool):
+    """태그의 최신 값(end,val,form,fp,unit) 반환(없으면 None).
+
+    quarterly=True(us-gaap 분기): 약 3개월(60~100일) 구간을 우선해 누적치 혼입 방지.
+    quarterly=False(IFRS 연차 20-F): 최신 보고 값을 그대로 사용. 통화는 USD 우선.
     """
-    node = (facts.get("facts", {}).get("us-gaap", {}) or {}).get(tag) or {}
-    units = node.get("units", {}) or {}
-    series = units.get("USD") or units.get("USD/shares")
-    if series is None:
-        series = next(iter(units.values()), [])
-    rows = [x for x in series if x.get("form") in ("10-Q", "10-K") and x.get("end")]
+    node = (facts.get("facts", {}).get(taxonomy, {}) or {}).get(tag) or {}
+    unit, series = _pick_unit(node.get("units", {}) or {})
+    rows = [x for x in series if x.get("form") in forms and x.get("end")]
     if not rows:
         return None
-    quarterly = [r for r in rows if (d := _period_days(r)) is not None and 60 <= d <= 100]
-    pool = quarterly or rows  # 분기 구간이 없으면(EPS/잔액 등) 전체에서 선택
-    x = max(pool, key=lambda r: r.get("end", ""))
-    return (x.get("end"), x.get("val"), x.get("form"), x.get("fp"))
+    if quarterly:
+        q = [r for r in rows if (d := _period_days(r)) is not None and 60 <= d <= 100]
+        rows = q or rows
+    x = max(rows, key=lambda r: r.get("end", ""))
+    return (x.get("end"), x.get("val"), x.get("form"), x.get("fp"), unit)
 
 
 def _fmt(val: Any) -> str:
@@ -95,26 +118,39 @@ def parse_company_ir(name_fallback: str, submissions: dict[str, Any],
     forms, dates = rec.get("form", []), rec.get("filingDate", [])
     filing_lines: list[str] = []
     for i in range(len(forms)):
-        if forms[i] in ("10-Q", "10-K", "8-K"):
+        if forms[i] in _FILING_FORMS:
             filing_lines.append(f"- {dates[i]} {forms[i]}")
         if len(filing_lines) >= 8:
             break
 
+    # 택소노미 자동 판별: us-gaap(미국 기업, 분기) vs ifrs-full(외국 기업, 20-F 연차)
+    taxos = facts.get("facts", {})
+    if taxos.get("us-gaap"):
+        tags, fin_forms, quarterly, fin_label = KEY_TAGS, _US_FORMS, True, "최근 분기 핵심 재무 (us-gaap)"
+    else:
+        tags, fin_forms, quarterly, fin_label = KEY_TAGS_IFRS, _FOREIGN_FORMS, False, "최근 핵심 재무 (IFRS, 20-F)"
+
     fin_lines: list[str] = []
     seen: set[str] = set()
-    for tag, label in KEY_TAGS:
+    for tag, label in tags:
         if label in seen:
             continue
-        v = _latest_quarterly(facts, tag)
+        v = _latest_fact(facts, "us-gaap" if quarterly else "ifrs-full", tag, fin_forms, quarterly=quarterly)
         if v:
-            end, val, form, fp = v
-            fin_lines.append(f"- {label}: {_fmt(val)} (기준 {end}, {form} {fp})")
+            end, val, form, fp, unit = v
+            fin_lines.append(f"- {label}: {_fmt(val)} {unit} (기준 {end}, {form} {fp})".replace("  ", " "))
             seen.add(label)
 
+    # 검색(회수)용 별칭·티커 — 예: 'TSMC'(별칭) / 'TSM'(티커)로도 이 문서를 찾도록.
+    tickers = submissions.get("tickers") or []
+    aliases = [a for a in [name_fallback, *tickers] if a and a.lower() not in name.lower()]
+    alias_line = (f"별칭/티커: {', '.join(dict.fromkeys(aliases))}\n" if aliases else "")
+
     text = (
-        f"{name} (CIK {cik}) — SEC EDGAR 실제 공시·재무 요약\n\n"
+        f"{name} (CIK {cik}) — SEC EDGAR 실제 공시·재무 요약\n"
+        + alias_line + "\n"
         "## 최근 주요 공시\n" + ("\n".join(filing_lines) or "- (없음)") + "\n\n"
-        "## 최근 분기 핵심 재무 (us-gaap, USD)\n" + ("\n".join(fin_lines) or "- (없음)") + "\n\n"
+        f"## {fin_label}\n" + ("\n".join(fin_lines) or "- (없음)") + "\n\n"
         f"출처: SEC EDGAR (data.sec.gov), CIK {cik}"
     )
     url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-Q"
