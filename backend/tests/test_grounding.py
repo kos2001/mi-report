@@ -26,9 +26,11 @@ def test_rescaled_numbers_are_grounded():
     # 원문은 백만 단위(콤마), 답변은 십억 단위(소수) — 같은 수치로 인정해야 함.
     src = ["분기 매출 61,157 백만달러, 직전 53,536 백만달러"]
     assert grounding.ungrounded_numbers("매출 61.157B (전분기 53.536B)", src) == []
-    # 반올림 표기도 접두 매칭으로 인정.
+    # 반올림 표기도 인정.
     assert grounding.ungrounded_numbers("매출 약 61.1B", src) == []
-    # 진짜 환각(접두 무관)은 계속 플래그.
+    # 자리올림 반올림(4,698,800,000 → 46.99억)도 가수 일치로 인정.
+    assert grounding.ungrounded_numbers("R&D 46.99억", ["R&D 4,698,800,000원"]) == []
+    # 진짜 환각은 계속 플래그.
     assert "72.4" in grounding.ungrounded_numbers("매출 72.4B", src)
 
 

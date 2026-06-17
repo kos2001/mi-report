@@ -150,6 +150,10 @@ export interface GeneratedDigestItem {
   risk: string;
   impact: "high" | "medium" | "low";
   tags: string[];
+  // 환각 방어(서버 부여): 수치 근거·출처 귀속 검증 결과
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sourceVerified?: boolean;
 }
 
 export interface GeneratedDigest {
@@ -160,6 +164,10 @@ export interface GeneratedDigest {
   sourceDocCount: number;
   items: GeneratedDigestItem[];
   generatedAt?: string; // 스케줄 파이프라인이 저장한 경우에만
+  // 환각 방어 집계(서버 부여)
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  unverifiedSourceCount?: number;
 }
 
 export const digestApi = {
