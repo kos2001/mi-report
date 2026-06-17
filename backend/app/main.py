@@ -5,13 +5,16 @@ LLM 연결 정보는 프로파일 .env(OPENROUTER_*)로 설정한다.
 
 from __future__ import annotations
 
+import asyncio
+import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, topics, voc
+from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -22,6 +25,7 @@ from .schemas import (
     IngestText,
     RagQueryRequest,
     ReportGenerateRequest,
+    ScheduleConfig,
     SourceCreate,
     SourceUpdate,
     QaGoldenCreate,
@@ -29,6 +33,26 @@ from .schemas import (
     VocCreate,
     VocStatusUpdate,
 )
+
+
+async def _scheduler_loop():
+    """MI_SCHEDULER=1 일 때만: 1분마다 스케줄을 확인해 시각이 되면 파이프라인 실행."""
+    last_run: datetime | None = None
+    while True:
+        try:
+            now = datetime.now(timezone.utc).astimezone()
+            sched = schedule.get_schedule()
+            if schedule.due_now(now, sched, last_run):
+                last_run = now
+                schedule.mark_run(now.strftime("%Y-%m-%d %H:%M"))
+                try:
+                    await pipeline.run_pipeline(period="자동(스케줄)", limit=sched["digestLimit"])
+                except Exception:
+                    pass  # 실행 실패가 루프를 멈추지 않게
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,7 +63,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     collection.init_db()
+    task = None
+    if os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"):
+        task = asyncio.create_task(_scheduler_loop())  # 앱 내 스케줄러(옵트인)
     yield
+    if task:
+        task.cancel()
     await gateway.close_all()  # 영속 게이트웨이 커넥션 정리
 
 
@@ -170,6 +199,50 @@ def qa_golden_delete(qa_id: str):
         qa_golden.delete_qa(qa_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"Q&A 없음: {qa_id}") from e
+
+
+# ── 스케줄(파이프라인 cron) ───────────────────────────────────────────────
+def _schedule_view(sched: dict) -> dict:
+    """스케줄 + 다음 실행/crontab/설명/앱내 스케줄러 활성여부를 함께 반환."""
+    now = datetime.now(timezone.utc).astimezone()
+    return {
+        "schedule": sched,
+        "describe": schedule.describe(sched),
+        "crontab": schedule.crontab_expr(sched),
+        "nextRun": schedule.next_run(now, sched).strftime("%Y-%m-%d %H:%M") if sched["enabled"] else None,
+        "inAppScheduler": os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"),
+    }
+
+
+@app.get("/schedule")
+def schedule_get():
+    return _schedule_view(schedule.get_schedule())
+
+
+@app.put("/schedule")
+def schedule_put(req: ScheduleConfig):
+    try:
+        sched = schedule.set_schedule(
+            enabled=req.enabled, frequency=req.frequency, hour=req.hour,
+            minute=req.minute, weekday=req.weekday, digest_limit=req.digestLimit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _schedule_view(sched)
+
+
+@app.post("/schedule/run-now")
+async def schedule_run_now():
+    """스케줄 설정과 무관하게 지금 즉시 파이프라인 실행(수동 트리거)."""
+    sched = schedule.get_schedule()
+    try:
+        result = await pipeline.run_pipeline(period="수동 실행", limit=sched["digestLimit"])
+    except LLMError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    schedule.mark_run(datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M"))
+    return result
 
 
 # ── 데이터 수집 ────────────────────────────────────────────────────────

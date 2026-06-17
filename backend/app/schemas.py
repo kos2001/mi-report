@@ -31,6 +31,15 @@ class VocStatusUpdate(BaseModel):
 
 
 # ── 문서 Q&A 골든 평가셋 ──────────────────────────────────────────────────
+class ScheduleConfig(BaseModel):
+    enabled: bool = False
+    frequency: Literal["daily", "weekly"] = "daily"
+    hour: int = Field(default=7, ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    weekday: int = Field(default=0, ge=0, le=6, description="0=월 … 6=일 (weekly 일 때).")
+    digestLimit: int = Field(default=20, ge=1, le=100)
+
+
 class QaGoldenCreate(BaseModel):
     question: str = Field(..., min_length=1)
     kind: str = Field(default="answerable", description="answerable | negative")

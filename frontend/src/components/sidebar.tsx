@@ -11,6 +11,7 @@ const nav = [
   { href: "/competitors", label: "경쟁사 IR", icon: "▤" },
   { href: "/ask", label: "문서 Q&A", icon: "?" },
   { href: "/report", label: "주간 리포트", icon: "▦" },
+  { href: "/schedule", label: "스케줄", icon: "⏰" },
   { href: "/voc", label: "VOC", icon: "🗣" },
   { href: "/history", label: "생성물 이력", icon: "🗂" },
   { href: "/manual", label: "사용 안내", icon: "ⓘ" },
