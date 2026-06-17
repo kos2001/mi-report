@@ -593,8 +593,15 @@ async def topics_summarize(req: TopicSummarizeRequest):
 # ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
 @app.post("/competitors/analyze")
 async def competitors_analyze(req: CompetitorAnalyzeRequest):
-    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다."""
-    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다.
+
+    topic/q 가 없으면 회사명·티커를 하이브리드 검색해 그 기업의 한경 컨센서스·IR 문서를
+    끌어온다(실데이터 근거). topic/q 지정 시 해당 스코프로 한정한다.
+    """
+    if req.topic or req.q:
+        docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+    else:
+        docs = collection.documents_for_competitor(req.name, req.ticker, limit=req.limit)
     if not docs:
         raise HTTPException(
             status_code=422,
