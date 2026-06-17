@@ -75,7 +75,8 @@ def test_parse_analysis_invalid_raises():
 
 def test_analyze_competitor_assigns_metadata():
     client = FakeClient(_VALID_RESPONSE)
-    docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30", "content": "본문"}]
+    docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30",
+            "content": "FY26 Q2 매출 11.7B 달러, 영업이익률 29.1%. FY26 매출 컨센서스 45.2B(직전 44.8B)."}]
     result = asyncio.run(competitors.analyze_competitor(client, "경쟁사 Q", "QCOM", docs))
     assert result["id"] == "경쟁사-q"
     assert result["name"] == "경쟁사 Q"
@@ -101,7 +102,7 @@ def _upload(client, name, body, topic=None):
 
 
 def test_competitors_analyze_endpoint(client, monkeypatch):
-    _upload(client, "qcom_ir.txt", "FY26 Q2 매출 11.7B 달러. 온디바이스 AI 수요 강조.", "QCOM")
+    _upload(client, "qcom_ir.txt", "FY26 Q2 매출 11.7B 달러, 영업이익률 29.1%. 온디바이스 AI 수요 강조. FY26 매출 컨센서스 45.2B(직전 44.8B).", "QCOM")
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
     r = client.post("/competitors/analyze", json={"name": "경쟁사 Q", "ticker": "QCOM", "topic": "QCOM"})
     assert r.status_code == 200
@@ -124,3 +125,27 @@ def test_competitors_analyze_bad_llm_output_502(client, monkeypatch):
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient("JSON 아님"))
     r = client.post("/competitors/analyze", json={"name": "X", "topic": "ZZZ"})
     assert r.status_code == 502
+
+
+def test_ungrounded_financials_are_dropped():
+    """문서에 없는 재무 수치는 환각으로 보고 결과에서 제외한다."""
+    import asyncio
+    import json as _json
+    from app import competitors
+    docs = [{"title": "삼성물산 리포트", "source": "한경", "publishedAt": "",
+             "content": "삼성물산 매출 10,466십억원, 목표주가 620,000원."}]
+    # LLM이 근거 있는 값(10,466십억원)과 지어낸 값($11.7B)을 섞어 반환
+    payload = _json.dumps({
+        "fiscalQuarter": "FY24", "reportedAt": "2024-12-31",
+        "financials": [
+            {"metric": "매출", "value": "10,466십억원", "qoq": None, "yoy": None},
+            {"metric": "핸드셋매출", "value": "$11.7B", "qoq": 3.2, "yoy": 12.4},
+        ],
+        "callSummary": [], "qoqChanges": [], "consensus": [],
+    })
+    res = asyncio.run(competitors.analyze_competitor(FakeClient(payload), "삼성물산", "028260", docs))
+    vals = [f["value"] for f in res["financials"]]
+    assert "10,466십억원" in vals           # 근거 있는 값은 유지
+    assert "$11.7B" not in vals             # 환각 값은 제외
+    assert res["numbersGrounded"] is False
+    assert res["droppedCount"] >= 1
