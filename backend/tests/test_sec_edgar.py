@@ -115,3 +115,26 @@ def test_parse_company_ir_ifrs_foreign_issuer():
     # USD 단위 우선 채택 + 매출/순이익 추출
     assert "90,000,000,000 USD" in doc["text"]
     assert "36,000,000,000 USD" in doc["text"]
+
+
+# ── us-gaap 로 보고하지만 20-F(외국 발행자, 연차)로 제출 — 예: ASML ───────────
+_SUB_ASML = {"name": "ASML HOLDING NV", "cik": 937966,
+             "filings": {"recent": {"form": ["20-F", "6-K"], "filingDate": ["2026-02-10", "2026-04-16"]}}}
+_FACTS_ASML = {"entityName": "ASML Holding N.V.", "cik": 937966,
+               "facts": {"us-gaap": {
+                   "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"EUR": [
+                       {"end": "2025-12-31", "val": 32667300000, "form": "20-F", "fp": "FY"},
+                   ]}},
+                   "NetIncomeLoss": {"units": {"EUR": [
+                       {"end": "2025-12-31", "val": 9609400000, "form": "20-F", "fp": "FY"},
+                   ]}},
+               }}}
+
+
+def test_parse_company_ir_usgaap_foreign_20f():
+    # us-gaap 키만 있고 10-Q/10-K 가 없어도 20-F(연차) 재무를 비워두지 않아야 한다.
+    doc = sec_edgar.parse_company_ir("ASML", _SUB_ASML, _FACTS_ASML)
+    assert "ASML" in doc["title"]
+    assert "32,667,300,000 EUR" in doc["text"]
+    assert "9,609,400,000 EUR" in doc["text"]
+    assert "20-F" in doc["text"] and "(없음)" not in doc["text"].split("핵심 재무")[1]
