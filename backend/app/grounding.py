@@ -21,6 +21,14 @@ def _norm(tok: str) -> str:
     return tok.replace(",", "").rstrip(".")
 
 
+def _sig(tok: str) -> str:
+    """유효숫자열 — 콤마·소수점·앞뒤 0 제거. 단위 재환산/반올림 비교용.
+
+    예: 61,157(백만) · 61.157(십억) · 61,157,000,000 → 모두 '61157'.
+    """
+    return tok.replace(",", "").replace(".", "").strip("0")
+
+
 def extract_numbers(text: str) -> list[str]:
     """텍스트에서 의미 있는 수치(정규화 문자열)를 등장 순서로 추출.
 
@@ -40,12 +48,23 @@ def extract_numbers(text: str) -> list[str]:
 
 
 def ungrounded_numbers(text: str, source_texts: list[str]) -> list[str]:
-    """답변의 수치 중 근거 문서 원문에 (정규화 후) 등장하지 않는 것을 반환."""
+    """답변의 수치 중 근거 문서 원문에 등장하지 않는 것을 반환.
+
+    1) 직접 매칭: 콤마 정규화 후 부분문자열로 등장하는가.
+    2) 재환산 매칭(폴백): 유효숫자열이 원문 어느 수치의 유효숫자열과 접두 관계인가
+       (예: 원문 61,157 → 답변 61.157B/61.1B). 짧은 수(<3자리)는 폴백을 쓰지 않아
+       우연한 자릿수 일치로 환각을 놓치지 않는다.
+    """
     src = _norm(" ".join(t for t in source_texts if t))
+    src_sigs = [s for s in (_sig(m) for m in _NUM.findall(src)) if len(s) >= 3]
     bad: list[str] = []
     for n in extract_numbers(text):
-        if n not in src:
-            bad.append(n)
+        if n in src:
+            continue
+        nsig = _sig(n)
+        if len(nsig) >= 3 and any(s.startswith(nsig) or nsig.startswith(s) for s in src_sigs):
+            continue  # 단위 재환산/반올림 — 같은 수치로 인정
+        bad.append(n)
     return bad
 
 

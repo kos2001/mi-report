@@ -123,23 +123,36 @@ def parse_company_ir(name_fallback: str, submissions: dict[str, Any],
         if len(filing_lines) >= 8:
             break
 
-    # 택소노미 자동 판별: us-gaap(미국 기업, 분기) vs ifrs-full(외국 기업, 20-F 연차)
+    # 택소노미 자동 판별: us-gaap(미국 기업, 분기) vs ifrs-full(외국 기업, 20-F 연차).
+    # 외국 발행자(예: ASML)는 빈약한 us-gaap 키와 충실한 ifrs-full 을 함께 가질 수 있어,
+    # '키 존재' 만으로 고르면 재무가 비어버린다. 실제 재무 라인이 더 많이 나오는 쪽을 채택한다.
     taxos = facts.get("facts", {})
-    if taxos.get("us-gaap"):
-        tags, fin_forms, quarterly, fin_label = KEY_TAGS, _US_FORMS, True, "최근 분기 핵심 재무 (us-gaap)"
-    else:
-        tags, fin_forms, quarterly, fin_label = KEY_TAGS_IFRS, _FOREIGN_FORMS, False, "최근 핵심 재무 (IFRS, 20-F)"
 
-    fin_lines: list[str] = []
-    seen: set[str] = set()
-    for tag, label in tags:
-        if label in seen:
-            continue
-        v = _latest_fact(facts, "us-gaap" if quarterly else "ifrs-full", tag, fin_forms, quarterly=quarterly)
-        if v:
-            end, val, form, fp, unit = v
-            fin_lines.append(f"- {label}: {_fmt(val)} {unit} (기준 {end}, {form} {fp})".replace("  ", " "))
-            seen.add(label)
+    def _extract(taxo: str, tags, forms, quarterly: bool) -> list[str]:
+        lines: list[str] = []
+        seen: set[str] = set()
+        for tag, label in tags:
+            if label in seen:
+                continue
+            v = _latest_fact(facts, taxo, tag, forms, quarterly=quarterly)
+            if v:
+                end, val, form, fp, unit = v
+                lines.append(f"- {label}: {_fmt(val)} {unit} (기준 {end}, {form} {fp})".replace("  ", " "))
+                seen.add(label)
+        return lines
+
+    candidates = []
+    if taxos.get("us-gaap"):
+        candidates.append((_extract("us-gaap", KEY_TAGS, _US_FORMS, True), True, "최근 분기 핵심 재무 (us-gaap)"))
+        # us-gaap 로 보고하지만 20-F(외국 발행자, 연차)로 제출하는 기업(예: ASML).
+        candidates.append((_extract("us-gaap", KEY_TAGS, _FOREIGN_FORMS, False), False,
+                           "최근 핵심 재무 (us-gaap, 20-F)"))
+    if taxos.get("ifrs-full"):
+        candidates.append((_extract("ifrs-full", KEY_TAGS_IFRS, _FOREIGN_FORMS, False), False,
+                           "최근 핵심 재무 (IFRS, 20-F)"))
+    if not candidates:  # 둘 다 없으면 us-gaap 가정(빈 결과)
+        candidates.append(([], True, "최근 분기 핵심 재무 (us-gaap)"))
+    fin_lines, quarterly, fin_label = max(candidates, key=lambda c: len(c[0]))
 
     # 검색(회수)용 별칭·티커 — 예: 'TSMC'(별칭) / 'TSM'(티커)로도 이 문서를 찾도록.
     tickers = submissions.get("tickers") or []
@@ -154,7 +167,9 @@ def parse_company_ir(name_fallback: str, submissions: dict[str, Any],
         f"출처: SEC EDGAR (data.sec.gov), CIK {cik}"
     )
     url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-Q"
-    return {"id": cik, "title": f"[경쟁사 IR] {name} 실적·공시 (SEC EDGAR)", "text": text, "url": url}
+    # 통칭/티커를 제목에도 노출 — 'AMD'·'TSMC' 같은 통칭으로 회수/표시되도록.
+    title_name = f"{name} ({', '.join(dict.fromkeys(aliases))})" if aliases else name
+    return {"id": cik, "title": f"[경쟁사 IR] {title_name} 실적·공시 (SEC EDGAR)", "text": text, "url": url}
 
 
 async def fetch_company_ir(client: HttpClient, cik: str, name: str = "",

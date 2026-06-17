@@ -22,6 +22,16 @@ def test_ungrounded_numbers_flags_fabricated():
     assert "7777777777" in bad and "35.2" in bad
 
 
+def test_rescaled_numbers_are_grounded():
+    # 원문은 백만 단위(콤마), 답변은 십억 단위(소수) — 같은 수치로 인정해야 함.
+    src = ["분기 매출 61,157 백만달러, 직전 53,536 백만달러"]
+    assert grounding.ungrounded_numbers("매출 61.157B (전분기 53.536B)", src) == []
+    # 반올림 표기도 접두 매칭으로 인정.
+    assert grounding.ungrounded_numbers("매출 약 61.1B", src) == []
+    # 진짜 환각(접두 무관)은 계속 플래그.
+    assert "72.4" in grounding.ungrounded_numbers("매출 72.4B", src)
+
+
 def test_check_and_caveat():
     g = grounding.check("값 12345", ["다른 문서"])
     assert g["numbersGrounded"] is False and "12345" in g["ungroundedNumbers"]
