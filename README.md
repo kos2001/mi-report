@@ -20,6 +20,38 @@ mi-report/
 
 ## 실행
 
+**Docker Compose**
+```bash
+# OPENROUTER_API_KEY 등 시크릿은 backend/profiles/mi-report/.env 에 둔다.
+docker compose up -d --build
+
+# 상태 확인
+docker compose ps
+
+# 종료
+docker compose down
+```
+
+- 프론트엔드: http://localhost:3000
+- 백엔드: http://localhost:8000
+- 백엔드 헬스 체크: `GET http://localhost:8000/health`
+
+최근 Docker 검증 결과:
+
+| 항목 | 결과 |
+|---|---|
+| `docker compose build` | 성공 |
+| `docker compose up -d` | 성공 |
+| 백엔드 헬스 체크 | `{"status":"ok","active_profile":"mi-report"}` |
+| 백엔드 API 스모크 테스트 | `GET /collection/sources` 성공 |
+| 프론트엔드 스모크 테스트 | `GET /` → HTTP 200 OK |
+| Next.js 정적 asset 로딩 | `/_next/static/*.js` → HTTP 200 OK |
+| 생성 이미지 | `mi-report-backend:latest`(약 137MB), `mi-report-frontend:latest`(약 195MB) |
+
+컨테이너 로그에서 백엔드는 `Application startup complete`, 프론트엔드는 `Ready` 상태를 확인했다.
+
+**로컬 개발 실행**
+
 **프론트엔드**
 ```bash
 cd frontend
