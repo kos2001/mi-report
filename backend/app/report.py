@@ -88,8 +88,10 @@ async def generate_report(
         *(topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
           for name, docs in named_topics),
     )
-    digest_obj = results[0] if digest_task else None
-    topic_summaries: list[dict[str, Any]] = results[1 if digest_task else 0:]
+    if digest_task:
+        digest_obj, *topic_summaries = results
+    else:
+        digest_obj, topic_summaries = None, list(results)
 
     overview = await generate_overview(client, digest_obj, topic_summaries)
 

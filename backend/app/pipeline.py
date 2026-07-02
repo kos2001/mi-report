@@ -168,10 +168,18 @@ async def run_collection() -> dict[str, Any]:
     ]
     async with httpx.AsyncClient() as http:
         # 소스별 수집은 서로 독립 → 동시 수행(전체 시간 = 가장 느린 소스).
-        results = await asyncio.gather(*(collect_source(s, http) for s in targets))
-    for source, (docs, errors) in zip(targets, results):
+        # return_exceptions: 한 소스의 예기치 못한 실패가 다른 소스 수집을 막지 않게.
+        results = await asyncio.gather(
+            *(collect_source(s, http) for s in targets), return_exceptions=True
+        )
+    for source, res in zip(targets, results):
+        if isinstance(res, BaseException):
+            docs: list[dict[str, Any]] = []
+            errors = [{"url": source["name"], "error": f"수집 실패: {res}"}]
+        else:
+            docs, errors = res
         if not docs and errors:
-            collection.mark_source_status(source["id"], "오류")
+            await asyncio.to_thread(collection.mark_source_status, source["id"], "오류")
         ingested += len(docs)
         per_source.append(
             {"source": source["name"], "ingested": len(docs), "errors": errors}

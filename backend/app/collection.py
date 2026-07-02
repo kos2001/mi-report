@@ -433,12 +433,6 @@ def _insert_embedding(conn: sqlite3.Connection, doc_id: str,
     )
 
 
-def store_embedding(conn: sqlite3.Connection, doc_id: str, *, title: str | None = None,
-                    topic: str | None = None, text: str | None = None) -> None:
-    """문서 임베딩을 계산·저장(임베딩 비활성/실패 시 무동작)."""
-    _insert_embedding(conn, doc_id, _compute_embedding(title, topic, text))
-
-
 def rebuild_embeddings() -> int:
     """모든 문서의 임베딩을 (재)계산·저장한다(배치). 임베딩 비활성 시 0 반환."""
     if not embeddings.active():

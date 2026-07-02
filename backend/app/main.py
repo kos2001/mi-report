@@ -408,7 +408,10 @@ async def collection_classify_untagged(limit: int = 20, profile: str | None = No
                 return None  # 개별 문서 실패는 전체를 막지 않는다
         if not result["topic"]:
             return None
-        await asyncio.to_thread(collection.set_topic, doc["id"], result["topic"])
+        try:
+            await asyncio.to_thread(collection.set_topic, doc["id"], result["topic"])
+        except KeyError:
+            return None  # 분류 중 문서가 삭제된 경우 — 개별 실패로 처리
         return {
             "id": doc["id"],
             "title": doc["title"],
