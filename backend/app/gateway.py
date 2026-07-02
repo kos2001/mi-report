@@ -51,6 +51,14 @@ class LLMError(RuntimeError):
         super().__init__(f"LLM 오류 {status}: {detail}")
 
 
+# Agent 재사용 캐시 — 같은 설정(모델·온도·instructions·자격)의 Agent 를 요청마다
+# 새로 만들지 않는다. agno Agent 는 db/메모리 미설정 시 arun 간 상태를 갖지 않아
+# 재사용·동시 호출이 안전하고, 내부 OpenAI 클라이언트의 커넥션(keep-alive)이 유지돼
+# LLM 호출마다 들던 TLS 핸드셰이크가 사라진다.
+_agent_cache: dict[tuple, Any] = {}
+_AGENT_CACHE_MAX = 32
+
+
 class LLMClient:
     """agno + OpenRouter 백엔드의 OpenAI 호환 chat 클라이언트."""
 
@@ -67,14 +75,21 @@ class LLMClient:
         return dict(self.headers)
 
     def _build_agent(self, model: str | None, temperature: float, instructions: list[str]):
-        """요청마다 가벼운 Agent 를 구성한다(시스템 메시지는 instructions 로)."""
+        """설정별 Agent 를 캐시에서 재사용한다(시스템 메시지는 instructions 로)."""
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise LLMError(401, "OPENROUTER_API_KEY 미설정 — 프로파일 .env 에 키를 넣으세요.")
+        cache_key = (
+            model or self.model, self.base_url, api_key, temperature,
+            self.max_tokens, tuple(instructions), tuple(sorted(self.headers.items())),
+        )
+        agent = _agent_cache.get(cache_key)
+        if agent is not None:
+            return agent
         from agno.agent import Agent
         from agno.models.openrouter import OpenRouter
 
-        return Agent(
+        agent = Agent(
             name="mi-report",
             model=OpenRouter(
                 id=model or self.model,
@@ -89,6 +104,10 @@ class LLMClient:
             markdown=False,
             telemetry=False,
         )
+        if len(_agent_cache) >= _AGENT_CACHE_MAX:  # 무한 성장 방지(가장 오래된 것 제거)
+            _agent_cache.pop(next(iter(_agent_cache)))
+        _agent_cache[cache_key] = agent
+        return agent
 
     @staticmethod
     def _to_prompt(messages: list[dict[str, str]]) -> tuple[list[str], str]:

@@ -15,6 +15,23 @@ from typing import Any
 DEFAULT_RERANK_MODEL = "cohere/rerank-v3.5"
 _DOC_CHARS = 2000  # 문서당 rerank 입력 길이 제한
 
+_client = None       # 이벤트 루프별 재사용 AsyncClient(keep-alive)
+_client_loop = None
+
+
+def _http():
+    """rerank 호출용 AsyncClient — 현재 이벤트 루프에 묶어 재사용한다."""
+    global _client, _client_loop
+    import asyncio
+
+    import httpx
+
+    loop = asyncio.get_running_loop()
+    if _client is None or _client_loop is not loop:
+        _client = httpx.AsyncClient()
+        _client_loop = loop
+    return _client
+
 
 def model() -> str | None:
     return (os.getenv("MI_RERANK_MODEL") or "").strip() or None
@@ -46,8 +63,6 @@ async def rerank_documents(
 
     HTTP/형식 오류는 예외로 전파(호출부가 폴백 처리).
     """
-    import httpx
-
     from .gateway import DEFAULT_BASE_URL, _custom_headers
 
     key = os.environ["OPENROUTER_API_KEY"]
@@ -56,9 +71,8 @@ async def rerank_documents(
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                **_custom_headers()}
     body = {"model": model(), "query": question, "documents": documents, "top_n": top_n}
-    async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.post(f"{base}/rerank", headers=headers, json=body)
-        r.raise_for_status()
-        results = r.json().get("results", [])
+    r = await _http().post(f"{base}/rerank", headers=headers, json=body, timeout=timeout)
+    r.raise_for_status()
+    results = r.json().get("results", [])
     order = _order_from_results(results, len(docs))[:top_n]
     return [docs[i] for i in order]

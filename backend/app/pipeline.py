@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -31,18 +32,25 @@ async def collect_source(
 
     documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
-    for url in collection.source_urls(source):
-        try:
-            fetched = await fetcher.fetch_url(client, url)
-        except httpx.HTTPError as e:
-            errors.append({"url": url, "error": f"가져오기 실패: {e}"})
-            continue
+    urls = collection.source_urls(source)
+    # URL fetch 는 네트워크 대기가 지배적 → 동시 수행(문서 저장은 순서대로).
+    fetched_all = await asyncio.gather(
+        *(fetcher.fetch_url(client, url) for url in urls), return_exceptions=True
+    )
+    for url, fetched in zip(urls, fetched_all):
+        if isinstance(fetched, BaseException):
+            if isinstance(fetched, httpx.HTTPError):
+                errors.append({"url": url, "error": f"가져오기 실패: {fetched}"})
+                continue
+            raise fetched
         if not fetched["text"]:
             errors.append({"url": url, "error": "본문 추출 실패(빈 텍스트)"})
             continue
+        # 문서 저장(DB+파일+임베딩 계산)은 블로킹 → 워커 스레드에서 수행
         documents.append(
-            collection.add_crawled_document(
-                source["id"], source["name"], fetched["title"], fetched["text"], url=url
+            await asyncio.to_thread(
+                collection.add_crawled_document,
+                source["id"], source["name"], fetched["title"], fetched["text"], url=url,
             )
         )
     return documents, errors
@@ -60,14 +68,17 @@ async def collect_confluence_source(
     except httpx.HTTPError as e:
         return [], [{"url": base, "error": f"Confluence API 실패: {e}"}]
     # 재동기화: 기존 문서 제거 후 현재 페이지로 갱신
-    collection.delete_documents_by_source(source["id"])
-    documents = [
-        collection.add_crawled_document(
-            source["id"], source["name"], p["title"], p["text"], url=p["url"]
-        )
-        for p in pages
-    ]
-    return documents, []
+    # (DB+파일+임베딩 저장은 블로킹 → 워커 스레드에서 일괄 수행)
+    def _sync() -> list[dict[str, Any]]:
+        collection.delete_documents_by_source(source["id"])
+        return [
+            collection.add_crawled_document(
+                source["id"], source["name"], p["title"], p["text"], url=p["url"]
+            )
+            for p in pages
+        ]
+
+    return await asyncio.to_thread(_sync), []
 
 
 async def collect_sec_source(
@@ -81,11 +92,14 @@ async def collect_sec_source(
         doc = await sec_edgar.fetch_company_ir(client, cik, name)
     except httpx.HTTPError as e:
         return [], [{"url": "data.sec.gov", "error": f"SEC API 실패: {e}"}]
-    collection.delete_documents_by_source(source["id"])
-    d = collection.add_crawled_document(
-        source["id"], source["name"], doc["title"], doc["text"], url=doc["url"], topic=topic
-    )
-    return [d], []
+
+    def _sync() -> dict[str, Any]:
+        collection.delete_documents_by_source(source["id"])
+        return collection.add_crawled_document(
+            source["id"], source["name"], doc["title"], doc["text"], url=doc["url"], topic=topic
+        )
+
+    return [await asyncio.to_thread(_sync)], []
 
 
 async def collect_dart_source(
@@ -101,11 +115,14 @@ async def collect_dart_source(
         return [], [{"url": "opendart.fss.or.kr", "error": str(e)}]
     except httpx.HTTPError as e:
         return [], [{"url": "opendart.fss.or.kr", "error": f"DART API 실패: {e}"}]
-    collection.delete_documents_by_source(source["id"])
-    d = collection.add_crawled_document(
-        source["id"], source["name"], doc["title"], doc["text"], url=doc["url"], topic=topic
-    )
-    return [d], []
+
+    def _sync() -> dict[str, Any]:
+        collection.delete_documents_by_source(source["id"])
+        return collection.add_crawled_document(
+            source["id"], source["name"], doc["title"], doc["text"], url=doc["url"], topic=topic
+        )
+
+    return [await asyncio.to_thread(_sync)], []
 
 
 async def collect_hankyung_source(
@@ -124,34 +141,41 @@ async def collect_hankyung_source(
         return [], [{"url": base, "error": f"한경 컨센서스 수집 실패: {e}"}]
     if not reports:
         return [], [{"url": base, "error": "리포트 목록을 찾지 못했습니다."}]
-    collection.delete_documents_by_source(source["id"])
-    docs = [
-        collection.add_crawled_document(
-            source["id"], source["name"], r["title"], r["text"], url=r["url"], topic=topic
-        )
-        for r in reports
-    ]
-    return docs, []
+
+    def _sync() -> list[dict[str, Any]]:
+        collection.delete_documents_by_source(source["id"])
+        return [
+            collection.add_crawled_document(
+                source["id"], source["name"], r["title"], r["text"], url=r["url"], topic=topic
+            )
+            for r in reports
+        ]
+
+    return await asyncio.to_thread(_sync), []
 
 
 async def run_collection() -> dict[str, Any]:
     """URL 이 있는 활성 커넥터 소스를 모두 수집한다."""
     ingested = 0
     per_source: list[dict[str, Any]] = []
+    targets = [
+        source
+        for source in collection.list_sources()
+        if source["type"] in collection.CONNECTOR_TYPES and source["enabled"]
+        # confluence/sec/dart/hankyung 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
+        and (source["type"] in ("confluence", "sec", "dart", "hankyung")
+             or collection.source_urls(source))
+    ]
     async with httpx.AsyncClient() as http:
-        for source in collection.list_sources():
-            if source["type"] not in collection.CONNECTOR_TYPES or not source["enabled"]:
-                continue
-            # confluence/sec/dart/hankyung 는 API 동기화, 그 외는 URL 이 있어야 수집 대상
-            if source["type"] not in ("confluence", "sec", "dart", "hankyung") and not collection.source_urls(source):
-                continue
-            docs, errors = await collect_source(source, http)
-            if not docs and errors:
-                collection.mark_source_status(source["id"], "오류")
-            ingested += len(docs)
-            per_source.append(
-                {"source": source["name"], "ingested": len(docs), "errors": errors}
-            )
+        # 소스별 수집은 서로 독립 → 동시 수행(전체 시간 = 가장 느린 소스).
+        results = await asyncio.gather(*(collect_source(s, http) for s in targets))
+    for source, (docs, errors) in zip(targets, results):
+        if not docs and errors:
+            collection.mark_source_status(source["id"], "오류")
+        ingested += len(docs)
+        per_source.append(
+            {"source": source["name"], "ingested": len(docs), "errors": errors}
+        )
     return {"ingested": ingested, "sources": per_source}
 
 
@@ -170,7 +194,7 @@ def _save_digest(digest_obj: dict[str, Any], generated_at: str) -> str:
 
 async def run_digest(*, issue_no: int, period: str, limit: int = 20) -> dict[str, Any]:
     """수집 문서로 다이제스트를 생성하고 저장한다."""
-    docs = collection.documents_for_digest(limit=limit)
+    docs = await asyncio.to_thread(collection.documents_for_digest, limit=limit)
     if not docs:
         raise ValueError("다이제스트로 만들 본문 있는 문서가 없습니다.")
     digest_obj = await digest.generate_digest(

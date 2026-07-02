@@ -12,6 +12,7 @@ consensus.hankyung.com 리스트에서 리포트별 PDF(`/analysis/downpdf?repor
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Protocol
 
@@ -80,15 +81,19 @@ async def fetch_reports(client: HttpClient, base: str = BASE_DEFAULT, *,
     listing.raise_for_status()
     rows = parse_listing(listing.text)[: max(1, min(limit, 30))]
 
-    docs: list[dict[str, Any]] = []
-    for row in rows:
-        idx = row["report_idx"]
+    # PDF 다운로드는 동시(사이트 배려로 4개 제한), 텍스트 추출(pypdf, CPU)은
+    # 워커 스레드로 → 이벤트 루프를 막지 않는다. 실패한 리포트는 제목만 보존.
+    sem = asyncio.Semaphore(4)
+
+    async def _fetch_body(idx: str) -> str:
         try:
-            resp = await client.get(f"{base}/analysis/downpdf?report_idx={idx}",
-                                    headers=_headers(), timeout=timeout)
-            resp.raise_for_status()
-            body = extract_pdf_text(resp.content)
+            async with sem:
+                resp = await client.get(f"{base}/analysis/downpdf?report_idx={idx}",
+                                        headers=_headers(), timeout=timeout)
+                resp.raise_for_status()
+            return await asyncio.to_thread(extract_pdf_text, resp.content)
         except Exception:
-            body = ""
-        docs.append(_doc(base, idx, row["title"], body))
-    return docs
+            return ""
+
+    bodies = await asyncio.gather(*(_fetch_body(r["report_idx"]) for r in rows))
+    return [_doc(base, r["report_idx"], r["title"], body) for r, body in zip(rows, bodies)]

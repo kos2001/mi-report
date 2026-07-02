@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
@@ -86,6 +87,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 문서 목록·다이제스트 등 큰 JSON 응답 압축(전송량·체감 지연 감소)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 def _client(profile: str | None = None):
@@ -325,7 +329,8 @@ async def collection_upload(file: UploadFile = File(...), topic: str | None = Fo
     with dest.open("wb") as out:
         while chunk := await file.read(1 << 20):  # 1 MiB
             out.write(chunk)
-    return collection.register_upload(doc_id, dest, safe_name, topic)
+    # 등록(DB+본문 색인용 파일 읽기)은 블로킹 → 워커 스레드에서 수행
+    return await asyncio.to_thread(collection.register_upload, doc_id, dest, safe_name, topic)
 
 
 @app.post("/collection/ingest", status_code=201)
@@ -360,7 +365,7 @@ async def collection_classify_document(doc_id: str, profile: str | None = None):
         doc = collection.get_document(doc_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
-    text = collection.read_document_text(doc_id)
+    text = await asyncio.to_thread(collection.read_document_text, doc_id)
     if not text:
         raise HTTPException(status_code=422, detail="본문을 읽을 수 없는 문서입니다.")
     client = _client(profile)
@@ -378,28 +383,41 @@ async def collection_classify_document(doc_id: str, profile: str | None = None):
 
 @app.post("/collection/classify-untagged")
 async def collection_classify_untagged(limit: int = 20, profile: str | None = None):
-    """주제 미부여 문서들을 일괄 자동 분류한다(개별 실패는 건너뜀)."""
+    """주제 미부여 문서들을 일괄 자동 분류한다(개별 실패는 건너뜀).
+
+    LLM 분류 호출은 문서별로 독립 → 동시 5개로 병렬 수행(전체 시간 단축).
+    """
     client = _client(profile)
-    classified: list[dict] = []
-    for doc_id in collection.list_untagged_ids(limit):
-        text = collection.read_document_text(doc_id)
-        if not text:
-            continue
-        doc = collection.get_document(doc_id)
-        try:
-            result = await classify.classify_document(client, doc["title"], text)
-        except (LLMError, httpx.HTTPError, ValueError):
-            continue  # 개별 문서 실패는 전체를 막지 않는다
-        if result["topic"]:
-            collection.set_topic(doc_id, result["topic"])
-            classified.append(
-                {
-                    "id": doc_id,
-                    "title": doc["title"],
-                    "topic": result["topic"],
-                    "category": result["category"],
-                }
-            )
+
+    def _prepare() -> list[tuple[dict, str]]:
+        out: list[tuple[dict, str]] = []
+        for doc_id in collection.list_untagged_ids(limit):
+            text = collection.read_document_text(doc_id)
+            if text:
+                out.append((collection.get_document(doc_id), text))
+        return out
+
+    pending = await asyncio.to_thread(_prepare)
+    sem = asyncio.Semaphore(5)
+
+    async def _classify_one(doc: dict, text: str) -> dict | None:
+        async with sem:
+            try:
+                result = await classify.classify_document(client, doc["title"], text)
+            except (LLMError, httpx.HTTPError, ValueError):
+                return None  # 개별 문서 실패는 전체를 막지 않는다
+        if not result["topic"]:
+            return None
+        await asyncio.to_thread(collection.set_topic, doc["id"], result["topic"])
+        return {
+            "id": doc["id"],
+            "title": doc["title"],
+            "topic": result["topic"],
+            "category": result["category"],
+        }
+
+    results = await asyncio.gather(*(_classify_one(d, t) for d, t in pending))
+    classified = [r for r in results if r]
     return {"classified": classified, "count": len(classified)}
 
 
@@ -412,8 +430,11 @@ async def rag_query(req: RagQueryRequest):
     P1: 게이트웨이로 재랭킹해 상위 N건만 답변 컨텍스트로 사용한다.
     """
     # 후보를 limit 의 2~3배로 뽑아 재랭킹 여지를 둔다(최대 24).
+    # 검색(SQLite/파일/임베딩 호출)은 블로킹 → 워커 스레드에서 수행해 이벤트 루프 보호.
     candidate_k = min(max(req.limit * 3, 12), 24)
-    docs = collection.documents_for_rag(req.question, limit=candidate_k, topic=req.topic)
+    docs = await asyncio.to_thread(
+        collection.documents_for_rag, req.question, limit=candidate_k, topic=req.topic
+    )
     if not docs:
         raise HTTPException(
             status_code=422,
@@ -434,12 +455,17 @@ async def rag_query(req: RagQueryRequest):
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
 async def _generate_report_result(req: ReportGenerateRequest) -> dict:
     """리포트 생성 공통 로직(문서 수집 → 생성 → 자산 저장). 엔드포인트들이 공유."""
-    digest_docs = collection.documents_for_digest(limit=req.digestLimit)
-    topic_docs: dict[str, list] = {}
-    for t in collection.list_topics()[: req.maxTopics]:
-        docs = collection.documents_for_digest(limit=req.topicLimit, topic=t["topic"])
-        if docs:
-            topic_docs[t["topic"]] = docs
+    def _gather_docs() -> tuple[list, dict[str, list]]:
+        digest_docs = collection.documents_for_digest(limit=req.digestLimit)
+        topic_docs: dict[str, list] = {}
+        for t in collection.list_topics()[: req.maxTopics]:
+            docs = collection.documents_for_digest(limit=req.topicLimit, topic=t["topic"])
+            if docs:
+                topic_docs[t["topic"]] = docs
+        return digest_docs, topic_docs
+
+    # 문서 수집(SQLite+파일 다건 읽기)은 블로킹 → 워커 스레드에서 수행
+    digest_docs, topic_docs = await asyncio.to_thread(_gather_docs)
     if not digest_docs and not topic_docs:
         raise HTTPException(
             status_code=422,
@@ -487,8 +513,9 @@ async def report_document(req: ReportGenerateRequest):
 @app.post("/digest/generate")
 async def digest_generate(req: DigestGenerateRequest):
     """수집 문서를 게이트웨이(LLM)로 요약·평가해 다이제스트 초안을 생성한다."""
-    docs = collection.documents_for_digest(
-        limit=req.limit, source_id=req.source, topic=req.topic
+    docs = await asyncio.to_thread(
+        collection.documents_for_digest,
+        limit=req.limit, source_id=req.source, topic=req.topic,
     )
     if not docs:
         raise HTTPException(
@@ -569,7 +596,9 @@ def topics_list():
 @app.post("/topics/summarize")
 async def topics_summarize(req: TopicSummarizeRequest):
     """한 주제의 누적 문서를 게이트웨이(LLM)로 요약·이력화한다."""
-    docs = collection.documents_for_digest(limit=req.limit, topic=req.topic)
+    docs = await asyncio.to_thread(
+        collection.documents_for_digest, limit=req.limit, topic=req.topic
+    )
     if not docs:
         raise HTTPException(
             status_code=422,
@@ -605,9 +634,13 @@ async def competitors_analyze(req: CompetitorAnalyzeRequest):
     끌어온다(실데이터 근거). topic/q 지정 시 해당 스코프로 한정한다.
     """
     if req.topic or req.q:
-        docs = collection.documents_for_digest(limit=req.limit, topic=req.topic, q=req.q)
+        docs = await asyncio.to_thread(
+            collection.documents_for_digest, limit=req.limit, topic=req.topic, q=req.q
+        )
     else:
-        docs = collection.documents_for_competitor(req.name, req.ticker, limit=req.limit)
+        docs = await asyncio.to_thread(
+            collection.documents_for_competitor, req.name, req.ticker, limit=req.limit
+        )
     if not docs:
         raise HTTPException(
             status_code=422,

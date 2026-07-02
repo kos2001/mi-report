@@ -23,6 +23,7 @@ DEFAULT_OPENROUTER_EMBED_MODEL = "baai/bge-m3"
 _embedder = None
 _unavailable = False
 _lock = threading.Lock()
+_http_client = None  # OpenRouter /embeddings 용 재사용 커넥션(keep-alive)
 
 
 def enabled() -> bool:
@@ -86,9 +87,20 @@ def _parse_embed_payload(payload: dict) -> list[list[float]]:
     return [d["embedding"] for d in data]
 
 
+def _http():
+    """임베딩 API 용 httpx.Client 싱글턴(스레드 안전) — 호출마다 TLS 핸드셰이크 제거."""
+    global _http_client
+    if _http_client is None:
+        with _lock:
+            if _http_client is None:
+                import httpx
+
+                _http_client = httpx.Client(timeout=60.0)
+    return _http_client
+
+
 def _embed_openrouter(texts: list[str], is_query: bool):
     """OpenRouter /embeddings 로 임베딩(배치). 사내 식별 헤더도 첨부. 키 없으면 None."""
-    import httpx
     import numpy as np
 
     from .gateway import DEFAULT_BASE_URL, _custom_headers
@@ -101,12 +113,12 @@ def _embed_openrouter(texts: list[str], is_query: bool):
                **_custom_headers()}
     prefixed = _prefixed(texts, is_query)
     out: list[list[float]] = []
-    with httpx.Client(timeout=60.0) as c:
-        for i in range(0, len(prefixed), 64):  # 배치 64
-            r = c.post(f"{base}/embeddings", headers=headers,
-                       json={"model": model_name(), "input": prefixed[i:i + 64]})
-            r.raise_for_status()
-            out.extend(_parse_embed_payload(r.json()))
+    c = _http()
+    for i in range(0, len(prefixed), 64):  # 배치 64
+        r = c.post(f"{base}/embeddings", headers=headers,
+                   json={"model": model_name(), "input": prefixed[i:i + 64]})
+        r.raise_for_status()
+        out.extend(_parse_embed_payload(r.json()))
     return np.asarray(out, dtype="float32") if out else None
 
 
