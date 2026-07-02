@@ -8,6 +8,7 @@ AI agent 개입 지점 #7: 개별 기능을 오케스트레이션해 '이번 주
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Protocol
 
 from . import digest, grounding, topics
@@ -75,18 +76,22 @@ async def generate_report(
     if not digest_docs and not topic_docs:
         raise ValueError("리포트로 만들 본문 있는 문서가 없습니다.")
 
-    digest_obj = (
-        await digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period)
+    # 다이제스트와 주제 요약은 서로 독립 LLM 호출 → 동시 수행(총평만 이후 순차).
+    named_topics = [(name, docs) for name, docs in topic_docs.items() if docs]
+    digest_task = (
+        digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period)
         if digest_docs
         else None
     )
-    topic_summaries: list[dict[str, Any]] = []
-    for name, docs in topic_docs.items():
-        if not docs:
-            continue
-        topic_summaries.append(
-            await topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
-        )
+    results = await asyncio.gather(
+        *([digest_task] if digest_task else []),
+        *(topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
+          for name, docs in named_topics),
+    )
+    if digest_task:
+        digest_obj, *topic_summaries = results
+    else:
+        digest_obj, topic_summaries = None, list(results)
 
     overview = await generate_overview(client, digest_obj, topic_summaries)
 

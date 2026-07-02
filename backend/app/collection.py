@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import assets, config, embeddings, qa_golden, schedule, synonyms, voc
+from . import assets, config, db, embeddings, qa_golden, schedule, synonyms, voc
 
 SOURCE_TYPES = ("edm", "confluence", "sec", "dart", "hankyung", "news", "broker", "consensus", "upload")
 # 커넥터형 소스(트리거 가능). 'upload' 는 수동 업로드라 트리거 대상 아님.
@@ -35,14 +35,7 @@ def _today() -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    config.COLLECTION_DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.COLLECTION_DB)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    # WAL: 쓰기가 읽기를 블로킹하지 않게 해 동시성·처리량 개선.
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
+    return db.connect()  # 스레드별 재사용 커넥션(호출마다 connect+PRAGMA 제거)
 
 
 def init_db() -> None:
@@ -288,6 +281,8 @@ def add_crawled_document(
     dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
     body = f"# {title}\n원본: {url}\n\n{text}" if url else text
     dest.write_text(body, encoding="utf-8")
+    # 임베딩(네트워크/모델 호출 가능)은 쓰기 트랜잭션 밖에서 계산 — 잠금 시간 최소화
+    embedding = _compute_embedding(title, topic, text)
     with _conn() as conn:
         conn.execute(
             "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
@@ -300,7 +295,7 @@ def add_crawled_document(
             (_now(), source_id),
         )
         _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
-        store_embedding(conn, doc_id, title=title, topic=topic, text=text)  # 의미 임베딩(활성 시)
+        _insert_embedding(conn, doc_id, embedding)  # 의미 임베딩(활성 시)
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)
 
@@ -409,20 +404,32 @@ def _embed_doc_text(title: str | None, topic: str | None, text: str | None) -> s
     return "\n".join(p.strip() for p in (title, topic, text) if p and p.strip())
 
 
-def store_embedding(conn: sqlite3.Connection, doc_id: str, *, title: str | None = None,
-                    topic: str | None = None, text: str | None = None) -> None:
-    """문서 임베딩을 계산·저장(임베딩 비활성/실패 시 무동작)."""
+def _compute_embedding(title: str | None, topic: str | None,
+                       text: str | None) -> tuple[str, bytes] | None:
+    """임베딩 벡터를 계산해 (model, bytes) 반환(비활성/실패 시 None).
+
+    네트워크/모델 호출이 있을 수 있으므로 쓰기 트랜잭션 밖에서 호출한다
+    (트랜잭션이 잠금을 쥔 채 임베딩을 기다리면 병렬 수집이 서로 블로킹된다).
+    """
     if not embeddings.active():
-        return
+        return None
     body = _embed_doc_text(title, topic, text)
     if not body:
-        return
+        return None
     mat = embeddings.embed([body], is_query=False)
     if mat is None:
+        return None
+    return embeddings.model_name(), mat[0].tobytes()
+
+
+def _insert_embedding(conn: sqlite3.Connection, doc_id: str,
+                      computed: tuple[str, bytes] | None) -> None:
+    """미리 계산된 임베딩을 저장(None 이면 무동작)."""
+    if computed is None:
         return
     conn.execute(
         "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
-        (doc_id, embeddings.model_name(), mat[0].tobytes()),
+        (doc_id, computed[0], computed[1]),
     )
 
 
@@ -432,17 +439,19 @@ def rebuild_embeddings() -> int:
         return 0
     with _conn() as conn:
         rows = conn.execute("SELECT id, path, title, topic FROM documents").fetchall()
-        ids, texts = [], []
-        for r in rows:
-            body = _embed_doc_text(r["title"], r["topic"], _read_path_text(r["path"]))
-            if body:
-                ids.append(r["id"])
-                texts.append(body)
-        if not texts:
-            return 0
-        mat = embeddings.embed(texts, is_query=False)
-        if mat is None:
-            return 0
+    ids, texts = [], []
+    for r in rows:
+        body = _embed_doc_text(r["title"], r["topic"], _read_path_text(r["path"]))
+        if body:
+            ids.append(r["id"])
+            texts.append(body)
+    if not texts:
+        return 0
+    # 배치 임베딩(네트워크/모델 호출)은 트랜잭션 밖에서 — 잠금 시간 최소화
+    mat = embeddings.embed(texts, is_query=False)
+    if mat is None:
+        return 0
+    with _conn() as conn:
         for did, vec in zip(ids, mat):
             conn.execute(
                 "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
@@ -553,6 +562,43 @@ def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
     return [_row_to_document(r) for r in rows]
 
 
+def _contents_for_ids(ids: list[str], *, max_chars: int = 4000) -> dict[str, str]:
+    """여러 문서의 본문을 한 번의 쿼리(경로 일괄 조회) + 파일 읽기로 가져온다.
+
+    문서마다 read_document_text 를 부르던 N+1 조회를 제거한다. 본문이 없거나
+    비텍스트인 문서는 결과에서 빠진다.
+    """
+    if not ids:
+        return {}
+    qmarks = ",".join("?" * len(ids))
+    with _conn() as conn:
+        rows = conn.execute(
+            f"SELECT id, path FROM documents WHERE id IN ({qmarks})", ids
+        ).fetchall()
+    out: dict[str, str] = {}
+    for r in rows:
+        text = _read_path_text(r["path"], max_chars=max_chars)
+        if text:
+            out[r["id"]] = text
+    return out
+
+
+def _docs_with_content(hits: list[dict[str, Any]], *, max_chars: int = 4000) -> list[dict[str, Any]]:
+    """문서 메타 목록에 본문을 붙여 LLM 입력 형태로 반환(본문 없는 문서는 제외)."""
+    texts = _contents_for_ids([d["id"] for d in hits], max_chars=max_chars)
+    return [
+        {
+            "id": d["id"],
+            "title": d["title"],
+            "source": d["sourceName"],
+            "publishedAt": d["publishedAt"],
+            "content": texts[d["id"]],
+        }
+        for d in hits
+        if d["id"] in texts
+    ]
+
+
 def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
                       source_id: str | None = None, max_chars: int = 4000) -> list[dict[str, Any]]:
     """RAG 입력: 질문 관련 문서를 본문 BM25 로 검색해 본문과 함께 반환.
@@ -563,21 +609,7 @@ def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
     hits = hybrid_search(query, limit=limit, topic=topic, source_id=source_id)
     if not hits:
         hits = list_documents(source_id=source_id, topic=topic, limit=limit)
-    out: list[dict[str, Any]] = []
-    for d in hits:
-        text = read_document_text(d["id"], max_chars=max_chars)
-        if not text:
-            continue
-        out.append(
-            {
-                "id": d["id"],
-                "title": d["title"],
-                "source": d["sourceName"],
-                "publishedAt": d["publishedAt"],
-                "content": text,
-            }
-        )
-    return out
+    return _docs_with_content(hits, max_chars=max_chars)
 
 
 def list_documents(source_id: str | None = None, q: str | None = None,
@@ -657,21 +689,7 @@ def documents_for_digest(
 ) -> list[dict[str, Any]]:
     """LLM 입력용: 최근 문서 중 읽을 수 있는 본문이 있는 것만 묶어 반환."""
     docs = list_documents(source_id=source_id, q=q, topic=topic, limit=limit)
-    out: list[dict[str, Any]] = []
-    for d in docs:
-        text = read_document_text(d["id"])
-        if not text:
-            continue
-        out.append(
-            {
-                "id": d["id"],
-                "title": d["title"],
-                "source": d["sourceName"],
-                "publishedAt": d["publishedAt"],
-                "content": text,
-            }
-        )
-    return out
+    return _docs_with_content(docs)
 
 
 _HANKYUNG_TITLE = re.compile(r"\[증권사 리포트\]\s*(.+?)\((\w+)\)")
@@ -716,16 +734,7 @@ def documents_for_competitor(name: str, ticker: str = "", *, limit: int = 8,
     정확히 '그 회사' 문서를 끌어와 분석을 실데이터에 근거하게 한다.
     """
     query = " ".join(p for p in [name, ticker, "실적 컨센서스 목표주가 투자의견"] if p)
-    out: list[dict[str, Any]] = []
-    for d in hybrid_search(query, limit=limit):
-        text = read_document_text(d["id"], max_chars=max_chars)
-        if not text:
-            continue
-        out.append({
-            "id": d["id"], "title": d["title"], "source": d["sourceName"],
-            "publishedAt": d["publishedAt"], "content": text,
-        })
-    return out
+    return _docs_with_content(hybrid_search(query, limit=limit), max_chars=max_chars)
 
 
 def get_document(doc_id: str) -> dict[str, Any]:
@@ -861,6 +870,8 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
     safe_title = Path(title).name or "untitled"
     dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
     dest.write_text(text, encoding="utf-8")
+    # 임베딩(네트워크/모델 호출 가능)은 쓰기 트랜잭션 밖에서 계산 — 잠금 시간 최소화
+    embedding = _compute_embedding(title, topic, text)
     with _conn() as conn:
         src = _ensure_named_source(conn, source_name, "upload")
         conn.execute(
@@ -875,6 +886,6 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
             (_now(), src["id"]),
         )
         _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
-        store_embedding(conn, doc_id, title=title, topic=topic, text=text)  # 의미 임베딩(활성 시)
+        _insert_embedding(conn, doc_id, embedding)  # 의미 임베딩(활성 시)
         row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
     return _row_to_document(row)

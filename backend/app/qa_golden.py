@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from . import config
+from . import db
 
 KINDS = ("answerable", "negative")
 
@@ -25,11 +25,7 @@ def _now() -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    config.COLLECTION_DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.COLLECTION_DB)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+    return db.connect()  # 스레드별 재사용 커넥션(호출마다 connect+PRAGMA 제거)
 
 
 def init_qa_golden() -> None:
