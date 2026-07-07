@@ -79,6 +79,7 @@ class ExtractorRunner:
         self._timeout = timeout
         self._recycle_after = recycle_after
         self._pid: int | None = None
+        self.last_route: str | None = None
         self._start()
 
     def _start(self) -> None:
@@ -106,9 +107,10 @@ class ExtractorRunner:
                         except Exception:
                             pass  # 재기동 실패 → 다음 추출이 앱을 다시 띄운다
                     try:
-                        results.put(("ok", ex.extract(path)))
+                        text = ex.extract(path)
+                        results.put(("ok", text, getattr(ex, "last_route", None)))
                     except Exception as e:
-                        results.put(("err", e))
+                        results.put(("err", e, None))
                         # 실패한 파일이 앱 상태를 오염시켰을 수 있다(모달 직전 에러 등).
                         # 구버전의 '파일마다 종료' 의미론을 실패 시에만 복원해 연쇄 실패를 막는다.
                         try:
@@ -123,19 +125,20 @@ class ExtractorRunner:
                 path = jobs.get()
                 if path is None:
                     return
-                results.put(("err", e))
+                results.put(("err", e, None))
         finally:
             _co_uninitialize()
 
     def extract(self, path: str) -> str:
         self._jobs.put(path)
         try:
-            kind, val = self._results.get(timeout=self._timeout)
+            kind, val, route = self._results.get(timeout=self._timeout)
         except queue.Empty:
             self._abandon()
             raise ExtractTimeout(
                 f"추출 {self._timeout:.0f}s 초과 (DRM 대화상자/행 의심): {path}"
             ) from None
+        self.last_route = route  # 직전 추출 경로("local"|"com") — 진단/드라이런 표시용
         if kind == "err":
             raise val
         return val
@@ -257,8 +260,14 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
                   recycle_after: int = DEFAULT_RECYCLE_AFTER,
                   state_path: Path | None = None,
                   force: bool = False,
+                  dry_run: bool = False,
                   factories: dict[str, AppFactory] | None = None) -> list[dict[str, Any]]:
-    """폴더/파일을 배치 인제스트한다. 한 파일 실패가 전체를 막지 않는다."""
+    """폴더/파일을 배치 인제스트한다. 한 파일 실패가 전체를 막지 않는다.
+
+    dry_run: 추출만 하고 등록·매니페스트 갱신을 하지 않는다. 파일별로
+    {path, route("local"|"com"), chars, preview} 를 반환 — 실제 DRM 환경에서
+    어떤 경로로 추출됐고 텍스트가 온전한지 검증하는 용도.
+    """
     batch_size = max(1, min(batch_size, MAX_BATCH_SIZE))  # 서버 스키마 상한 준수
     # 매니페스트는 백엔드 URL 별로 네임스페이스한다 — 다른 백엔드로 전환해 재실행할 때
     # 이전 백엔드의 기록 때문에 전량 skip 되는 사고를 막는다.
@@ -268,6 +277,8 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
     state = full_state.setdefault(backend_url.rstrip("/"), {})
 
     close_client: Callable[[], None] | None = None
+    if dry_run:
+        batch_poster = lambda payloads: []  # noqa: E731  # 등록 안 함
     if batch_poster is None:
         if poster is not None:
             def batch_poster(payloads: list[dict[str, Any]], _p: Poster = poster
@@ -334,6 +345,13 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
             except Exception as e:
                 print(f"[fail] {path}: {e}")
                 continue
+            if dry_run:
+                route = runner.last_route or "?"
+                preview = " ".join(text[:200].split())
+                print(f"[dry-run] {path} | 경로={route} | {len(text)}자 | {preview}")
+                results.append({"path": path, "route": route,
+                                "chars": len(text), "preview": text[:500]})
+                continue
             pending.append((path, sig, build_payload(path, text, topic)))
             if len(pending) >= batch_size:
                 flush()
@@ -359,14 +377,23 @@ def main(argv: list[str] | None = None) -> int:
                     help="기수집 매니페스트 경로. '' 이면 비활성(전부 재인제스트)")
     ap.add_argument("--force", action="store_true",
                     help="매니페스트를 무시하고 전부 다시 인제스트(매니페스트는 갱신)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="추출만 검증(등록·매니페스트 갱신 없음). 추출 경로(local/com)와 "
+                         "본문 미리보기를 출력 — DRM 환경 사전 점검용")
     args = ap.parse_args(argv)
 
     results = ingest_target(
         args.target, args.backend, topic=args.topic,
         batch_size=args.batch_size, timeout=args.timeout,
-        state_path=Path(args.state) if args.state else None, force=args.force,
+        state_path=None if args.dry_run else (Path(args.state) if args.state else None),
+        force=args.force, dry_run=args.dry_run,
     )
-    print(f"\n총 {len(results)}건 등록 완료.")
+    if args.dry_run:
+        com = sum(1 for r in results if r.get("route") == "com")
+        local = sum(1 for r in results if r.get("route") == "local")
+        print(f"\n[dry-run] 총 {len(results)}건 추출 성공 (local {local} / com {com}). 등록 안 함.")
+    else:
+        print(f"\n총 {len(results)}건 등록 완료.")
     return 0
 
 

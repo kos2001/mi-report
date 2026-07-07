@@ -50,6 +50,7 @@ class BaseExtractor:
     def __init__(self, app_factory: AppFactory | None = None):
         self._factory = app_factory or get_com_factory(self.prog_id)
         self._app: Any | None = None
+        self.last_route: str | None = None  # 직전 추출 경로: "local" | "com"
 
     def __enter__(self):
         self._ensure_app()
@@ -117,6 +118,7 @@ class BaseExtractor:
         raise NotImplementedError
 
     def extract(self, path: str) -> str:
+        self.last_route = "com"
         return self._extract(self._ensure_app(), path)
 
 
@@ -205,8 +207,9 @@ class LocalFirstMixin:
     def extract(self, path: str) -> str:
         text = self._local(path)
         if text is not None:
+            self.last_route = "local"
             return text
-        return super().extract(path)  # type: ignore[misc]
+        return super().extract(path)  # type: ignore[misc]  # last_route="com" 설정됨
 
 
 class PdfExtractor(LocalFirstMixin, WordExtractor):
