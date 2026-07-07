@@ -14,6 +14,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import imagetext
+
+# 스캔 PDF OCR 페이지 상한 — 페이지당 수백 ms(CPU)라 무제한이면 대용량 스캔본이
+# 배치를 독점한다. 상한 초과 페이지는 건너뛴다(앞부분이 핵심이라는 가정).
+_OCR_MAX_PAGES = 20
+
 
 def _pymupdf() -> Any | None:
     """pymupdf 모듈(미설치면 None). 신(pymupdf)·구(fitz) 임포트명 모두 지원."""
@@ -35,11 +41,27 @@ def available() -> bool:
     return _pymupdf() is not None
 
 
+def _ocr_page(page: Any) -> str | None:
+    """텍스트 레이어 없는 페이지(스캔본)를 200dpi 로 렌더링해 OCR. 비활성 시 None."""
+    if not imagetext.available():
+        return None
+    try:
+        return imagetext.ocr_bytes(page.get_pixmap(dpi=200).tobytes("png"))
+    except Exception:
+        return None
+
+
 def _doc_text(doc: Any, max_pages: int | None) -> str:
     n = doc.page_count if max_pages is None else min(doc.page_count, max_pages)
     parts = []
+    ocr_pages = 0
     for i in range(n):
-        t = doc[i].get_text().strip()
+        page = doc[i]
+        t = page.get_text().strip()
+        if not t and ocr_pages < _OCR_MAX_PAGES:
+            # 스캔 페이지: 텍스트 레이어가 없으면 OCR 로 회수(extras: ocr 설치 시)
+            ocr_pages += 1
+            t = (_ocr_page(page) or "").strip()
         if t:
             parts.append(t)
     return "\n".join(parts)
@@ -59,7 +81,7 @@ def extract_path(path: str, *, max_pages: int | None = None) -> str | None:
             if doc.needs_pass:
                 return None
             text = _doc_text(doc, max_pages)
-        return text or None  # 텍스트 레이어 없음(스캔본 등) → 폴백
+        return text or None  # 텍스트 없음(스캔본인데 OCR 비활성 등) → 폴백
     except Exception:
         return None
 

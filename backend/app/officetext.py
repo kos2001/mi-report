@@ -9,9 +9,51 @@ Word/Excel/PowerPoint COM 으로 폴백한다. DRM 래핑 문서는 zip 시그�
 
 출력 형식은 COM 추출기와 맞춘다(시트 "# 이름"+탭 행, 슬라이드 "--- slide n ---") —
 어느 경로로 추출되든 색인·검색 결과가 동일하도록.
+
+이미지 처리: OCR(extras: ocr)이 활성이면 문서에 내장된 이미지(media/*)의 텍스트를
+'[이미지 텍스트]' 블록으로 본문 뒤에 붙인다 — 스캔 캡처·표 이미지의 내용이
+색인에서 유실되지 않도록. 개수·크기 상한으로 비용을 묶는다.
 """
 
 from __future__ import annotations
+
+from . import imagetext
+
+_IMG_MIN_BYTES = 10 * 1024        # 아이콘·로고 등 노이즈 제외
+_IMG_MAX_BYTES = 8 * 1024 * 1024  # 초대형 이미지 제외(비용 한도)
+_IMG_MAX_COUNT = 10               # 문서당 OCR 이미지 상한
+_IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif")
+
+
+def _embedded_image_text(path: str) -> str | None:
+    """OOXML 내장 이미지(media/*)를 OCR 해 텍스트로. 비활성/이미지 없음 → None."""
+    if not imagetext.available():
+        return None
+    try:
+        import zipfile  # noqa: PLC0415
+
+        parts: list[str] = []
+        with zipfile.ZipFile(path) as z:
+            names = [n for n in z.namelist()
+                     if "/media/" in n and n.lower().endswith(_IMG_EXTS)]
+            for name in names[:_IMG_MAX_COUNT]:
+                data = z.read(name)
+                if not (_IMG_MIN_BYTES <= len(data) <= _IMG_MAX_BYTES):
+                    continue
+                text = imagetext.ocr_bytes(data)
+                if text:
+                    parts.append(text)
+        return "\n".join(parts) or None
+    except Exception:
+        return None
+
+
+def _with_image_text(path: str, body: str) -> str | None:
+    """본문 뒤에 내장 이미지 OCR 텍스트를 붙인다. 둘 다 비면 None(COM 폴백)."""
+    img = _embedded_image_text(path)
+    if img:
+        body = f"{body}\n[이미지 텍스트]\n{img}" if body else f"[이미지 텍스트]\n{img}"
+    return body or None
 
 
 def extract_docx(path: str) -> str | None:
@@ -28,7 +70,7 @@ def extract_docx(path: str) -> str | None:
                 cells = "\t".join(c.text.strip() for c in row.cells)
                 if cells.strip():
                     parts.append(cells)
-        return "\n".join(parts) or None
+        return _with_image_text(path, "\n".join(parts))
     except Exception:
         return None
 
@@ -53,7 +95,7 @@ def extract_xlsx(path: str) -> str | None:
                 if body:
                     parts.append(f"# {ws.title}")
                     parts.append(body)
-            return "\n".join(parts) or None
+            return _with_image_text(path, "\n".join(parts))
         finally:
             wb.close()
     except Exception:
@@ -76,6 +118,6 @@ def extract_pptx(path: str) -> str | None:
                 if shape.has_text_frame and shape.text_frame.text.strip():
                     parts.append(shape.text_frame.text)
                     any_text = True
-        return "\n".join(parts) if any_text else None
+        return _with_image_text(path, "\n".join(parts) if any_text else "")
     except Exception:
         return None
