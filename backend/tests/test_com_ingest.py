@@ -180,6 +180,33 @@ def test_pdf_falls_back_to_word_extractor(monkeypatch):
     assert "PDF 본문" in text
 
 
+def test_ooxml_fast_path_skips_office(monkeypatch):
+    """일반 docx/xlsx/pptx 는 로컬 파서로 추출한다 — Office 앱을 아예 띄우지 않는다."""
+    from app import officetext
+
+    monkeypatch.setattr(officetext, "extract_docx", lambda p: "docx 본문")
+    monkeypatch.setattr(officetext, "extract_xlsx", lambda p: "xlsx 본문")
+    monkeypatch.setattr(officetext, "extract_pptx", lambda p: "pptx 본문")
+
+    def must_not_launch():
+        raise AssertionError("고속 경로에서 Office 를 띄우면 안 된다")
+
+    factories = {p: must_not_launch for p in
+                 ("Word.Application", "Excel.Application", "PowerPoint.Application")}
+    assert extractors.extract_text("a.docx", factories) == "docx 본문"
+    assert extractors.extract_text("b.xlsx", factories) == "xlsx 본문"
+    assert extractors.extract_text("c.xlsm", factories) == "xlsx 본문"
+    assert extractors.extract_text("d.pptx", factories) == "pptx 본문"
+
+
+def test_ooxml_drm_falls_back_to_com(tmp_path):
+    """DRM 래핑(비 zip) OOXML 은 로컬 파서가 실패해 COM 으로 폴백한다(실파일)."""
+    p = tmp_path / "drm.docx"
+    p.write_bytes(b"DRM-wrapped, not a zip")
+    factories = {"Word.Application": lambda: FakeWordApp("DRM 해제 본문")}
+    assert "DRM 해제 본문" in extractors.extract_text(str(p), factories)
+
+
 def test_unsupported_extension_raises():
     with pytest.raises(ValueError):
         extractors.extract_text("메모.hwp")

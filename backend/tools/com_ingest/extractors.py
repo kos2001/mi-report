@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from app import pdftext
+from app import officetext, pdftext
 
 AppFactory = Callable[[], Any]
 
@@ -139,24 +139,6 @@ class WordExtractor(BaseExtractor):
             doc.Close(False)
 
 
-class PdfExtractor(WordExtractor):
-    """PDF 전용: PyMuPDF(로컬, 최고 속도) 우선 → Word COM 리플로우 폴백.
-
-    일반 PDF 는 Office 기동 없이 즉시 추출한다(비 Windows 워커에서도 동작).
-    PyMuPDF 미설치, 암호화/DRM(정식 앱으로만 열림), 텍스트 레이어 없음(스캔본)일 때만
-    Word 경로로 넘어간다 — DRM 투명 복호화라는 기존 계약은 그대로 유지된다.
-    """
-
-    def __enter__(self):
-        return self  # Word 앱은 폴백이 실제로 필요할 때만 띄운다(지연 기동)
-
-    def extract(self, path: str) -> str:
-        text = pdftext.extract_path(path)
-        if text is not None:
-            return text
-        return super().extract(path)
-
-
 class ExcelExtractor(BaseExtractor):
     prog_id = "Excel.Application"
 
@@ -205,6 +187,60 @@ class PowerPointExtractor(BaseExtractor):
             pres.Close()
 
 
+class LocalFirstMixin:
+    """로컬 고속 파서 우선 → 실패(None) 시 COM 폴백.
+
+    일반 문서는 Office 기동 없이 즉시 추출한다(비 Windows 워커에서도 동작).
+    DRM 래핑 문서는 로컬 파서가 (파일 시그니처 훼손으로) 자연히 실패해 COM 경로로
+    넘어간다 — DRM 투명 복호화라는 기존 계약은 그대로 유지된다.
+    """
+
+    @staticmethod
+    def _local(path: str) -> str | None:  # 서브클래스가 포맷별 파서를 지정
+        raise NotImplementedError
+
+    def __enter__(self):
+        return self  # COM 앱은 폴백이 실제로 필요할 때만 띄운다(지연 기동)
+
+    def extract(self, path: str) -> str:
+        text = self._local(path)
+        if text is not None:
+            return text
+        return super().extract(path)  # type: ignore[misc]
+
+
+class PdfExtractor(LocalFirstMixin, WordExtractor):
+    """PDF: PyMuPDF 우선 → Word COM 리플로우 폴백(DRM/암호화/스캔본)."""
+
+    @staticmethod
+    def _local(path: str) -> str | None:
+        return pdftext.extract_path(path)
+
+
+class DocxExtractor(LocalFirstMixin, WordExtractor):
+    """docx: python-docx 우선 → Word COM 폴백(DRM)."""
+
+    @staticmethod
+    def _local(path: str) -> str | None:
+        return officetext.extract_docx(path)
+
+
+class XlsxExtractor(LocalFirstMixin, ExcelExtractor):
+    """xlsx/xlsm: openpyxl(read_only) 우선 → Excel COM 폴백(DRM)."""
+
+    @staticmethod
+    def _local(path: str) -> str | None:
+        return officetext.extract_xlsx(path)
+
+
+class PptxExtractor(LocalFirstMixin, PowerPointExtractor):
+    """pptx: python-pptx 우선 → PowerPoint COM 폴백(DRM)."""
+
+    @staticmethod
+    def _local(path: str) -> str | None:
+        return officetext.extract_pptx(path)
+
+
 def _flatten_cells(values: Any) -> str:
     """Excel UsedRange.Value(스칼라 또는 행×열 튜플)를 탭/줄바꿈 텍스트로."""
     if values is None:
@@ -220,17 +256,18 @@ def _flatten_cells(values: Any) -> str:
     return "\n".join(rows)
 
 
-# 확장자 → 추출기 클래스
+# 확장자 → 추출기 클래스. OOXML/PDF 는 로컬 고속 경로(→ DRM 시 COM 폴백),
+# 레거시 바이너리(doc/xls/ppt/rtf)는 좋은 로컬 파서가 없어 COM 전용.
 EXTRACTORS: dict[str, type[BaseExtractor]] = {
     ".doc": WordExtractor,
-    ".docx": WordExtractor,
+    ".docx": DocxExtractor,
     ".rtf": WordExtractor,
-    ".pdf": PdfExtractor,  # PyMuPDF 고속 경로 → DRM/암호화 시 Word 리플로우 폴백
+    ".pdf": PdfExtractor,
     ".xls": ExcelExtractor,
-    ".xlsx": ExcelExtractor,
-    ".xlsm": ExcelExtractor,
+    ".xlsx": XlsxExtractor,
+    ".xlsm": XlsxExtractor,
     ".ppt": PowerPointExtractor,
-    ".pptx": PowerPointExtractor,
+    ".pptx": PptxExtractor,
 }
 
 SUPPORTED_EXTENSIONS = tuple(EXTRACTORS.keys())
