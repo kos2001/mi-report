@@ -41,6 +41,7 @@ BatchPoster = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 DEFAULT_TIMEOUT = 120.0      # 파일당 추출 제한(초) — DRM 모달/행 방어
 DEFAULT_RECYCLE_AFTER = 100  # N건마다 Office 앱 재기동(메모리 누적 방지)
 DEFAULT_BATCH_SIZE = 16      # 백엔드 배치 전송 단위(임베딩 배치와 트랜잭션 상각)
+MAX_BATCH_SIZE = 200         # 서버 IngestBatch(documents max_length=200)와 동기
 DEFAULT_STATE_PATH = Path.home() / ".mi-com-ingest-state.json"
 
 
@@ -108,6 +109,13 @@ class ExtractorRunner:
                         results.put(("ok", ex.extract(path)))
                     except Exception as e:
                         results.put(("err", e))
+                        # 실패한 파일이 앱 상태를 오염시켰을 수 있다(모달 직전 에러 등).
+                        # 구버전의 '파일마다 종료' 의미론을 실패 시에만 복원해 연쇄 실패를 막는다.
+                        try:
+                            ex.restart()
+                            self._pid = ex.pid()
+                        except Exception:
+                            pass  # 재기동 실패 → 다음 추출이 앱을 다시 띄운다
                     done += 1
         except Exception as e:
             # 앱 기동 자체가 실패(비 Windows, Office 미설치 등) — 잡마다 즉시 실패 응답
@@ -168,17 +176,23 @@ def _httpx_batch_poster(backend_url: str) -> tuple[BatchPoster, Callable[[], Non
 
     def post(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         r = client.post("/collection/ingest/batch", json={"documents": payloads})
-        if r.status_code == 404:  # 배치 미지원(구버전) 백엔드 → 단건 엔드포인트 폴백
-            out: list[dict[str, Any]] = []
-            for pl in payloads:
-                rr = client.post("/collection/ingest", json=pl)
-                rr.raise_for_status()
-                out.append(rr.json())
-            return out
+        if r.status_code == 404:
+            # 조용한 폴백 금지: 404 는 대개 구버전 백엔드 또는 잘못된 --backend URL.
+            # 단건 경로로 몰래 격하하면 배치·서버 dedup 의미론을 잃고 오설정이 묻힌다.
+            raise RuntimeError(
+                "백엔드에 /collection/ingest/batch 가 없습니다 — "
+                "백엔드를 업데이트하거나 --backend URL 을 확인하세요."
+            )
         r.raise_for_status()
         return r.json().get("documents", [])
 
     return post, client.close
+
+
+def _is_client_error(e: Exception) -> bool:
+    """HTTP 4xx(페이로드 문제일 가능성) 여부 — 단건 격리 재시도 대상 판별."""
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    return status is not None and 400 <= int(status) < 500
 
 
 def build_payload(path: str, text: str, topic: str | None = None) -> dict[str, Any]:
@@ -245,7 +259,14 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
                   force: bool = False,
                   factories: dict[str, AppFactory] | None = None) -> list[dict[str, Any]]:
     """폴더/파일을 배치 인제스트한다. 한 파일 실패가 전체를 막지 않는다."""
-    state = _load_state(state_path)
+    batch_size = max(1, min(batch_size, MAX_BATCH_SIZE))  # 서버 스키마 상한 준수
+    # 매니페스트는 백엔드 URL 별로 네임스페이스한다 — 다른 백엔드로 전환해 재실행할 때
+    # 이전 백엔드의 기록 때문에 전량 skip 되는 사고를 막는다.
+    full_state = _load_state(state_path)
+    if any(not isinstance(v, dict) for v in full_state.values()):
+        full_state = {}  # 구형식(경로→sig 평면) 폐기 — 재전송은 서버 해시 dedup 이 막는다
+    state = full_state.setdefault(backend_url.rstrip("/"), {})
+
     close_client: Callable[[], None] | None = None
     if batch_poster is None:
         if poster is not None:
@@ -256,29 +277,49 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
             batch_poster, close_client = _httpx_batch_poster(backend_url)
 
     results: list[dict[str, Any]] = []
-    pending: list[tuple[str, dict[str, Any]]] = []
+    # (path, 스캔 시점 sig, payload). sig 를 추출 전에 고정해 두어야
+    # 추출~flush 사이에 수정된 파일이 새 sig 로 기록돼 영구 skip 되는 일이 없다.
+    pending: list[tuple[str, list[int], dict[str, Any]]] = []
+
+    def record_ok(batch: list[tuple[str, list[int], dict[str, Any]]],
+                  docs: list[dict[str, Any]]) -> None:
+        results.extend(docs)
+        for p, sig, _ in batch:
+            print(f"[ok] {p}")
+            state[p] = sig
+        if state_path is not None:
+            _save_state(state_path, full_state)
 
     def flush() -> None:
         if not pending:
             return
-        paths_ = [p for p, _ in pending]
-        try:
-            results.extend(batch_poster([pl for _, pl in pending]))
-            for p in paths_:
-                print(f"[ok] {p}")
-            if state_path is not None:
-                for p in paths_:
-                    state[p] = _file_sig(p)
-                _save_state(state_path, state)
-        except Exception as e:
-            for p in paths_:
-                print(f"[fail] {p}: {e}")
+        batch = list(pending)
         pending.clear()
+        try:
+            record_ok(batch, batch_poster([pl for _, _, pl in batch]))
+            return
+        except Exception as e:
+            if not _is_client_error(e):  # 서버/네트워크 장애 — 단건 재시도 무의미
+                for p, _, _ in batch:
+                    print(f"[fail] {p}: {e}")
+                return
+        # 4xx: 배치 안의 불량 페이로드 1건이 원인일 수 있다 → 단건으로 격리 재시도
+        # ('한 파일 실패가 전체를 막지 않는다'를 전송 단계에도 적용).
+        for item in batch:
+            try:
+                record_ok([item], batch_poster([item[2]]))
+            except Exception as ee:
+                print(f"[fail] {item[0]}: {ee}")
 
     runners: dict[type[BaseExtractor], ExtractorRunner] = {}
     try:
         for path in collect_paths(target):
-            if state_path is not None and not force and state.get(path) == _file_sig(path):
+            try:
+                sig = _file_sig(path)
+            except OSError as e:  # 스캔 후 삭제/이동된 파일 — 이 파일만 건너뜀
+                print(f"[fail] {path}: {e}")
+                continue
+            if state_path is not None and not force and state.get(path) == sig:
                 print(f"[skip] {path} (변경 없음)")
                 continue
             try:
@@ -293,7 +334,7 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
             except Exception as e:
                 print(f"[fail] {path}: {e}")
                 continue
-            pending.append((path, build_payload(path, text, topic)))
+            pending.append((path, sig, build_payload(path, text, topic)))
             if len(pending) >= batch_size:
                 flush()
         flush()

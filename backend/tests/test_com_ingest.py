@@ -336,6 +336,61 @@ def test_ingest_target_state_skips_unchanged(tmp_path):
     assert calls == [2, 2]
 
 
+class _ClientError(Exception):
+    """httpx.HTTPStatusError 모양(4xx response)의 가짜 예외."""
+
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.response = type("R", (), {"status_code": status})()
+
+
+def test_ingest_target_isolates_poison_payload(tmp_path):
+    """배치가 4xx 로 거부되면 단건으로 격리 재시도 — 불량 1건이 배치를 침몰시키지 않는다."""
+    _make_docs(tmp_path, ["a.docx", "bad.docx", "c.docx"])
+
+    def batch_poster(payloads):
+        if len(payloads) > 1 or payloads[0]["title"] == "bad":
+            raise _ClientError(422)
+        return [{"id": payloads[0]["title"]}]
+
+    results = worker.ingest_target(
+        str(tmp_path), "http://mi:8000", batch_poster=batch_poster,
+        batch_size=3, factories={"Word.Application": lambda: FakeWordApp("본문")},
+    )
+    assert sorted(d["id"] for d in results) == ["a", "c"]  # bad 만 실패
+
+
+def test_ingest_target_server_error_fails_batch_without_retry(tmp_path):
+    """5xx/네트워크 장애는 단건 재시도 없이 배치 실패(요청 폭증 방지)."""
+    _make_docs(tmp_path, ["a.docx", "b.docx"])
+    calls: list[int] = []
+
+    def batch_poster(payloads):
+        calls.append(len(payloads))
+        raise RuntimeError("connection refused")
+
+    results = worker.ingest_target(
+        str(tmp_path), "http://mi:8000", batch_poster=batch_poster,
+        factories={"Word.Application": lambda: FakeWordApp("본문")},
+    )
+    assert results == [] and calls == [2]  # 배치 1회만 시도
+
+
+def test_ingest_target_state_is_per_backend(tmp_path):
+    """매니페스트는 백엔드 URL 별 — 백엔드를 바꿔 재실행하면 skip 하지 않는다."""
+    _make_docs(tmp_path, ["a.docx"])
+    state = tmp_path / "state.json"
+    factories = {"Word.Application": lambda: FakeWordApp("본문")}
+
+    def bp(payloads):
+        return [{"id": pl["title"]} for pl in payloads]
+
+    kw = dict(batch_poster=bp, state_path=state, factories=factories)
+    assert len(worker.ingest_target(str(tmp_path), "http://one:8000", **kw)) == 1
+    assert len(worker.ingest_target(str(tmp_path), "http://one:8000", **kw)) == 0  # 같은 백엔드: skip
+    assert len(worker.ingest_target(str(tmp_path), "http://two:8000", **kw)) == 1  # 다른 백엔드: 재인제스트
+
+
 def test_ingest_target_single_poster_compat(tmp_path):
     """단건 poster 주입(기존 인터페이스)도 배치 어댑터로 동작한다."""
     _make_docs(tmp_path, ["a.docx"])

@@ -174,6 +174,34 @@ def test_ingest_texts_single_embedding_batch(isolated, monkeypatch):
     assert calls == [5]
 
 
+def test_content_hash_backfill_matches_raw_reingest(isolated):
+    """백필 해시는 원문(개행·공백 무변형) 기준이어야 재전송 dedup 과 맞는다.
+
+    Word COM 텍스트는 '\\r' 문단 구분과 말미 공백을 포함한다 — 정규화된
+    텍스트로 백필하면 레거시 문서 dedup 이 영영 안 맞는 회귀를 방지.
+    """
+    text = "문단1\r문단2\r\n끝  \n"
+    doc = collection.ingest_text("리포트", text)
+    with collection._conn() as conn:  # 마이그레이션 이전 상태(해시 없음)로 되돌림
+        conn.execute("UPDATE documents SET content_sha256=NULL WHERE id=?", (doc["id"],))
+        collection._migrate_content_hash(conn)
+    again = collection.ingest_text("리포트", text)
+    assert again.get("deduped") is True and again["id"] == doc["id"]
+
+
+def test_ingest_texts_removes_files_on_failure(isolated, monkeypatch):
+    """트랜잭션 실패(롤백) 시 미리 써 둔 .txt 가 고아로 남지 않아야 한다."""
+    from app import config
+
+    def boom(*a, **k):
+        raise RuntimeError("소스 조회 실패")
+
+    monkeypatch.setattr(collection, "_ensure_named_source", boom)
+    with pytest.raises(RuntimeError):
+        collection.ingest_texts([{"title": "X", "text": "본문"}])
+    assert not list(config.UPLOADS_DIR.glob("*X*"))
+
+
 def test_embed_doc_text_caps_length(isolated):
     """임베딩 입력은 상한까지만 자른다(모델이 앞부분만 쓰므로 비용·지연 절감)."""
     body = collection._embed_doc_text("제목", None, "가" * (collection.EMBED_MAX_CHARS * 2))

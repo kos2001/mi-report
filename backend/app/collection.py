@@ -384,8 +384,14 @@ def _migrate_content_hash(conn: sqlite3.Connection) -> None:
         "WHERE content_sha256 IS NULL AND path IS NOT NULL"
     ).fetchall()
     for r in rows:
-        text = _read_path_text(r["path"])
-        if text is None:
+        # 원문 바이트를 그대로 읽는다. read_text 경유(_read_path_text)는 유니버설
+        # 뉴라인 변환('\r'→'\n')과 strip 을 해 인제스트 시 원문 해시와 어긋난다
+        # (Word 추출 텍스트는 '\r' 문단 구분 — 정규화하면 dedup 이 영영 안 맞는다).
+        try:
+            text = Path(r["path"]).read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not text:
             continue
         conn.execute(
             "UPDATE documents SET content_sha256=? WHERE id=?",
@@ -394,8 +400,13 @@ def _migrate_content_hash(conn: sqlite3.Connection) -> None:
 
 
 def _content_hash(title: str, text: str) -> str:
-    """멱등 키: 제목+본문 SHA-256 (같은 본문이라도 제목이 다르면 별개 문서)."""
-    return hashlib.sha256(f"{title}\n\x00{text}".encode("utf-8")).hexdigest()
+    """멱등 키: 제목+본문 SHA-256 (같은 본문이라도 제목이 다르면 별개 문서).
+
+    title 은 저장 형태(safe_title = Path(title).name)로 정규화해 넣는다 —
+    백필이 저장된 행에서 같은 키를 재계산할 수 있어야 한다.
+    """
+    safe = Path(title).name or "untitled"
+    return hashlib.sha256(f"{safe}\n\x00{text}".encode("utf-8")).hexdigest()
 
 
 def _backfill_content_fts(conn: sqlite3.Connection) -> None:
@@ -451,15 +462,10 @@ def _compute_embedding(title: str | None, topic: str | None,
     네트워크/모델 호출이 있을 수 있으므로 쓰기 트랜잭션 밖에서 호출한다
     (트랜잭션이 잠금을 쥔 채 임베딩을 기다리면 병렬 수집이 서로 블로킹된다).
     """
-    if not embeddings.active():
-        return None
     body = _embed_doc_text(title, topic, text)
     if not body:
         return None
-    mat = embeddings.embed([body], is_query=False)
-    if mat is None:
-        return None
-    return embeddings.model_name(), mat[0].tobytes()
+    return _compute_embeddings([body])[0]
 
 
 def _insert_embedding(conn: sqlite3.Connection, doc_id: str,
@@ -965,33 +971,60 @@ def ingest_texts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
     embs = _compute_embeddings(bodies)
 
-    with _conn() as conn:
-        for j, i in enumerate(new_idx):
-            it = items[i]
-            doc_id = uuid.uuid4().hex
-            safe_title = Path(it["title"]).name or "untitled"
-            dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
-            dest.write_text(it["text"], encoding="utf-8")
-            src = _ensure_named_source(
-                conn, it.get("source_name") or COM_SOURCE_NAME, "upload"
-            )
-            conn.execute(
-                "INSERT INTO documents (id, source_id, source_name, title, filename, path,"
-                " topic, published_at, status, created_at, content_sha256)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (doc_id, src["id"], src["name"], safe_title,
-                 it.get("original_filename") or safe_title, str(dest),
-                 it.get("topic"), _today(), "수집됨", _now(), hashes[i]),
-            )
-            conn.execute(
-                "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
-                (_now(), src["id"]),
-            )
-            _index_content(conn, doc_id, it["text"],
-                           title=it["title"], topic=it.get("topic"))
-            _insert_embedding(conn, doc_id, embs[j])
-            row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
-            out[i] = _row_to_document(row)
+    # 파일 쓰기도 트랜잭션 밖에서(쓰기 잠금을 쥔 채 디스크 I/O 금지).
+    # newline="" : 쓰기 시 개행 변환 방지 — 저장 바이트가 원문과 같아야
+    # content_sha256 백필이 같은 해시를 재계산할 수 있다.
+    prepared: list[tuple[int, str, str, Path]] = []  # (item idx, doc_id, safe_title, dest)
+    for i in new_idx:
+        doc_id = uuid.uuid4().hex
+        safe_title = Path(items[i]["title"]).name or "untitled"
+        dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
+        dest.write_text(items[i]["text"], encoding="utf-8", newline="")
+        prepared.append((i, doc_id, safe_title, dest))
+
+    try:
+        with _conn() as conn:
+            # 쓰기 잠금 선점: '없음 확인 → 삽입' 사이에 다른 커밋이 끼어드는
+            # check-then-act 레이스를 막는다(아래 재확인과 함께 동시 중복 차단).
+            conn.execute("BEGIN IMMEDIATE")
+            for (i, doc_id, safe_title, dest), emb in zip(prepared, embs):
+                it = items[i]
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE content_sha256=? LIMIT 1", (hashes[i],)
+                ).fetchone()
+                if row is not None:  # 동시 요청이 방금 등록 — 잠금 아래 재확인으로 감지
+                    doc = _row_to_document(row)
+                    doc["deduped"] = True
+                    out[i] = doc
+                    dest.unlink(missing_ok=True)
+                    continue
+                src = _ensure_named_source(
+                    conn, it.get("source_name") or COM_SOURCE_NAME, "upload"
+                )
+                conn.execute(
+                    "INSERT INTO documents (id, source_id, source_name, title, filename,"
+                    " path, topic, published_at, status, created_at, content_sha256)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (doc_id, src["id"], src["name"], safe_title,
+                     it.get("original_filename") or safe_title, str(dest),
+                     it.get("topic"), _today(), "수집됨", _now(), hashes[i]),
+                )
+                conn.execute(
+                    "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
+                    (_now(), src["id"]),
+                )
+                _index_content(conn, doc_id, it["text"],
+                               title=it["title"], topic=it.get("topic"))
+                _insert_embedding(conn, doc_id, emb)
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE id=?", (doc_id,)
+                ).fetchone()
+                out[i] = _row_to_document(row)
+    except Exception:
+        # 트랜잭션 롤백 시 미리 써 둔 파일을 회수(고아 .txt 잔존 방지)
+        for _i, _d, _s, dest in prepared:
+            dest.unlink(missing_ok=True)
+        raise
 
     for i, first in dup_of.items():  # 배치 내 중복은 첫 항목의 문서를 돌려준다
         doc = dict(out[first] or {})

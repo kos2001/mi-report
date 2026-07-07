@@ -59,7 +59,15 @@ class BaseExtractor:
     def _ensure_app(self) -> Any:
         if self._app is None:
             app = self._factory()
-            self._configure(app)
+            try:
+                self._configure(app)
+            except Exception:
+                # 설정 실패 시 방금 띄운 프로세스를 즉시 회수(추적 안 되는 누수 방지)
+                try:
+                    app.Quit()
+                except Exception:
+                    pass
+                raise
             self._app = app
         return self._app
 
@@ -149,13 +157,17 @@ class ExcelExtractor(BaseExtractor):
             wb.Close(False)
 
 
+# PpAlertLevel.ppAlertsNone. Word/Excel 과 달리 False/0 은 유효값이 아니다(ppAlertsAll=2).
+PP_ALERTS_NONE = 1
+
+
 class PowerPointExtractor(BaseExtractor):
     prog_id = "PowerPoint.Application"
 
     def _configure(self, app: Any) -> None:
         # PowerPoint 는 Visible=False 를 허용하지 않는다(창 없는 열기는 WithWindow=False).
         try:
-            app.DisplayAlerts = 1  # ppAlertsNone — DRM/복구 대화상자 억제
+            app.DisplayAlerts = PP_ALERTS_NONE  # DRM/복구 대화상자 억제
         except Exception:
             pass  # 일부 버전은 미지원
 
