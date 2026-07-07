@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -432,6 +433,28 @@ def test_ingest_target_state_is_per_backend(tmp_path):
     assert len(worker.ingest_target(str(tmp_path), "http://one:8000", **kw)) == 1
     assert len(worker.ingest_target(str(tmp_path), "http://one:8000", **kw)) == 0  # 같은 백엔드: skip
     assert len(worker.ingest_target(str(tmp_path), "http://two:8000", **kw)) == 1  # 다른 백엔드: 재인제스트
+
+
+def test_dry_run_reports_route_without_posting(tmp_path, monkeypatch):
+    """--dry-run: 등록 없이 파일별 추출 경로(local/com)와 미리보기를 반환한다."""
+    from app import officetext
+
+    _make_docs(tmp_path, ["일반.docx", "drm.docx"])
+    # '일반.docx' 만 로컬 파서가 성공하는 상황을 모사(DRM 은 None → COM 폴백)
+    monkeypatch.setattr(officetext, "extract_docx",
+                        lambda p: "로컬 추출 본문" if "일반" in p else None)
+
+    def must_not_post(payloads):
+        raise AssertionError("dry-run 에서 전송 금지")
+
+    results = worker.ingest_target(
+        str(tmp_path), "http://mi:8000", batch_poster=must_not_post, dry_run=True,
+        factories={"Word.Application": lambda: FakeWordApp("COM 추출 본문 (DRM 해제)")},
+    )
+    by = {Path(r["path"]).name: r for r in results}
+    assert by["일반.docx"]["route"] == "local" and "로컬" in by["일반.docx"]["preview"]
+    assert by["drm.docx"]["route"] == "com" and "DRM 해제" in by["drm.docx"]["preview"]
+    assert all(r["chars"] > 0 for r in results)
 
 
 def test_ingest_target_single_poster_compat(tmp_path):
