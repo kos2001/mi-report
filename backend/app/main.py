@@ -23,6 +23,7 @@ from .schemas import (
     DigestGenerateRequest,
     DigestSendRequest,
     FeedbackRequest,
+    IngestBatch,
     IngestText,
     RagQueryRequest,
     ReportGenerateRequest,
@@ -341,6 +342,20 @@ def collection_ingest(req: IngestText):
         original_filename=req.original_filename,
         source_name=req.source_name or collection.COM_SOURCE_NAME,
     )
+
+
+@app.post("/collection/ingest/batch", status_code=201)
+def collection_ingest_batch(req: IngestBatch):
+    """COM 워커 배치 진입점: 여러 문서를 일괄 임베딩 + 단일 트랜잭션으로 등록.
+
+    동일 (제목+본문) 해시가 이미 있으면 기존 문서를 deduped=true 로 돌려준다.
+    """
+    docs = collection.ingest_texts([d.model_dump() for d in req.documents])
+    return {
+        "documents": docs,
+        "ingested": sum(1 for d in docs if not d.get("deduped")),
+        "deduped": sum(1 for d in docs if d.get("deduped")),
+    }
 
 
 @app.get("/collection/documents")

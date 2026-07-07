@@ -11,6 +11,7 @@ stdlib sqlite3 에 저장한다. 업로드 파일은 디스크(UPLOADS_DIR)에 �
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -104,6 +105,7 @@ def init_db() -> None:
             );
             """
         )
+        _migrate_content_hash(conn)
         _backfill_content_fts(conn)
         cur = conn.execute("SELECT COUNT(*) AS n FROM sources")
         if cur.fetchone()["n"] == 0:
@@ -362,6 +364,37 @@ def _index_content(conn: sqlite3.Connection, doc_id: str, text: str | None,
         conn.execute(
             "INSERT INTO documents_content_fts(doc_id, body) VALUES(?,?)", (doc_id, body)
         )
+
+
+def _migrate_content_hash(conn: sqlite3.Connection) -> None:
+    """documents.content_sha256 컬럼 추가 + 기존 행 백필(멱등).
+
+    인제스트 멱등성(동일 제목+본문 재전송 시 중복 등록 방지)에 쓴다.
+    백필은 hash 가 NULL 인 행만 디스크 본문을 읽어 1회 수행된다.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
+    if "content_sha256" not in cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN content_sha256 TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_sha256)"
+    )
+    rows = conn.execute(
+        "SELECT id, path, title FROM documents "
+        "WHERE content_sha256 IS NULL AND path IS NOT NULL"
+    ).fetchall()
+    for r in rows:
+        text = _read_path_text(r["path"])
+        if text is None:
+            continue
+        conn.execute(
+            "UPDATE documents SET content_sha256=? WHERE id=?",
+            (_content_hash(r["title"], text), r["id"]),
+        )
+
+
+def _content_hash(title: str, text: str) -> str:
+    """멱등 키: 제목+본문 SHA-256 (같은 본문이라도 제목이 다르면 별개 문서)."""
+    return hashlib.sha256(f"{title}\n\x00{text}".encode("utf-8")).hexdigest()
 
 
 def _backfill_content_fts(conn: sqlite3.Connection) -> None:
@@ -865,27 +898,96 @@ def ingest_text(title: str, text: str, *, topic: str | None = None,
     Windows COM 인제스트 워커가 DRM 해제 상태로 추출한 본문을 여기로 보낸다.
     원본(암호화) 파일이 아니라 추출 텍스트를 .txt 로 저장한다.
     """
+    return ingest_texts([{
+        "title": title, "text": text, "topic": topic,
+        "original_filename": original_filename, "source_name": source_name,
+    }])[0]
+
+
+def _compute_embeddings(bodies: list[str]) -> list[tuple[str, bytes] | None]:
+    """여러 본문의 임베딩을 한 번의 배치 호출로 계산한다(비활성/실패 시 전부 None).
+
+    문서당 API 왕복 1회 대신 배치 1회 — 배치 인제스트 처리량의 핵심.
+    쓰기 트랜잭션 밖에서 호출할 것(잠금 시간 최소화).
+    """
+    if not bodies or not embeddings.active():
+        return [None] * len(bodies)
+    mat = embeddings.embed(bodies, is_query=False)
+    if mat is None:
+        return [None] * len(bodies)
+    name = embeddings.model_name()
+    return [(name, vec.tobytes()) for vec in mat]
+
+
+def ingest_texts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """추출 텍스트 여러 건을 일괄 등록한다(임베딩 배치 1회 + 단일 트랜잭션).
+
+    멱등성: (제목+본문) 해시가 이미 등록돼 있으면 삽입하지 않고 기존 문서를
+    "deduped": True 로 반환한다(워커 재실행·재전송 시 중복 방지). 이때 topic 등
+    메타데이터는 갱신하지 않는다.
+
+    items 각 항목: {title, text, topic?, original_filename?, source_name?}
+    반환은 입력 순서와 동일한 문서 목록.
+    """
     config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    doc_id = uuid.uuid4().hex
-    safe_title = Path(title).name or "untitled"
-    dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
-    dest.write_text(text, encoding="utf-8")
-    # 임베딩(네트워크/모델 호출 가능)은 쓰기 트랜잭션 밖에서 계산 — 잠금 시간 최소화
-    embedding = _compute_embedding(title, topic, text)
+    out: list[dict[str, Any] | None] = [None] * len(items)
+    hashes = [_content_hash(it["title"], it["text"]) for it in items]
+    new_idx: list[int] = []
+    dup_of: dict[int, int] = {}  # 같은 배치 안의 중복 → 첫 항목 인덱스
+    first_by_hash: dict[str, int] = {}
     with _conn() as conn:
-        src = _ensure_named_source(conn, source_name, "upload")
-        conn.execute(
-            "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
-            " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (doc_id, src["id"], src["name"], safe_title,
-             original_filename or safe_title, str(dest), topic, _today(),
-             "수집됨", _now()),
-        )
-        conn.execute(
-            "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
-            (_now(), src["id"]),
-        )
-        _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
-        _insert_embedding(conn, doc_id, embedding)  # 의미 임베딩(활성 시)
-        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
-    return _row_to_document(row)
+        for i, h in enumerate(hashes):
+            if h in first_by_hash:
+                dup_of[i] = first_by_hash[h]
+                continue
+            row = conn.execute(
+                "SELECT * FROM documents WHERE content_sha256=? LIMIT 1", (h,)
+            ).fetchone()
+            if row is not None:
+                doc = _row_to_document(row)
+                doc["deduped"] = True
+                out[i] = doc
+            else:
+                first_by_hash[h] = i
+                new_idx.append(i)
+
+    # 새 문서만 임베딩(배치 1회) — 네트워크/모델 호출은 트랜잭션 밖에서
+    bodies = [
+        _embed_doc_text(items[i]["title"], items[i].get("topic"), items[i]["text"])
+        for i in new_idx
+    ]
+    embs = _compute_embeddings(bodies)
+
+    with _conn() as conn:
+        for j, i in enumerate(new_idx):
+            it = items[i]
+            doc_id = uuid.uuid4().hex
+            safe_title = Path(it["title"]).name or "untitled"
+            dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
+            dest.write_text(it["text"], encoding="utf-8")
+            src = _ensure_named_source(
+                conn, it.get("source_name") or COM_SOURCE_NAME, "upload"
+            )
+            conn.execute(
+                "INSERT INTO documents (id, source_id, source_name, title, filename, path,"
+                " topic, published_at, status, created_at, content_sha256)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (doc_id, src["id"], src["name"], safe_title,
+                 it.get("original_filename") or safe_title, str(dest),
+                 it.get("topic"), _today(), "수집됨", _now(), hashes[i]),
+            )
+            conn.execute(
+                "UPDATE sources SET count = count + 1, last_run=? WHERE id=?",
+                (_now(), src["id"]),
+            )
+            _index_content(conn, doc_id, it["text"],
+                           title=it["title"], topic=it.get("topic"))
+            _insert_embedding(conn, doc_id, embs[j])
+            row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+            out[i] = _row_to_document(row)
+
+    for i, first in dup_of.items():  # 배치 내 중복은 첫 항목의 문서를 돌려준다
+        doc = dict(out[first] or {})
+        doc["deduped"] = True
+        out[i] = doc
+    return [d for d in out if d is not None]

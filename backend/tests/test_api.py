@@ -126,3 +126,22 @@ def test_com_ingest_endpoint_registers_extracted_text(client):
     # 문서 목록 + 검색에 반영
     found = client.get("/collection/documents", params={"q": "DRM문서"}).json()["documents"]
     assert len(found) == 1
+
+
+def test_com_ingest_batch_endpoint(client):
+    """COM 워커 배치 진입점: 일괄 등록 + 재전송 시 해시 dedup."""
+    payload = {"documents": [
+        {"title": "배치문서1", "text": "본문 하나", "topic": "HBM"},
+        {"title": "배치문서2", "text": "본문 둘"},
+    ]}
+    r = client.post("/collection/ingest/batch", json=payload)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["ingested"] == 2 and body["deduped"] == 0
+    assert [d["title"] for d in body["documents"]] == ["배치문서1", "배치문서2"]
+
+    r2 = client.post("/collection/ingest/batch", json=payload)  # 재전송 → 전부 dedup
+    assert r2.json()["ingested"] == 0 and r2.json()["deduped"] == 2
+
+    r3 = client.post("/collection/ingest/batch", json={"documents": []})
+    assert r3.status_code == 422  # 빈 배치 거부

@@ -76,6 +76,12 @@ class IngestText(BaseModel):
     source_name: str | None = None
 
 
+class IngestBatch(BaseModel):
+    """COM 워커의 배치 전송 — 여러 문서를 일괄 임베딩·단일 트랜잭션으로 등록."""
+
+    documents: list[IngestText] = Field(..., min_length=1, max_length=200)
+
+
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
 ImpactLevel = Literal["high", "medium", "low"]
 

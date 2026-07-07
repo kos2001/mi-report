@@ -133,6 +133,47 @@ def test_delete_source_then_gone(isolated):
         collection.delete_source(s["id"])
 
 
+def test_ingest_texts_batch_and_dedup(isolated):
+    """배치 등록 + (제목+본문) 해시 멱등성: 재전송·배치 내 중복은 기존 문서 반환."""
+    before = collection.count_documents()
+    docs = collection.ingest_texts([
+        {"title": "A", "text": "본문 A"},
+        {"title": "B", "text": "본문 B"},
+        {"title": "A", "text": "본문 A"},  # 같은 배치 안의 중복
+    ])
+    assert len(docs) == 3
+    assert docs[2]["deduped"] is True and docs[2]["id"] == docs[0]["id"]
+    assert collection.count_documents() == before + 2
+
+    again = collection.ingest_text("A", "본문 A")  # 재전송(워커 재실행 모사)
+    assert again["deduped"] is True and again["id"] == docs[0]["id"]
+    assert collection.count_documents() == before + 2
+
+    other = collection.ingest_text("A", "본문이 달라진 A")  # 내용 변경 → 새 문서
+    assert "deduped" not in other
+    assert collection.count_documents() == before + 3
+
+
+def test_ingest_texts_single_embedding_batch(isolated, monkeypatch):
+    """배치 인제스트는 문서당 임베딩 호출이 아니라 배치 1회 호출이어야 한다."""
+    import numpy as np
+
+    from app import embeddings
+
+    calls: list[int] = []
+
+    def fake_embed(texts, is_query=False):
+        calls.append(len(texts))
+        return np.ones((len(texts), 4), dtype="float32")
+
+    monkeypatch.setattr(embeddings, "active", lambda: True)
+    monkeypatch.setattr(embeddings, "model_name", lambda: "test-model")
+    monkeypatch.setattr(embeddings, "embed", fake_embed)
+
+    collection.ingest_texts([{"title": f"T{i}", "text": f"본문 {i}"} for i in range(5)])
+    assert calls == [5]
+
+
 def test_rebuild_content_fts_indexes_title(isolated):
     # 본문에 없는, 제목에만 있는 핵심어로도 재색인 후 검색되어야 한다.
     collection.ingest_text("EUV 노광 장비 도입", "선단 공정 투자 확대 동향.", topic="장비")
