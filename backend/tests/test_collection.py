@@ -174,6 +174,13 @@ def test_ingest_texts_single_embedding_batch(isolated, monkeypatch):
     assert calls == [5]
 
 
+def test_embed_doc_text_caps_length(isolated):
+    """임베딩 입력은 상한까지만 자른다(모델이 앞부분만 쓰므로 비용·지연 절감)."""
+    body = collection._embed_doc_text("제목", None, "가" * (collection.EMBED_MAX_CHARS * 2))
+    assert len(body) == collection.EMBED_MAX_CHARS
+    assert body.startswith("제목")
+
+
 def test_rebuild_content_fts_indexes_title(isolated):
     # 본문에 없는, 제목에만 있는 핵심어로도 재색인 후 검색되어야 한다.
     collection.ingest_text("EUV 노광 장비 도입", "선단 공정 투자 확대 동향.", topic="장비")

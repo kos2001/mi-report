@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -432,9 +433,15 @@ def rebuild_content_fts() -> int:
 
 
 # ── 의미 임베딩 + 하이브리드 검색 ───────────────────────────────────────
+# 임베딩 입력 상한(문자). 임베딩 모델은 앞부분만 반영하므로(MiniLM 512토큰 절단,
+# bge-m3 는 길이만큼 비용·지연 증가) 본문 전체를 보내지 않는다. FTS 색인은 전문 유지.
+EMBED_MAX_CHARS = int(os.environ.get("MI_EMBED_MAX_CHARS", "8000") or 8000)
+
+
 def _embed_doc_text(title: str | None, topic: str | None, text: str | None) -> str:
-    """임베딩 대상 텍스트(제목+주제+본문)를 구성."""
-    return "\n".join(p.strip() for p in (title, topic, text) if p and p.strip())
+    """임베딩 대상 텍스트(제목+주제+본문 앞부분)를 구성."""
+    body = "\n".join(p.strip() for p in (title, topic, text) if p and p.strip())
+    return body[:EMBED_MAX_CHARS]
 
 
 def _compute_embedding(title: str | None, topic: str | None,
