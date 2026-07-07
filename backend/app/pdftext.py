@@ -42,11 +42,11 @@ def available() -> bool:
 
 
 def _ocr_page(page: Any) -> str | None:
-    """텍스트 레이어 없는 페이지(스캔본)를 200dpi 로 렌더링해 OCR. 비활성 시 None."""
-    if not imagetext.available():
+    """텍스트 레이어 없는 페이지(스캔본·전면 차트)를 200dpi 렌더링 → OCR/VLM."""
+    if not imagetext.active():
         return None
     try:
-        return imagetext.ocr_bytes(page.get_pixmap(dpi=200).tobytes("png"))
+        return imagetext.image_text(page.get_pixmap(dpi=200).tobytes("png"))
     except Exception:
         return None
 

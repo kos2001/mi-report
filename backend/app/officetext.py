@@ -26,8 +26,8 @@ _IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif")
 
 
 def _embedded_image_text(path: str) -> str | None:
-    """OOXML 내장 이미지(media/*)를 OCR 해 텍스트로. 비활성/이미지 없음 → None."""
-    if not imagetext.available():
+    """OOXML 내장 이미지(media/*)를 OCR/VLM 으로 텍스트화. 비활성/이미지 없음 → None."""
+    if not imagetext.active():
         return None
     try:
         import zipfile  # noqa: PLC0415
@@ -40,7 +40,7 @@ def _embedded_image_text(path: str) -> str | None:
                 data = z.read(name)
                 if not (_IMG_MIN_BYTES <= len(data) <= _IMG_MAX_BYTES):
                     continue
-                text = imagetext.ocr_bytes(data)
+                text = imagetext.image_text(data)
                 if text:
                     parts.append(text)
         return "\n".join(parts) or None
