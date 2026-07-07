@@ -30,6 +30,11 @@ embeddings = [
     "fastembed>=0.4",
     "numpy>=1.26",
 ]
+# PDF 고속 텍스트 추출(PyMuPDF — 파이썬 PDF 파서 중 최고 속도).
+# 미설치 시 pypdf(한경)/Word COM(워커)로 폴백. 주의: AGPL-3.0(외부 배포 시 검토).
+pdf = [
+    "pymupdf>=1.24",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

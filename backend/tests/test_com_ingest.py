@@ -157,8 +157,24 @@ def test_ppt_extraction_joins_shapes():
     assert "제목" in text and "본문 줄" in text
 
 
-def test_pdf_uses_word_extractor():
-    """PDF 는 Word 의 리플로우 변환으로 추출한다(DRM 투명 복호화 경로 유지)."""
+def test_pdf_fast_path_skips_word(monkeypatch):
+    """일반 PDF 는 PyMuPDF 고속 경로로 추출한다 — Word 앱을 아예 띄우지 않는다."""
+    from app import pdftext
+
+    monkeypatch.setattr(pdftext, "extract_path", lambda p, **k: "PyMuPDF 본문")
+
+    def must_not_launch():
+        raise AssertionError("고속 경로에서 Word 를 띄우면 안 된다")
+
+    text = extractors.extract_text("plain.pdf", {"Word.Application": must_not_launch})
+    assert text == "PyMuPDF 본문"
+
+
+def test_pdf_falls_back_to_word_extractor(monkeypatch):
+    """PyMuPDF 가 못 읽는 PDF(DRM/암호화/스캔본)는 Word 리플로우 폴백으로 추출한다."""
+    from app import pdftext
+
+    monkeypatch.setattr(pdftext, "extract_path", lambda p, **k: None)
     factories = {"Word.Application": lambda: FakeWordApp("PDF 본문")}
     text = extractors.extract_text("scan.pdf", factories)
     assert "PDF 본문" in text

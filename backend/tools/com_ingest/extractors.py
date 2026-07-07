@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from app import pdftext
+
 AppFactory = Callable[[], Any]
 
 
@@ -126,7 +128,7 @@ class WordExtractor(BaseExtractor):
         app.DisplayAlerts = False
 
     def _extract(self, app: Any, path: str) -> str:
-        # PDF 도 이 경로를 탄다: Word 2013+ 가 리플로우 변환으로 연다
+        # PDF 폴백도 이 경로를 탄다: Word 2013+ 가 리플로우 변환으로 연다
         # (ConfirmConversions=False 로 변환 확인 대화상자 억제).
         doc = app.Documents.Open(
             path, ReadOnly=True, AddToRecentFiles=False, ConfirmConversions=False
@@ -135,6 +137,24 @@ class WordExtractor(BaseExtractor):
             return str(doc.Content.Text)
         finally:
             doc.Close(False)
+
+
+class PdfExtractor(WordExtractor):
+    """PDF 전용: PyMuPDF(로컬, 최고 속도) 우선 → Word COM 리플로우 폴백.
+
+    일반 PDF 는 Office 기동 없이 즉시 추출한다(비 Windows 워커에서도 동작).
+    PyMuPDF 미설치, 암호화/DRM(정식 앱으로만 열림), 텍스트 레이어 없음(스캔본)일 때만
+    Word 경로로 넘어간다 — DRM 투명 복호화라는 기존 계약은 그대로 유지된다.
+    """
+
+    def __enter__(self):
+        return self  # Word 앱은 폴백이 실제로 필요할 때만 띄운다(지연 기동)
+
+    def extract(self, path: str) -> str:
+        text = pdftext.extract_path(path)
+        if text is not None:
+            return text
+        return super().extract(path)
 
 
 class ExcelExtractor(BaseExtractor):
@@ -205,7 +225,7 @@ EXTRACTORS: dict[str, type[BaseExtractor]] = {
     ".doc": WordExtractor,
     ".docx": WordExtractor,
     ".rtf": WordExtractor,
-    ".pdf": WordExtractor,  # Word 의 PDF 리플로우 변환으로 추출(DRM 투명 복호화 경로 유지)
+    ".pdf": PdfExtractor,  # PyMuPDF 고속 경로 → DRM/암호화 시 Word 리플로우 폴백
     ".xls": ExcelExtractor,
     ".xlsx": ExcelExtractor,
     ".xlsm": ExcelExtractor,

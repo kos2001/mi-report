@@ -1,7 +1,8 @@
 """한경 컨센서스 커넥터 — 증권사 리포트 PDF 본문 추출.
 
 consensus.hankyung.com 리스트에서 리포트별 PDF(`/analysis/downpdf?report_idx=...`)를
-받아 본문 텍스트를 추출(pypdf)해 문서로 인입한다. HTML 요약보다 풍부한 실제 리포트 본문.
+받아 본문 텍스트를 추출해 문서로 인입한다. HTML 요약보다 풍부한 실제 리포트 본문.
+추출은 PyMuPDF(설치 시, 최고 속도) 우선 → pypdf 폴백.
 
 주의(저작권): PDF 는 각 증권사가 작성한 리서치 리포트로 저작권이 증권사에 있다. 한경은
 개인 열람용으로 집계한다. 대량 수집·DB화·재배포는 이용약관/저작권 검토가 필요하므로,
@@ -15,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any, Protocol
+
+from . import pdftext
 
 BASE_DEFAULT = "https://consensus.hankyung.com"
 LIST_PATH = "/analysis/list?skinType=business"
@@ -48,9 +51,16 @@ def parse_listing(html: str) -> list[dict[str, str]]:
 
 
 def extract_pdf_text(content: bytes) -> str:
-    """PDF 바이트에서 앞 몇 페이지 텍스트를 추출. 실패 시 빈 문자열."""
+    """PDF 바이트에서 앞 몇 페이지 텍스트를 추출. 실패 시 빈 문자열.
+
+    PyMuPDF(설치 시)가 pypdf 보다 수십 배 빠르고 한글 추출 품질도 좋아 우선 쓰고,
+    미설치·실패 시 기존 pypdf 경로로 폴백한다.
+    """
     if not content or content[:4] != b"%PDF":
         return ""
+    text = pdftext.extract_bytes(content, max_pages=_MAX_PAGES)
+    if text:
+        return text[:_MAX_CHARS]
     try:
         import io
 
