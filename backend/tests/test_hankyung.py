@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app import collection, hankyung, pipeline
 
 _HTML = """
@@ -34,6 +36,20 @@ def test_parse_listing():
 def test_extract_pdf_text_rejects_non_pdf():
     assert hankyung.extract_pdf_text(b"not a pdf") == ""
     assert hankyung.extract_pdf_text(b"") == ""
+
+
+def test_extract_pdf_text_via_pymupdf():
+    """PyMuPDF 설치 시 고속 경로로 실제 PDF 바이트에서 본문을 추출한다."""
+    from app import pdftext
+
+    if not pdftext.available():
+        pytest.skip("pymupdf 미설치")
+    mod = pdftext._pymupdf()
+    doc = mod.open()
+    doc.new_page().insert_text((72, 72), "target price raised")
+    content = doc.tobytes()
+    doc.close()
+    assert "target price raised" in hankyung.extract_pdf_text(content)
 
 
 class _Resp:

@@ -133,6 +133,82 @@ def test_delete_source_then_gone(isolated):
         collection.delete_source(s["id"])
 
 
+def test_ingest_texts_batch_and_dedup(isolated):
+    """배치 등록 + (제목+본문) 해시 멱등성: 재전송·배치 내 중복은 기존 문서 반환."""
+    before = collection.count_documents()
+    docs = collection.ingest_texts([
+        {"title": "A", "text": "본문 A"},
+        {"title": "B", "text": "본문 B"},
+        {"title": "A", "text": "본문 A"},  # 같은 배치 안의 중복
+    ])
+    assert len(docs) == 3
+    assert docs[2]["deduped"] is True and docs[2]["id"] == docs[0]["id"]
+    assert collection.count_documents() == before + 2
+
+    again = collection.ingest_text("A", "본문 A")  # 재전송(워커 재실행 모사)
+    assert again["deduped"] is True and again["id"] == docs[0]["id"]
+    assert collection.count_documents() == before + 2
+
+    other = collection.ingest_text("A", "본문이 달라진 A")  # 내용 변경 → 새 문서
+    assert "deduped" not in other
+    assert collection.count_documents() == before + 3
+
+
+def test_ingest_texts_single_embedding_batch(isolated, monkeypatch):
+    """배치 인제스트는 문서당 임베딩 호출이 아니라 배치 1회 호출이어야 한다."""
+    import numpy as np
+
+    from app import embeddings
+
+    calls: list[int] = []
+
+    def fake_embed(texts, is_query=False):
+        calls.append(len(texts))
+        return np.ones((len(texts), 4), dtype="float32")
+
+    monkeypatch.setattr(embeddings, "active", lambda: True)
+    monkeypatch.setattr(embeddings, "model_name", lambda: "test-model")
+    monkeypatch.setattr(embeddings, "embed", fake_embed)
+
+    collection.ingest_texts([{"title": f"T{i}", "text": f"본문 {i}"} for i in range(5)])
+    assert calls == [5]
+
+
+def test_content_hash_backfill_matches_raw_reingest(isolated):
+    """백필 해시는 원문(개행·공백 무변형) 기준이어야 재전송 dedup 과 맞는다.
+
+    Word COM 텍스트는 '\\r' 문단 구분과 말미 공백을 포함한다 — 정규화된
+    텍스트로 백필하면 레거시 문서 dedup 이 영영 안 맞는 회귀를 방지.
+    """
+    text = "문단1\r문단2\r\n끝  \n"
+    doc = collection.ingest_text("리포트", text)
+    with collection._conn() as conn:  # 마이그레이션 이전 상태(해시 없음)로 되돌림
+        conn.execute("UPDATE documents SET content_sha256=NULL WHERE id=?", (doc["id"],))
+        collection._migrate_content_hash(conn)
+    again = collection.ingest_text("리포트", text)
+    assert again.get("deduped") is True and again["id"] == doc["id"]
+
+
+def test_ingest_texts_removes_files_on_failure(isolated, monkeypatch):
+    """트랜잭션 실패(롤백) 시 미리 써 둔 .txt 가 고아로 남지 않아야 한다."""
+    from app import config
+
+    def boom(*a, **k):
+        raise RuntimeError("소스 조회 실패")
+
+    monkeypatch.setattr(collection, "_ensure_named_source", boom)
+    with pytest.raises(RuntimeError):
+        collection.ingest_texts([{"title": "X", "text": "본문"}])
+    assert not list(config.UPLOADS_DIR.glob("*X*"))
+
+
+def test_embed_doc_text_caps_length(isolated):
+    """임베딩 입력은 상한까지만 자른다(모델이 앞부분만 쓰므로 비용·지연 절감)."""
+    body = collection._embed_doc_text("제목", None, "가" * (collection.EMBED_MAX_CHARS * 2))
+    assert len(body) == collection.EMBED_MAX_CHARS
+    assert body.startswith("제목")
+
+
 def test_rebuild_content_fts_indexes_title(isolated):
     # 본문에 없는, 제목에만 있는 핵심어로도 재색인 후 검색되어야 한다.
     collection.ingest_text("EUV 노광 장비 도입", "선단 공정 투자 확대 동향.", topic="장비")
