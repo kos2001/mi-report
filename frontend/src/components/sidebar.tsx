@@ -3,9 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const nav = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  exact?: boolean; // 정확히 일치할 때만 활성(하위 경로에서 부모가 같이 켜지는 것 방지)
+  indent?: boolean; // 상위 항목의 하위 페이지로 들여쓰기 표시
+};
+
+const nav: NavItem[] = [
   { href: "/", label: "대시보드", icon: "◧" },
-  { href: "/collection", label: "데이터 수집", icon: "⬇" },
+  { href: "/collection", label: "데이터 수집", icon: "⬇", exact: true },
+  // 데이터 수집 하위: 수집 결과 열람 페이지들
+  { href: "/collection/results", label: "수집 결과", icon: "∑", exact: true, indent: true },
+  { href: "/collection/documents", label: "수집 문서", icon: "🗎", exact: true, indent: true },
   { href: "/topics", label: "주제별 History", icon: "≡" },
   { href: "/digest", label: "뉴스 다이제스트", icon: "✉" },
   { href: "/competitors", label: "경쟁사 IR", icon: "▤" },
@@ -31,15 +42,18 @@ export function Sidebar() {
       </div>
       <nav className="flex flex-col gap-1 px-3">
         {nav.map((item) => {
-          const active =
-            item.href === "/"
+          const active = item.exact
+            ? pathname === item.href
+            : item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+              className={`flex items-center gap-3 rounded-lg py-2 text-sm transition-colors ${
+                item.indent ? "pl-9 pr-3" : "px-3"
+              } ${
                 active
                   ? "bg-zinc-800 font-medium text-zinc-50"
                   : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
