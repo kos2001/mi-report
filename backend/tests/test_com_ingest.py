@@ -136,6 +136,59 @@ class FakePptApp:
         self.quit = True
 
 
+# ── 가짜 Acrobat COM 스택 (IAC 인터페이스 모사) ──────────────────────
+class _FakeJso:
+    def __init__(self, pages):  # pages: list[list[str]] — 페이지별 단어 목록
+        self._pages = pages
+
+    def getPageNumWords(self, p):  # noqa: N802
+        return len(self._pages[p])
+
+    def getPageNthWord(self, p, i):  # noqa: N802
+        return self._pages[p][i]
+
+
+class _FakePdDoc:
+    def __init__(self, pages):
+        self._pages = pages
+
+    def GetNumPages(self):  # noqa: N802
+        return len(self._pages)
+
+    def GetJSObject(self):  # noqa: N802
+        return _FakeJso(self._pages)
+
+
+class FakeAvDoc:
+    """AcroExch.AVDoc 모사. words 는 단일 페이지 단어 목록."""
+
+    def __init__(self, words):
+        self._pages = [words]
+        self.closed = False
+
+    def Open(self, path, msg):  # noqa: N802
+        return True
+
+    def GetPDDoc(self):  # noqa: N802
+        return _FakePdDoc(self._pages)
+
+    def Close(self, flag):  # noqa: N802
+        self.closed = True
+
+
+class FakeAcroApp:
+    """AcroExch.App 모사(Hide/Exit 수명주기)."""
+
+    def __init__(self):
+        self.exited = False
+
+    def Hide(self):  # noqa: N802
+        pass
+
+    def Exit(self):  # noqa: N802
+        self.exited = True
+
+
 # ── 추출기 테스트 ─────────────────────────────────────────────────────
 def test_word_extraction():
     factories = {"Word.Application": lambda: FakeWordApp("HBM 분석 본문")}
@@ -172,13 +225,34 @@ def test_pdf_fast_path_skips_word(monkeypatch):
 
 
 def test_pdf_falls_back_to_word_extractor(monkeypatch):
-    """PyMuPDF 가 못 읽는 PDF(DRM/암호화/스캔본)는 Word 리플로우 폴백으로 추출한다."""
+    """word 엔진: PyMuPDF 가 못 읽는 PDF 는 Word 리플로우 폴백으로 추출한다."""
     from app import pdftext
 
     monkeypatch.setattr(pdftext, "extract_path", lambda p, **k: None)
-    factories = {"Word.Application": lambda: FakeWordApp("PDF 본문")}
-    text = extractors.extract_text("scan.pdf", factories)
+    with extractors.PdfWordExtractor(lambda: FakeWordApp("PDF 본문")) as ex:
+        text = ex.extract("scan.pdf")
     assert "PDF 본문" in text
+
+
+def test_pdf_falls_back_to_acrobat(monkeypatch):
+    """acrobat 엔진(나스카 기본): PyMuPDF 가 못 읽는 PDF 는 Acrobat COM(JSObject)로 추출한다."""
+    from app import pdftext
+
+    monkeypatch.setattr(pdftext, "extract_path", lambda p, **k: None)
+    monkeypatch.setattr(extractors, "_new_avdoc", lambda: FakeAvDoc(["HBM", "수요", "증가"]))
+    with extractors.PdfAcrobatExtractor(lambda: FakeAcroApp()) as ex:
+        text = ex.extract("drm.pdf")
+    assert "HBM" in text and "수요" in text and "증가" in text
+
+
+def test_pdf_com_engine_selection(monkeypatch):
+    """MI_PDF_COM_ENGINE 로 PDF COM 폴백 엔진을 고른다(기본 acrobat)."""
+    monkeypatch.setenv("MI_PDF_COM_ENGINE", "word")
+    assert extractors._pdf_extractor_cls() is extractors.PdfWordExtractor
+    monkeypatch.setenv("MI_PDF_COM_ENGINE", "acrobat")
+    assert extractors._pdf_extractor_cls() is extractors.PdfAcrobatExtractor
+    monkeypatch.delenv("MI_PDF_COM_ENGINE", raising=False)
+    assert extractors._pdf_extractor_cls() is extractors.PdfAcrobatExtractor  # 기본
 
 
 def test_ooxml_fast_path_skips_office(monkeypatch):

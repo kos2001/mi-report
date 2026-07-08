@@ -24,6 +24,8 @@ pip install .[windows,pdf,office]
 :: 이미지 OCR/VLM 까지 테스트하려면:
 pip install .[windows,pdf,office,ocr]
 set MI_VLM=1& set OPENROUTER_API_KEY=<키>   :: VLM(차트 요약) 선택
+:: PDF COM 폴백 엔진: 기본 acrobat(나스카 인가 뷰어). Acrobat 없으면 word 로:
+set MI_PDF_COM_ENGINE=word   :: (선택) Word 리플로우 폴백
 ```
 
 ## 1단계 — dry-run (등록 없이 추출 검증) ★ 여기부터
@@ -39,7 +41,7 @@ python -m tools.com_ingest.worker "C:\test-docs" --dry-run
 | 파일 | 기대 결과 | 아니라면 |
 |---|---|---|
 | DRM .docx/.xlsx/.pptx | `경로=com` + **읽을 수 있는 평문** | `경로=local`인데 깨진 텍스트 → DRM 이 zip 구조를 유지하는 제품 — 보고 필요(로컬 파서 차단 로직 추가해야 함) |
-| **DRM .pdf** | `경로=com` (Word 리플로우 변환) + 평문 | `[fail]`/타임아웃 → **DRM 이 Word 경유 PDF 복호화를 미지원** — Acrobat COM 확장 필요(아래 '보고 항목') |
+| **DRM .pdf** | `경로=com` (기본 Acrobat COM, 나스카 인가 뷰어) + 평문 | `[fail]`/타임아웃 → Acrobat 미설치·미인가. `set MI_PDF_COM_ENGINE=word` 로 Word 리플로우 시도 |
 | 일반 .pdf/.docx | `경로=local` (즉시, Office 미기동) | — |
 | 스캔 PDF (ocr 설치 시) | `경로=local` + OCR 텍스트 | 빈약하면 한국어 인식 모델 필요(`MI_OCR_REC_MODEL`) |
 
