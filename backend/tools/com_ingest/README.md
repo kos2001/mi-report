@@ -24,6 +24,8 @@ pip install .[windows,pdf,office]
 :: 이미지 OCR/VLM 까지 테스트하려면:
 pip install .[windows,pdf,office,ocr]
 set MI_VLM=1& set OPENROUTER_API_KEY=<키>   :: VLM(차트 요약) 선택
+:: PDF COM 폴백 엔진: 기본 word(MS Office). Acrobat 전체 제품(Reader 아님) 보유 시:
+set MI_PDF_COM_ENGINE=acrobat   :: (선택) Acrobat IAC/JSObject 추출(품질↑)
 ```
 
 ## 1단계 — dry-run (등록 없이 추출 검증) ★ 여기부터
@@ -39,12 +41,23 @@ python -m tools.com_ingest.worker "C:\test-docs" --dry-run
 | 파일 | 기대 결과 | 아니라면 |
 |---|---|---|
 | DRM .docx/.xlsx/.pptx | `경로=com` + **읽을 수 있는 평문** | `경로=local`인데 깨진 텍스트 → DRM 이 zip 구조를 유지하는 제품 — 보고 필요(로컬 파서 차단 로직 추가해야 함) |
-| **DRM .pdf** | `경로=com` (Word 리플로우 변환) + 평문 | `[fail]`/타임아웃 → **DRM 이 Word 경유 PDF 복호화를 미지원** — Acrobat COM 확장 필요(아래 '보고 항목') |
+| **DRM .pdf** | `경로=com` (기본 Word 리플로우) + 평문 | `[fail]`/타임아웃 → 나스카가 Word 를 PDF 인가 앱으로 안 둠. Acrobat Pro 있으면 `set MI_PDF_COM_ENGINE=acrobat`, 없으면 나스카 반출 승인 |
 | 일반 .pdf/.docx | `경로=local` (즉시, Office 미기동) | — |
 | 스캔 PDF (ocr 설치 시) | `경로=local` + OCR 텍스트 | 빈약하면 한국어 인식 모델 필요(`MI_OCR_REC_MODEL`) |
 
 행이 걸리면 파일당 120초(조정: `--timeout`) 후 해당 Office 프로세스를 강제 종료하고
 다음 파일로 넘어간다. `[fail] ... 초과 (DRM 대화상자/행 의심)` 메시지가 그 신호다.
+
+### 텍스트만 로컬로 뽑기 (`--out`, 백엔드 불필요)
+
+DRM PDF 등에서 **본문 텍스트만 파일로** 받고 싶을 때. 백엔드 없이 추출 텍스트 전체를
+`<폴더>/<파일명>.txt` 로 저장한다(전송·매니페스트 없음). Word 엔진(기본)만 있으면
+되므로 무료 Reader 환경에서도 추가 SW 가 필요 없다.
+
+```bat
+python -m tools.com_ingest.worker "C:\pdf-inbox" --out "C:\extracted"
+:: [out] C:\pdf-inbox\a.pdf → C:\extracted\a.txt | 경로=com | 4210자
+```
 
 ## 2단계 — 실제 등록 (배치)
 

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -189,6 +190,84 @@ class PowerPointExtractor(BaseExtractor):
             pres.Close()
 
 
+# ── Adobe Acrobat (IAC/COM) PDF 추출 ─────────────────────────────────────
+# 나스카(NASCA) 등 기업용 DRM 은 보통 PDF 를 Acrobat/Reader 에 인가한다(Word 아님).
+# Acrobat 이 PDF 를 열면 DRM 이 투명 복호화 → JSObject 로 단어 단위 텍스트를 회수한다.
+# Word 리플로우 폴백보다 표·다단 PDF 의 텍스트 품질이 낫다.
+# 필요 조건: Acrobat '전체 제품'(Pro/Standard) — 무료 Reader 는 IAC/JSObject 미지원.
+ACRO_CLOSE_NO_SAVE = 1  # AVDoc.Close(1): 저장 없이 닫기
+
+
+def _new_avdoc() -> Any:
+    """AcroExch.AVDoc COM 객체(문서 단위) 생성. Windows+Acrobat 전용.
+
+    App(수명주기)과 달리 문서마다 새로 만든다. 테스트는 이 함수를 몽키패치해
+    가짜 AVDoc 을 주입한다(비 Windows 에서 오케스트레이션 검증).
+    """
+    if sys.platform != "win32":
+        raise RuntimeError(
+            "Acrobat COM 은 Windows 에서만 사용할 수 있습니다. "
+            "DRM 클라이언트+Adobe Acrobat(전체 제품)이 설치된 워커에서 실행하세요."
+        )
+    import win32com.client  # type: ignore  # noqa: PLC0415
+
+    return win32com.client.DispatchEx("AcroExch.AVDoc")
+
+
+class AcrobatExtractor(BaseExtractor):
+    """Adobe Acrobat(IAC/COM)로 PDF 텍스트 추출.
+
+    AcroExch.App(수명주기) + AcroExch.AVDoc(문서) + JSObject(getPageNthWord).
+    """
+
+    prog_id = "AcroExch.App"
+
+    def _configure(self, app: Any) -> None:
+        try:
+            app.Hide()  # 창 숨김(백그라운드 자동화)
+        except Exception:
+            pass  # 일부 버전/설정은 Hide 미지원 — 무시하고 진행
+
+    def close(self) -> None:
+        # AcroExch.App 은 Quit 이 아니라 Exit 로 종료한다(그 외 수명주기는 Base 와 동일).
+        app, self._app = self._app, None
+        if app is not None:
+            try:
+                app.Exit()
+            except Exception:
+                pass
+
+    def _extract(self, app: Any, path: str) -> str:
+        avdoc = _new_avdoc()
+        if not avdoc.Open(path, ""):
+            raise RuntimeError(f"Acrobat 으로 PDF 열기 실패(권한/인가 확인): {path}")
+        try:
+            pddoc = avdoc.GetPDDoc()
+            jso = pddoc.GetJSObject()  # Acrobat Pro/Standard 필요
+            parts: list[str] = []
+            for p in range(int(pddoc.GetNumPages())):
+                try:
+                    nwords = int(jso.getPageNumWords(p))
+                except Exception:
+                    continue  # 페이지 단어수 조회 실패 → 해당 페이지 건너뜀
+                words: list[str] = []
+                for i in range(nwords):
+                    try:
+                        w = str(jso.getPageNthWord(p, i)).strip()
+                    except Exception:
+                        continue
+                    if w:
+                        words.append(w)
+                if words:
+                    parts.append(" ".join(words))
+            return "\n".join(parts)
+        finally:
+            try:
+                avdoc.Close(ACRO_CLOSE_NO_SAVE)
+            except Exception:
+                pass  # 닫기 실패는 무시(다음 파일이 새 AVDoc 을 연다)
+
+
 class LocalFirstMixin:
     """로컬 고속 파서 우선 → 실패(None) 시 COM 폴백.
 
@@ -212,12 +291,35 @@ class LocalFirstMixin:
         return super().extract(path)  # type: ignore[misc]  # last_route="com" 설정됨
 
 
-class PdfExtractor(LocalFirstMixin, WordExtractor):
-    """PDF: PyMuPDF 우선 → Word COM 리플로우 폴백(DRM/암호화/스캔본)."""
+class PdfAcrobatExtractor(LocalFirstMixin, AcrobatExtractor):
+    """PDF: PyMuPDF 우선 → Acrobat COM 폴백(DRM/암호화/스캔본). 나스카 권장."""
 
     @staticmethod
     def _local(path: str) -> str | None:
         return pdftext.extract_path(path)
+
+
+class PdfWordExtractor(LocalFirstMixin, WordExtractor):
+    """PDF: PyMuPDF 우선 → Word COM 리플로우 폴백. Acrobat 미보유 환경용."""
+
+    @staticmethod
+    def _local(path: str) -> str | None:
+        return pdftext.extract_path(path)
+
+
+def _pdf_extractor_cls() -> type[BaseExtractor]:
+    """PDF COM 폴백 엔진 선택. MI_PDF_COM_ENGINE=word(기본)|acrobat.
+
+    기본은 word: Word 리플로우는 이미 있는 MS Office 만 있으면 되고, Acrobat COM
+    (IAC/JSObject)은 유료 제품(Pro/Standard)에서만 동작한다(무료 Reader 미지원).
+    Acrobat 을 PDF 인가 뷰어로 두고 유료 제품을 보유한 환경만 acrobat 으로 지정한다.
+    """
+    engine = (os.getenv("MI_PDF_COM_ENGINE") or "word").strip().lower()
+    return PdfAcrobatExtractor if engine == "acrobat" else PdfWordExtractor
+
+
+# 하위호환 별칭 + 확장자 매핑(임포트 시 엔진 확정 — 워커는 실행 전 env 를 설정한다).
+PdfExtractor = _pdf_extractor_cls()
 
 
 class DocxExtractor(LocalFirstMixin, WordExtractor):
