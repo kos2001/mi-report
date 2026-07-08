@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -198,6 +199,29 @@ def _is_client_error(e: Exception) -> bool:
     return status is not None and 400 <= int(status) < 500
 
 
+# 제어문자(탭·개행·캐리지리턴 제외) — 이진/암호문 추출의 흔적
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def flag_low_quality(text: str, *, min_chars: int = 20) -> str | None:
+    """추출 텍스트가 의심스러우면 경고 사유를, 정상이면 None 을 반환한다.
+
+    라이브 검증이 어려운 격리 환경에서, 배치 결과를 사후에 훑어 문제를 잡도록
+    빈/과소 추출·깨진 인코딩·이진 추출을 표시한다(비파괴적 — 등록을 막지 않고 [warn]만).
+    """
+    s = (text or "").strip()
+    if len(s) < min_chars:
+        return f"본문 과소({len(s)}자) — 추출 실패/빈 문서/미복호화 의심"
+    n = len(s)
+    repl = s.count("�")
+    if repl / n > 0.01:
+        return f"깨진 문자 U+FFFD {repl}개 — 인코딩/폰트 매핑 실패 의심"
+    ctrl = len(_CTRL_RE.findall(s))
+    if ctrl / n > 0.02:
+        return f"제어문자 {ctrl}개 — 이진/암호문 추출 의심(미복호화?)"
+    return None
+
+
 def build_payload(path: str, text: str, topic: str | None = None) -> dict[str, Any]:
     p = Path(path)
     return {
@@ -363,10 +387,13 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
             except Exception as e:
                 print(f"[fail] {path}: {e}")
                 continue
+            warn = flag_low_quality(text)  # 격리 환경 사후 점검용 품질 신호(비파괴적)
+            if warn:
+                print(f"[warn] {path}: {warn}")
             if dry_run:
                 route = runner.last_route or "?"
                 rec = {"path": path, "route": route, "chars": len(text),
-                       "preview": text[:500]}
+                       "preview": text[:500], "warn": warn}
                 if out_dir is not None:
                     dest = _unique_txt_path(out_dir, path)
                     dest.write_text(text, encoding="utf-8")

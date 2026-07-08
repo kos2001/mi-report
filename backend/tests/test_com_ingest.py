@@ -531,6 +531,27 @@ def test_dry_run_reports_route_without_posting(tmp_path, monkeypatch):
     assert all(r["chars"] > 0 for r in results)
 
 
+def test_flag_low_quality():
+    """추출 품질 가드: 빈/과소·U+FFFD·제어문자 텍스트를 경고로 잡고, 정상은 통과."""
+    good = "반도체 시장 동향 " * 10
+    assert worker.flag_low_quality(good) is None
+    assert worker.flag_low_quality("") is not None            # 빈 텍스트
+    assert worker.flag_low_quality("너무 짧은 본문") is not None  # < 20자
+    assert worker.flag_low_quality(good + "�" * 5) is not None  # 깨진 문자 과다
+    assert worker.flag_low_quality("정상 텍스트 " * 5 + "\x00" * 10) is not None  # 제어문자
+
+
+def test_out_dir_records_quality_warning(tmp_path):
+    """--out 결과 dict 에 품질 경고(warn)가 실린다(정상 추출은 None)."""
+    _make_docs(tmp_path, ["a.docx"])
+    out = tmp_path / "out"
+    results = worker.ingest_target(
+        str(tmp_path), "http://mi:8000", out_dir=out,
+        factories={"Word.Application": lambda: FakeWordApp("짧음")},  # 과소 → 경고
+    )
+    assert results and results[0]["warn"] is not None
+
+
 def test_ingest_target_out_dir_writes_text(tmp_path):
     """--out: 추출 텍스트를 <stem>.txt 로 저장하고 백엔드 전송은 하지 않는다."""
     _make_docs(tmp_path, ["a.docx", "b.docx"])
