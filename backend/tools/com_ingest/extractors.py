@@ -308,13 +308,14 @@ class PdfWordExtractor(LocalFirstMixin, WordExtractor):
 
 
 def _pdf_extractor_cls() -> type[BaseExtractor]:
-    """PDF COM 폴백 엔진 선택. MI_PDF_COM_ENGINE=acrobat(기본)|word.
+    """PDF COM 폴백 엔진 선택. MI_PDF_COM_ENGINE=word(기본)|acrobat.
 
-    나스카 등 DRM 은 보통 Acrobat 을 PDF 인가 뷰어로 두므로 기본은 acrobat.
-    Acrobat 이 없는 환경은 word 로 지정해 Word 리플로우 폴백을 쓴다.
+    기본은 word: Word 리플로우는 이미 있는 MS Office 만 있으면 되고, Acrobat COM
+    (IAC/JSObject)은 유료 제품(Pro/Standard)에서만 동작한다(무료 Reader 미지원).
+    Acrobat 을 PDF 인가 뷰어로 두고 유료 제품을 보유한 환경만 acrobat 으로 지정한다.
     """
-    engine = (os.getenv("MI_PDF_COM_ENGINE") or "acrobat").strip().lower()
-    return PdfWordExtractor if engine == "word" else PdfAcrobatExtractor
+    engine = (os.getenv("MI_PDF_COM_ENGINE") or "word").strip().lower()
+    return PdfAcrobatExtractor if engine == "acrobat" else PdfWordExtractor
 
 
 # 하위호환 별칭 + 확장자 매핑(임포트 시 엔진 확정 — 워커는 실행 전 env 를 설정한다).

@@ -246,13 +246,13 @@ def test_pdf_falls_back_to_acrobat(monkeypatch):
 
 
 def test_pdf_com_engine_selection(monkeypatch):
-    """MI_PDF_COM_ENGINE 로 PDF COM 폴백 엔진을 고른다(기본 acrobat)."""
-    monkeypatch.setenv("MI_PDF_COM_ENGINE", "word")
-    assert extractors._pdf_extractor_cls() is extractors.PdfWordExtractor
+    """MI_PDF_COM_ENGINE 로 PDF COM 폴백 엔진을 고른다(기본 word)."""
     monkeypatch.setenv("MI_PDF_COM_ENGINE", "acrobat")
     assert extractors._pdf_extractor_cls() is extractors.PdfAcrobatExtractor
+    monkeypatch.setenv("MI_PDF_COM_ENGINE", "word")
+    assert extractors._pdf_extractor_cls() is extractors.PdfWordExtractor
     monkeypatch.delenv("MI_PDF_COM_ENGINE", raising=False)
-    assert extractors._pdf_extractor_cls() is extractors.PdfAcrobatExtractor  # 기본
+    assert extractors._pdf_extractor_cls() is extractors.PdfWordExtractor  # 기본
 
 
 def test_ooxml_fast_path_skips_office(monkeypatch):

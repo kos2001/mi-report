@@ -85,19 +85,21 @@ cd "C:\mi-report\backend"
 - **Word OK** → `--dry-run` 떼고 `--backend`로 등록
 - **Word 실패/품질↓ → 대안 A(권장)**: 나스카 반출/복호화 승인 또는 서버측 SDK로
   비보호 PDF 확보 → `pdftext.py`(PyMuPDF)가 로컬 고속·고품질 처리(스캔본 OCR 자동)
-- **Acrobat이 인가 앱 → 대안 B(구현 완료)**: PDF COM 폴백을 Acrobat COM(`AcroExch`
-  + JSObject)로 처리하는 추출기가 워커에 들어갔다. 나스카 환경 기본값이며 Word
-  리플로우보다 표·다단 PDF 품질이 낫다.
+### PDF COM 폴백 엔진 (`MI_PDF_COM_ENGINE`)
 
-  ```bat
-  :: 기본이 acrobat 이라 별도 설정 불필요. Word 리플로우로 되돌리려면:
-  set MI_PDF_COM_ENGINE=word
-  ```
+| 엔진 | 필요 SW | 비고 |
+|---|---|---|
+| **word** (기본) | MS Office(이미 워커 전제) | Word 리플로우. 추가 비용 0. 나스카가 Word 를 PDF 인가 앱으로 둘 때만 복호화됨 |
+| acrobat | **Adobe Acrobat 전체 제품(Pro/Standard)** | JSObject 로 품질↑. **무료 Reader 는 IAC/JSObject 미지원 → 불가** |
 
-  전제: Adobe Acrobat **전체 제품(Pro/Standard)** 설치 — 무료 Reader 는 IAC/JSObject
-  미지원. 나스카 정책에서 Acrobat 이 PDF 인가 뷰어여야 투명 복호화가 걸린다.
-  주의: Acrobat 프로세스는 창 핸들 역추적이 안 돼, 모달로 행 걸리면 워커가 PID 로
-  강제 종료하지 못한다(타임아웃 후 경고만) — 작업관리자에서 정리 필요.
+```bat
+:: 기본이 word 라 무료 Reader 만 있어도 이 엔진은 안 씀. Acrobat Pro 보유 시:
+set MI_PDF_COM_ENGINE=acrobat
+```
+
+주의: 두 엔진 모두 나스카가 **해당 앱을 PDF 인가 뷰어로 허용**해야 복호화가 걸린다.
+Acrobat 엔진은 프로세스 창 핸들 역추적이 안 돼, 모달로 행 걸리면 PID 강제 종료가
+안 된다(타임아웃 후 경고만) — 작업관리자 정리 필요.
 
 ## 잠금이 풀린 "파일 자체"가 필요하면 — 나스카 정식 반출/복호화 승인
 
