@@ -364,6 +364,17 @@ def collection_documents(source: str | None = None, q: str | None = None,
     return {"documents": collection.list_documents(source_id=source, q=q, topic=topic)}
 
 
+@app.get("/collection/documents/{doc_id}")
+async def collection_document_detail(doc_id: str):
+    """단일 수집 문서의 메타데이터 + 추출 본문(결과 열람용). 본문 없거나 비텍스트면 content=null."""
+    try:
+        doc = await asyncio.to_thread(collection.get_document, doc_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"문서 없음: {doc_id}") from e
+    content = await asyncio.to_thread(collection.read_document_text, doc_id, max_chars=50000)
+    return {"document": doc, "content": content}
+
+
 @app.delete("/collection/documents/{doc_id}", status_code=204)
 def collection_delete_document(doc_id: str):
     try:

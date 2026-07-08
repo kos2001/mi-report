@@ -108,6 +108,12 @@ export const api = {
     ).then((d) => d.documents);
   },
 
+  // 단일 문서 메타데이터 + 추출 본문(결과 열람용). content 는 비텍스트/없음이면 null.
+  getDocument: (id: string) =>
+    req<{ document: CollectedDoc; content: string | null }>(
+      `/collection/documents/${id}`,
+    ),
+
   deleteDocument: (id: string) =>
     req<void>(`/collection/documents/${id}`, { method: "DELETE" }),
 
