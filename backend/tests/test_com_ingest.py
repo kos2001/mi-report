@@ -531,6 +531,23 @@ def test_dry_run_reports_route_without_posting(tmp_path, monkeypatch):
     assert all(r["chars"] > 0 for r in results)
 
 
+def test_ingest_target_out_dir_writes_text(tmp_path):
+    """--out: 추출 텍스트를 <stem>.txt 로 저장하고 백엔드 전송은 하지 않는다."""
+    _make_docs(tmp_path, ["a.docx", "b.docx"])
+    out = tmp_path / "out"
+
+    def must_not_post(payloads):
+        raise AssertionError("out 모드에서 전송 금지")
+
+    results = worker.ingest_target(
+        str(tmp_path), "http://mi:8000", batch_poster=must_not_post, out_dir=out,
+        factories={"Word.Application": lambda: FakeWordApp("추출된 본문")},
+    )
+    assert sorted(p.name for p in out.glob("*.txt")) == ["a.txt", "b.txt"]
+    assert (out / "a.txt").read_text(encoding="utf-8") == "추출된 본문"
+    assert len(results) == 2 and all("out" in r for r in results)
+
+
 def test_ingest_target_single_poster_compat(tmp_path):
     """단건 poster 주입(기존 인터페이스)도 배치 어댑터로 동작한다."""
     _make_docs(tmp_path, ["a.docx"])

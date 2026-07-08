@@ -219,6 +219,18 @@ def ingest_file(path: str, backend_url: str, *, topic: str | None = None,
     return post(backend_url, payload)
 
 
+def _unique_txt_path(out_dir: Path, src: str) -> Path:
+    """out_dir 에 <원본 stem>.txt 경로를 만든다(이름 충돌 시 _1, _2 …)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(src).stem
+    dest = out_dir / f"{stem}.txt"
+    n = 1
+    while dest.exists():
+        dest = out_dir / f"{stem}_{n}.txt"
+        n += 1
+    return dest
+
+
 def collect_paths(target: str) -> list[str]:
     """파일이면 자기 자신, 폴더면 지원 확장자 파일들."""
     p = Path(target)
@@ -261,14 +273,20 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
                   state_path: Path | None = None,
                   force: bool = False,
                   dry_run: bool = False,
+                  out_dir: Path | None = None,
                   factories: dict[str, AppFactory] | None = None) -> list[dict[str, Any]]:
     """폴더/파일을 배치 인제스트한다. 한 파일 실패가 전체를 막지 않는다.
 
     dry_run: 추출만 하고 등록·매니페스트 갱신을 하지 않는다. 파일별로
     {path, route("local"|"com"), chars, preview} 를 반환 — 실제 DRM 환경에서
     어떤 경로로 추출됐고 텍스트가 온전한지 검증하는 용도.
+
+    out_dir: 지정 시 백엔드 등록 없이 추출 텍스트 전체를 out_dir/<파일명>.txt 로
+    저장한다(dry_run 처럼 전송·매니페스트 없음). DRM PDF 등에서 '텍스트만' 로컬로
+    뽑을 때. 반환 dict 에 out 경로를 포함한다.
     """
     batch_size = max(1, min(batch_size, MAX_BATCH_SIZE))  # 서버 스키마 상한 준수
+    dry_run = dry_run or out_dir is not None  # out 모드도 전송/매니페스트 없음
     # 매니페스트는 백엔드 URL 별로 네임스페이스한다 — 다른 백엔드로 전환해 재실행할 때
     # 이전 백엔드의 기록 때문에 전량 skip 되는 사고를 막는다.
     full_state = _load_state(state_path)
@@ -347,10 +365,17 @@ def ingest_target(target: str, backend_url: str, *, topic: str | None = None,
                 continue
             if dry_run:
                 route = runner.last_route or "?"
-                preview = " ".join(text[:200].split())
-                print(f"[dry-run] {path} | 경로={route} | {len(text)}자 | {preview}")
-                results.append({"path": path, "route": route,
-                                "chars": len(text), "preview": text[:500]})
+                rec = {"path": path, "route": route, "chars": len(text),
+                       "preview": text[:500]}
+                if out_dir is not None:
+                    dest = _unique_txt_path(out_dir, path)
+                    dest.write_text(text, encoding="utf-8")
+                    rec["out"] = str(dest)
+                    print(f"[out] {path} → {dest} | 경로={route} | {len(text)}자")
+                else:
+                    preview = " ".join(text[:200].split())
+                    print(f"[dry-run] {path} | 경로={route} | {len(text)}자 | {preview}")
+                results.append(rec)
                 continue
             pending.append((path, sig, build_payload(path, text, topic)))
             if len(pending) >= batch_size:
@@ -380,15 +405,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="추출만 검증(등록·매니페스트 갱신 없음). 추출 경로(local/com)와 "
                          "본문 미리보기를 출력 — DRM 환경 사전 점검용")
+    ap.add_argument("--out", default=None,
+                    help="추출 텍스트를 이 폴더에 <파일명>.txt 로 저장(백엔드 등록 안 함). "
+                         "DRM PDF 등에서 텍스트만 로컬로 뽑을 때.")
     args = ap.parse_args(argv)
 
+    out_dir = Path(args.out) if args.out else None
+    no_state = args.dry_run or out_dir is not None
     results = ingest_target(
         args.target, args.backend, topic=args.topic,
         batch_size=args.batch_size, timeout=args.timeout,
-        state_path=None if args.dry_run else (Path(args.state) if args.state else None),
-        force=args.force, dry_run=args.dry_run,
+        state_path=None if no_state else (Path(args.state) if args.state else None),
+        force=args.force, dry_run=args.dry_run, out_dir=out_dir,
     )
-    if args.dry_run:
+    if out_dir is not None:
+        com = sum(1 for r in results if r.get("route") == "com")
+        local = sum(1 for r in results if r.get("route") == "local")
+        print(f"\n[out] 총 {len(results)}건 텍스트 저장 → {out_dir} (local {local} / com {com}). 등록 안 함.")
+    elif args.dry_run:
         com = sum(1 for r in results if r.get("route") == "com")
         local = sum(1 for r in results if r.get("route") == "local")
         print(f"\n[dry-run] 총 {len(results)}건 추출 성공 (local {local} / com {com}). 등록 안 함.")

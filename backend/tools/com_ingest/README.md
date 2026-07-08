@@ -48,6 +48,17 @@ python -m tools.com_ingest.worker "C:\test-docs" --dry-run
 행이 걸리면 파일당 120초(조정: `--timeout`) 후 해당 Office 프로세스를 강제 종료하고
 다음 파일로 넘어간다. `[fail] ... 초과 (DRM 대화상자/행 의심)` 메시지가 그 신호다.
 
+### 텍스트만 로컬로 뽑기 (`--out`, 백엔드 불필요)
+
+DRM PDF 등에서 **본문 텍스트만 파일로** 받고 싶을 때. 백엔드 없이 추출 텍스트 전체를
+`<폴더>/<파일명>.txt` 로 저장한다(전송·매니페스트 없음). Word 엔진(기본)만 있으면
+되므로 무료 Reader 환경에서도 추가 SW 가 필요 없다.
+
+```bat
+python -m tools.com_ingest.worker "C:\pdf-inbox" --out "C:\extracted"
+:: [out] C:\pdf-inbox\a.pdf → C:\extracted\a.txt | 경로=com | 4210자
+```
+
 ## 2단계 — 실제 등록 (배치)
 
 백엔드가 떠 있는지 확인 후:
