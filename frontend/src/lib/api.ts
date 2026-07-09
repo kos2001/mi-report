@@ -303,12 +303,48 @@ export interface AgentChatResponse {
   sources?: AgentSource[];
 }
 
+export interface AgentSessionInfo {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export interface AgentSessionDetail {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    createdAt: string;
+    numbersGrounded?: boolean;
+    ungroundedNumbers?: string[];
+    sources?: AgentSource[];
+  }[];
+}
+
 export const agentApi = {
-  chat: (body: { message: string; sessionId?: string }) =>
+  chat: (body: { message: string; sessionId?: string; userId: string }) =>
     req<AgentChatResponse>("/agent/chat", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  sessions: (userId: string) =>
+    req<{ sessions: AgentSessionInfo[] }>(
+      `/agent/sessions?userId=${encodeURIComponent(userId)}`,
+    ).then((d) => d.sessions),
+  session: (sessionId: string, userId: string) =>
+    req<AgentSessionDetail>(
+      `/agent/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(userId)}`,
+    ),
+  deleteSession: (sessionId: string, userId: string) =>
+    req<void>(
+      `/agent/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    ),
 };
 
 // ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────

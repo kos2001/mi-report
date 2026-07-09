@@ -3,7 +3,11 @@
 gateway.LLMClient(완결형 completion 계약)와 달리, 이 모듈은 hermes profile
 'mi-report' 의 OpenAI 호환 api_server 를 **에이전트로** 사용한다:
   - X-Hermes-Session-Id 헤더로 세션을 이어 멀티턴 대화를 유지하고,
+  - X-Hermes-Session-Key 로 사용자별 장기 메모리 스코프를 분리하고,
   - 에이전트가 스스로 도구(코퍼스 검색 skill·웹 검색 등)를 써서 답한다.
+
+멀티유저: 세션·메시지를 SQLite(collection.db)에 영속화한다. 세션은 userId 에
+귀속되며, 목록/재개/삭제는 소유자만 가능하다(다른 userId 에는 404).
 
 연결 정보는 chat 라우팅과 동일하게 MI_LLM_* 를 쓴다(hermes 전용 기능이라
 OPENROUTER_* 폴백은 하지 않는다 — 미설정 시 503 성격의 LLMError).
@@ -12,12 +16,18 @@ OPENROUTER_* 폴백은 하지 않는다 — 미설정 시 503 성격의 LLMError
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
-from . import collection, grounding
+from . import collection, db, grounding
 from .gateway import LLMError
+
+USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_TITLE_CHARS = 60
 
 # 에이전트는 도구(웹 검색·코퍼스 검색)를 쓸 수 있어 완결형 호출보다 오래 걸린다.
 AGENT_TIMEOUT = 300.0
@@ -57,7 +67,8 @@ def new_session_id() -> str:
     return f"mi-agent-{uuid.uuid4().hex}"
 
 
-async def chat(message: str, session_id: str | None = None) -> dict[str, Any]:
+async def chat(message: str, session_id: str | None = None,
+               user_id: str | None = None) -> dict[str, Any]:
     """hermes 에이전트에 한 턴을 보내고 {answer, sessionId} 를 반환한다."""
     import httpx
 
@@ -70,6 +81,8 @@ async def chat(message: str, session_id: str | None = None) -> dict[str, Any]:
         "Content-Type": "application/json",
         "X-Hermes-Session-Id": sid,
     }
+    if user_id:  # 사용자별 장기 메모리 스코프 분리(hermes Session-Key)
+        headers["X-Hermes-Session-Key"] = f"mi-report:{user_id}"
     body = {"model": model, "messages": [{"role": "user", "content": message}]}
     try:
         # base 는 OpenAI 호환 루트(…/v1) — 예: http://127.0.0.1:8644/v1
@@ -134,3 +147,123 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
     else:
         g = {"numbersGrounded": True, "ungroundedNumbers": []}
     return {**g, "sources": sources}
+
+
+# ── 세션 영속화 (멀티유저) ─────────────────────────────────────────────────
+
+def init_db() -> None:
+    """에이전트 세션/메시지 테이블 생성(collection.db 공유)."""
+    with db.connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS agent_sessions (
+                id         TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL,
+                title      TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_sessions_user
+                ON agent_sessions(user_id, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                meta       TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_messages_session
+                ON agent_messages(session_id, id);
+            """
+        )
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def is_valid_user_id(user_id: object) -> bool:
+    return isinstance(user_id, str) and bool(USER_ID_RE.match(user_id))
+
+
+def get_session(session_id: str) -> dict[str, Any] | None:
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM agent_sessions WHERE id=?", (session_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_sessions(user_id: str) -> list[dict[str, Any]]:
+    """사용자의 세션 목록(최근 대화 순, 메시지 수 포함)."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.id, s.title, s.created_at, s.updated_at,
+                   COUNT(m.id) AS message_count
+            FROM agent_sessions s
+            LEFT JOIN agent_messages m ON m.session_id = s.id
+            WHERE s.user_id=?
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {"id": r["id"], "title": r["title"], "createdAt": r["created_at"],
+         "updatedAt": r["updated_at"], "messageCount": r["message_count"]}
+        for r in rows
+    ]
+
+
+def session_messages(session_id: str) -> list[dict[str, Any]]:
+    """세션의 메시지들(시간순) — assistant 메시지는 meta(검증/출처)를 풀어 반환."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT role, content, meta, created_at FROM agent_messages "
+            "WHERE session_id=? ORDER BY id",
+            (session_id,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            meta = json.loads(r["meta"])
+        except ValueError:
+            meta = {}
+        out.append({"role": r["role"], "content": r["content"],
+                    "createdAt": r["created_at"], **meta})
+    return out
+
+
+def record_turn(user_id: str, session_id: str, question: str,
+                result: dict[str, Any]) -> None:
+    """한 턴(user 질문 + assistant 답변)을 저장한다. 새 세션이면 생성."""
+    now = _now()
+    meta = json.dumps(
+        {k: result[k] for k in ("numbersGrounded", "ungroundedNumbers", "sources")
+         if k in result},
+        ensure_ascii=False,
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO agent_sessions (id, user_id, title, created_at, updated_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at",
+            (session_id, user_id, question[:_TITLE_CHARS], now, now),
+        )
+        conn.execute(
+            "INSERT INTO agent_messages (session_id, role, content, meta, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (session_id, "user", question, "{}", now),
+        )
+        conn.execute(
+            "INSERT INTO agent_messages (session_id, role, content, meta, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (session_id, "assistant", result.get("answer", ""), meta, now),
+        )
+
+
+def delete_session(session_id: str) -> None:
+    with db.connect() as conn:
+        conn.execute("DELETE FROM agent_sessions WHERE id=?", (session_id,))

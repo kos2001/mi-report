@@ -237,6 +237,10 @@ class AgentChatRequest(BaseModel):
     sessionId: str | None = Field(
         default=None, description="대화 세션 ID(멀티턴). 없으면 서버가 새로 발급."
     )
+    userId: str = Field(
+        ..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
+        description="사용자 ID — 세션 소유·메모리 스코프 구분(멀티유저).",
+    )
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────

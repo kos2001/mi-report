@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     collection.init_db()
+    agentchat.init_db()
     task = None
     if os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"):
         task = asyncio.create_task(_scheduler_loop())  # 앱 내 스케줄러(옵트인)
@@ -496,22 +497,62 @@ async def rag_search(req: RagSearchRequest):
     return {"query": req.query, "count": len(docs), "docs": docs}
 
 
-# ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
+# ── hermes 에이전트 대화 (멀티턴, 멀티유저, 도구 사용) ────────────────────
+def _owned_session_or_404(session_id: str, user_id: str) -> dict:
+    """세션 조회 + 소유자 확인. 남의 세션은 존재를 노출하지 않고 404."""
+    sess = agentchat.get_session(session_id)
+    if not sess or sess["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return sess
+
+
 @app.post("/agent/chat")
 async def agent_chat(req: AgentChatRequest):
-    """hermes 에이전트와 대화한다(세션 유지 멀티턴).
+    """hermes 에이전트와 대화한다(세션 유지 멀티턴, 사용자별 분리).
 
     에이전트가 스스로 코퍼스 검색 skill·웹 검색 등 도구를 조합해 답한다.
-    같은 sessionId 로 다시 호출하면 이전 대화 맥락이 이어진다.
+    같은 sessionId 로 다시 호출하면 이전 대화 맥락이 이어진다. 세션은
+    userId 에 귀속되며 대화는 서버에 저장돼 재개할 수 있다.
     """
+    if req.sessionId:
+        await asyncio.to_thread(_owned_session_or_404, req.sessionId, req.userId)
     load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
     try:
-        result = await agentchat.chat(req.message, req.sessionId)
+        result = await agentchat.chat(req.message, req.sessionId, user_id=req.userId)
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     # 환각 방어: 답변 수치를 코퍼스 재검색 문서와 대조(웹 출처 수치는 미근거로 표시될 수 있음)
     result.update(await agentchat.ground_answer(req.message, result["answer"]))
+    await asyncio.to_thread(
+        agentchat.record_turn, req.userId, result["sessionId"], req.message, result
+    )
     return result
+
+
+@app.get("/agent/sessions")
+async def agent_sessions(userId: str):
+    """사용자의 에이전트 대화 세션 목록(최근순)."""
+    if not agentchat.is_valid_user_id(userId):
+        raise HTTPException(status_code=400, detail="userId 형식이 올바르지 않습니다.")
+    return {"sessions": await asyncio.to_thread(agentchat.list_sessions, userId)}
+
+
+@app.get("/agent/sessions/{session_id}")
+async def agent_session_detail(session_id: str, userId: str):
+    """세션 상세(메시지 전체) — 대화 재개용."""
+    sess = await asyncio.to_thread(_owned_session_or_404, session_id, userId)
+    messages = await asyncio.to_thread(agentchat.session_messages, session_id)
+    return {
+        "id": sess["id"], "title": sess["title"],
+        "createdAt": sess["created_at"], "updatedAt": sess["updated_at"],
+        "messages": messages,
+    }
+
+
+@app.delete("/agent/sessions/{session_id}", status_code=204)
+async def agent_session_delete(session_id: str, userId: str):
+    await asyncio.to_thread(_owned_session_or_404, session_id, userId)
+    await asyncio.to_thread(agentchat.delete_session, session_id)
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────

@@ -136,27 +136,82 @@ def test_ground_answer_no_numbers_still_returns_sources(monkeypatch):
 
 # ── 엔드포인트 (TestClient) ────────────────────────────────────────────────
 
-def test_agent_chat_endpoint(client, monkeypatch):
-    async def fake_chat(message, session_id=None):
-        return {"answer": f"echo:{message}", "sessionId": session_id or "mi-agent-new"}
+def _fake_chat(monkeypatch):
+    async def fake(message, session_id=None, user_id=None):
+        return {"answer": f"echo:{message}", "sessionId": session_id or agentchat.new_session_id()}
 
-    monkeypatch.setattr(agentchat, "chat", fake_chat)
-    r = client.post("/agent/chat", json={"message": "안녕", "sessionId": "s1"})
+    monkeypatch.setattr(agentchat, "chat", fake)
+
+
+def test_agent_chat_endpoint(client, monkeypatch):
+    _fake_chat(monkeypatch)
+    r = client.post("/agent/chat", json={"message": "안녕", "userId": "user-a"})
     assert r.status_code == 200
+    body = r.json()
+    sid = body.pop("sessionId")
+    assert sid.startswith("mi-agent-")
     # 수치 없는 답변 → grounded 통과, 빈 코퍼스 → sources 없음
-    assert r.json() == {
-        "answer": "echo:안녕", "sessionId": "s1",
+    assert body == {
+        "answer": "echo:안녕",
         "numbersGrounded": True, "ungroundedNumbers": [], "sources": [],
     }
 
 
 def test_agent_chat_endpoint_maps_llm_error(client, monkeypatch):
-    async def fail_chat(message, session_id=None):
+    async def fail_chat(message, session_id=None, user_id=None):
         raise LLMError(503, "hermes 미설정")
 
     monkeypatch.setattr(agentchat, "chat", fail_chat)
-    r = client.post("/agent/chat", json={"message": "안녕"})
+    r = client.post("/agent/chat", json={"message": "안녕", "userId": "user-a"})
     assert r.status_code == 503
+
+
+def test_agent_chat_requires_user_id(client):
+    r = client.post("/agent/chat", json={"message": "안녕"})
+    assert r.status_code == 422
+
+
+# ── 세션 관리 (멀티유저) ───────────────────────────────────────────────────
+
+def test_session_persist_list_resume_and_isolation(client, monkeypatch):
+    _fake_chat(monkeypatch)
+    # user-a: 두 턴(같은 세션) — 저장·재개
+    r1 = client.post("/agent/chat", json={"message": "첫 질문", "userId": "user-a"})
+    sid = r1.json()["sessionId"]
+    client.post("/agent/chat", json={"message": "이어서", "sessionId": sid, "userId": "user-a"})
+
+    sessions = client.get("/agent/sessions", params={"userId": "user-a"}).json()["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == sid
+    assert sessions[0]["title"] == "첫 질문"
+    assert sessions[0]["messageCount"] == 4  # user/assistant × 2턴
+
+    detail = client.get(f"/agent/sessions/{sid}", params={"userId": "user-a"}).json()
+    roles = [m["role"] for m in detail["messages"]]
+    assert roles == ["user", "assistant", "user", "assistant"]
+    assert detail["messages"][1]["content"] == "echo:첫 질문"
+    assert detail["messages"][1]["numbersGrounded"] is True  # meta 언팩
+
+    # user-b 는 user-a 의 세션을 볼 수도, 이어쓸 수도 없다(404)
+    assert client.get(f"/agent/sessions/{sid}", params={"userId": "user-b"}).status_code == 404
+    assert client.post(
+        "/agent/chat", json={"message": "탈취 시도", "sessionId": sid, "userId": "user-b"}
+    ).status_code == 404
+    assert client.get("/agent/sessions", params={"userId": "user-b"}).json()["sessions"] == []
+
+
+def test_session_delete(client, monkeypatch):
+    _fake_chat(monkeypatch)
+    sid = client.post(
+        "/agent/chat", json={"message": "삭제될 대화", "userId": "user-a"}
+    ).json()["sessionId"]
+    assert client.delete(f"/agent/sessions/{sid}", params={"userId": "user-b"}).status_code == 404
+    assert client.delete(f"/agent/sessions/{sid}", params={"userId": "user-a"}).status_code == 204
+    assert client.get(f"/agent/sessions/{sid}", params={"userId": "user-a"}).status_code == 404
+
+
+def test_sessions_rejects_bad_user_id(client):
+    assert client.get("/agent/sessions", params={"userId": "한글불가"}).status_code == 400
 
 
 def test_rag_search_endpoint_empty_corpus(client):
