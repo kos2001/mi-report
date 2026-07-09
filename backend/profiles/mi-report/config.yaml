@@ -1,6 +1,9 @@
 # MI Report 전용 LLM 연결 프로파일 — agno + OpenRouter (OpenAI 호환)
 # 참조: gitspace/lsi_error_analyzer. LLM 호출은 app/gateway.py(LLMClient)가
 # OPENROUTER_* 환경변수(.env)를 직접 읽어 agno 의 OpenRouter 모델로 수행한다.
+# chat 만 hermes profile 'mi-report'(OpenAI 호환 api_server, 127.0.0.1:8644)로
+# 보내려면 .env 의 MI_LLM_BASE_URL / MI_LLM_API_KEY / MI_LLM_MODEL 을 설정한다.
+# embeddings/reranker/VLM 은 항상 OPENROUTER_* 를 사용한다.
 
 model:
   default: "minimax/minimax-m3"  # OPENROUTER_MODEL 로 재정의 가능
