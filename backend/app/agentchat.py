@@ -149,6 +149,37 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
     return {**g, "sources": sources}
 
 
+# ── 다이제스트 초안 에이전트 코멘트 ────────────────────────────────────────
+
+_COMMENT_SUMMARY_CHARS = 300
+
+
+async def digest_comment(issue_no: int, period: str,
+                         items: list[dict[str, Any]]) -> dict[str, Any]:
+    """다이제스트 초안에 대한 에이전트 코멘트(일회성 — 세션 저장 안 함).
+
+    에이전트가 코퍼스·웹을 검색해 초안의 타당성 검토, 근거 보강, 놓친
+    리스크/시사점을 코멘트로 작성한다. 답변 수치는 코퍼스 대조로 검증한다.
+    """
+    lines = [
+        f"- (영향도 {it.get('impact') or '?'}) {it.get('title', '')}: "
+        f"{(it.get('summary') or '')[:_COMMENT_SUMMARY_CHARS]}"
+        for it in items
+    ]
+    message = (
+        "다음은 발송 전 검토 단계의 주간 뉴스 다이제스트 초안이다. "
+        "MI 애널리스트 관점의 에이전트 코멘트를 작성하라.\n"
+        "코퍼스 검색(필요시 웹 검색 병행)으로 근거를 확인해서 간결하게:\n"
+        "1) 항목별 타당성과 놓친 근거, 2) 초안에 빠진 리스크·시사점, "
+        "3) 발송 전 수정 제안.\n"
+        "근거 문서·출처는 본문에 인용하라.\n\n"
+        f"제{issue_no}호 {period}\n" + "\n".join(lines)
+    )
+    result = await chat(message)  # 매번 새 세션(일회성 코멘트)
+    result.update(await ground_answer(message, result["answer"]))
+    return result
+
+
 # ── 세션 영속화 (멀티유저) ─────────────────────────────────────────────────
 
 def init_db() -> None:

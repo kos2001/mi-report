@@ -243,6 +243,22 @@ class AgentChatRequest(BaseModel):
     )
 
 
+class DigestCommentItem(BaseModel):
+    """에이전트 코멘트 대상 다이제스트 항목(요약본)."""
+
+    title: str = Field(..., min_length=1)
+    summary: str = ""
+    impact: str = ""
+
+
+class DigestAgentCommentRequest(BaseModel):
+    """다이제스트 초안에 대한 hermes 에이전트 코멘트 요청."""
+
+    issueNo: int = Field(default=1, ge=1)
+    period: str = ""
+    items: list[DigestCommentItem] = Field(..., min_length=1)
+
+
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
 class ReportGenerateRequest(BaseModel):
     """다이제스트 + 주제 요약 + 총평을 묶은 주간 리포트 생성 요청."""

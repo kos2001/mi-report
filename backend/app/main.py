@@ -26,6 +26,7 @@ from .schemas import (
     IngestBatch,
     IngestText,
     AgentChatRequest,
+    DigestAgentCommentRequest,
     RagQueryRequest,
     RagSearchRequest,
     ReportGenerateRequest,
@@ -639,6 +640,22 @@ async def digest_generate(req: DigestGenerateRequest):
     except ValueError as e:
         # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
         raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+@app.post("/digest/agent-comment")
+async def digest_agent_comment(req: DigestAgentCommentRequest):
+    """다이제스트 초안에 hermes 에이전트 코멘트를 단다.
+
+    에이전트가 코퍼스·웹을 검색해 초안의 타당성·놓친 리스크·수정 제안을
+    코멘트로 작성한다. 답변 수치는 코퍼스 대조 검증(numbersGrounded)을 거친다.
+    """
+    load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
+    try:
+        return await agentchat.digest_comment(
+            req.issueNo, req.period, [i.model_dump() for i in req.items]
+        )
+    except LLMError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
 
 
 @app.get("/digest/latest")

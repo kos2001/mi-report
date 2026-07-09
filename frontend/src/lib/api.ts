@@ -209,6 +209,20 @@ export const digestApi = {
       to?: string[];
       preview?: string;
     }>("/digest/send", { method: "POST", body: JSON.stringify(body) }),
+
+  // hermes 에이전트 코멘트 — 초안 타당성 검토·근거 보강·수정 제안
+  agentComment: (body: {
+    issueNo: number;
+    period: string;
+    items: { title: string; summary?: string; impact?: string }[];
+  }) =>
+    req<{
+      answer: string;
+      sessionId: string;
+      numbersGrounded?: boolean;
+      ungroundedNumbers?: string[];
+      sources?: { title: string; source: string; publishedAt: string | null }[];
+    }>("/digest/agent-comment", { method: "POST", body: JSON.stringify(body) }),
 };
 
 // ── 주제별 History (AI agent 생성) ────────────────────────────────────────

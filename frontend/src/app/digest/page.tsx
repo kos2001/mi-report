@@ -4,6 +4,51 @@ import { useEffect, useState } from "react";
 import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
 import { digests } from "@/lib/data";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
+import { Markdown } from "@/components/markdown";
+
+// hermes 에이전트가 초안을 검토한 코멘트(수치 검증·관련 문서 포함)
+interface AgentComment {
+  issueNo: number;
+  answer: string;
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sources?: { title: string; source: string; publishedAt: string | null }[];
+}
+
+function AgentCommentCard({ comment }: { comment: AgentComment }) {
+  return (
+    <Card className="mb-4 border-violet-900/40 bg-violet-950/15">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-300">
+        🤖 에이전트 코멘트 — 초안 검토
+      </p>
+      {comment.numbersGrounded === false &&
+        comment.ungroundedNumbers &&
+        comment.ungroundedNumbers.length > 0 && (
+          <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+            ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
+            <span className="font-mono">{comment.ungroundedNumbers.join(", ")}</span>
+          </p>
+        )}
+      <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-200" />
+      {comment.sources && comment.sources.length > 0 && (
+        <div className="mt-3 border-t border-zinc-800 pt-2">
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            관련 수집 문서
+          </p>
+          <ul className="flex flex-col gap-1">
+            {comment.sources.map((s, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs text-zinc-300">
+                <Tag>{s.source}</Tag>
+                <span>{s.title}</span>
+                {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 // 다음 호수: 목업 최신호 + 1 (백엔드가 호수를 관리하기 전 임시 규칙)
 const NEXT_ISSUE_NO = Math.max(...digests.map((d) => d.issueNo)) + 1;
@@ -90,6 +135,29 @@ export default function DigestPage() {
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [fb, setFb] = useState<"up" | "down" | null>(null);
+  const [comment, setComment] = useState<AgentComment | null>(null);
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+
+  async function handleAgentComment(d: GeneratedDigest) {
+    if (commentLoading || d.items.length === 0) return;
+    setCommentLoading(true);
+    setCommentError(null);
+    try {
+      const r = await digestApi.agentComment({
+        issueNo: d.issueNo,
+        period: d.period,
+        items: d.items.map((it) => ({
+          title: it.title, summary: it.summary, impact: it.impact,
+        })),
+      });
+      setComment({ issueNo: d.issueNo, ...r });
+    } catch (e) {
+      setCommentError(e instanceof Error ? e.message : "에이전트 코멘트 실패");
+    } finally {
+      setCommentLoading(false);
+    }
+  }
 
   async function handleFeedback(d: GeneratedDigest, rating: "up" | "down") {
     setFb(rating);
@@ -192,11 +260,24 @@ export default function DigestPage() {
                 제{latest.issueNo}호{" "}
                 <span className="ml-1 text-sm font-normal text-zinc-400">{latest.period}</span>
               </h2>
-              <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
-                자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
-                {latest.sourceDocCount}건
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
+                  자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
+                  {latest.sourceDocCount}건
+                </span>
+                <button
+                  onClick={() => handleAgentComment(latest)}
+                  disabled={commentLoading || latest.items.length === 0}
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                </button>
+              </div>
             </div>
+            {comment && comment.issueNo === latest.issueNo && (
+              <AgentCommentCard comment={comment} />
+            )}
             {latest.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
@@ -225,6 +306,14 @@ export default function DigestPage() {
                 <span className="rounded-full border border-sky-900/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-400">
                   AI 생성 초안 · 문서 {generated.sourceDocCount}건 기반
                 </span>
+                <button
+                  onClick={() => handleAgentComment(generated)}
+                  disabled={commentLoading || generated.items.length === 0}
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                </button>
                 <button
                   onClick={() => handleSend(generated)}
                   disabled={sending || generated.items.length === 0}
@@ -271,6 +360,14 @@ export default function DigestPage() {
               >
                 {sendMsg.text}
               </p>
+            )}
+            {commentError && (
+              <p className="mb-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+                {commentError}
+              </p>
+            )}
+            {comment && comment.issueNo === generated.issueNo && (
+              <AgentCommentCard comment={comment} />
             )}
             {generated.items.length === 0 ? (
               <Card>
