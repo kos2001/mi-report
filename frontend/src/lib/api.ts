@@ -209,6 +209,20 @@ export const digestApi = {
       to?: string[];
       preview?: string;
     }>("/digest/send", { method: "POST", body: JSON.stringify(body) }),
+
+  // hermes 에이전트 코멘트 — 초안 타당성 검토·근거 보강·수정 제안
+  agentComment: (body: {
+    issueNo: number;
+    period: string;
+    items: { title: string; summary?: string; impact?: string }[];
+  }) =>
+    req<{
+      answer: string;
+      sessionId: string;
+      numbersGrounded?: boolean;
+      ungroundedNumbers?: string[];
+      sources?: { title: string; source: string; publishedAt: string | null }[];
+    }>("/digest/agent-comment", { method: "POST", body: JSON.stringify(body) }),
 };
 
 // ── 주제별 History (AI agent 생성) ────────────────────────────────────────
@@ -287,21 +301,64 @@ export const competitorsApi = {
 };
 
 // ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
-export interface RagAnswer {
-  question: string;
-  answer: string;
-  sources: { index: number; title: string; source: string }[];
-  usedDocCount: number;
-  numbersGrounded?: boolean;
-  ungroundedNumbers?: string[];
+// ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
+export interface AgentSource {
+  title: string;
+  source: string;
+  publishedAt: string | null;
 }
 
-export const ragApi = {
-  query: (body: { question: string; topic?: string; q?: string; limit?: number }) =>
-    req<RagAnswer>("/rag/query", {
+export interface AgentChatResponse {
+  answer: string;
+  sessionId: string;
+  // 환각 방어(서버 부여): 답변 수치의 코퍼스 대조 결과 + 관련 수집 문서
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sources?: AgentSource[];
+}
+
+export interface AgentSessionInfo {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export interface AgentSessionDetail {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: {
+    role: "user" | "assistant";
+    content: string;
+    createdAt: string;
+    numbersGrounded?: boolean;
+    ungroundedNumbers?: string[];
+    sources?: AgentSource[];
+  }[];
+}
+
+export const agentApi = {
+  chat: (body: { message: string; sessionId?: string; userId: string }) =>
+    req<AgentChatResponse>("/agent/chat", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  sessions: (userId: string) =>
+    req<{ sessions: AgentSessionInfo[] }>(
+      `/agent/sessions?userId=${encodeURIComponent(userId)}`,
+    ).then((d) => d.sessions),
+  session: (sessionId: string, userId: string) =>
+    req<AgentSessionDetail>(
+      `/agent/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(userId)}`,
+    ),
+  deleteSession: (sessionId: string, userId: string) =>
+    req<void>(
+      `/agent/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    ),
 };
 
 // ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────

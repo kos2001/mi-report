@@ -3,7 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
 import { competitors } from "@/lib/data";
+import { AgentChatCard } from "@/components/agent-chat";
 import { Card, Delta, PageHeader } from "@/components/ui";
+
+// 에이전트 대화의 첫 턴 컨텍스트 — 생성된 IR 분석을 요약해 붙인다.
+function competitorContext(c: GeneratedCompetitor): string {
+  const fin = c.financials
+    .map((f) => `- ${f.metric}: ${f.value}` +
+      (f.qoq != null ? ` (QoQ ${f.qoq > 0 ? "+" : ""}${f.qoq}%)` : "") +
+      (f.yoy != null ? ` (YoY ${f.yoy > 0 ? "+" : ""}${f.yoy}%)` : ""))
+    .join("\n");
+  const call = c.callSummary.map((s) => `- ${s}`).join("\n");
+  const qoq = c.qoqChanges.map((s) => `- ${s}`).join("\n");
+  return (
+    `다음은 경쟁사 ${c.name}(${c.ticker}) ${c.fiscalQuarter} IR 분석 결과다. ` +
+    `이 분석과 수집 문서·웹 근거를 참고해 질문에 답하라.\n` +
+    `[재무 요약]\n${fin}\n[콜 요약]\n${call}\n[전분기 대비 변화]\n${qoq}`
+  );
+}
 
 const directionIcon = { up: "▲", down: "▼", flat: "—" } as const;
 const directionColor = {
@@ -358,6 +375,20 @@ export default function CompetitorsPage() {
           </p>
         )}
       </Card>
+
+      {/* 경쟁사 자유 질문 — 생성된 분석이 있으면 첫 턴 컨텍스트로 */}
+      <div className="mb-8">
+        <AgentChatCard
+          title="💬 경쟁사에 질문하기"
+          description={
+            generated
+              ? `${generated.name}(${generated.ticker}) ${generated.fiscalQuarter} 분석을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
+              : "에이전트가 수집 문서(IR·공시)·웹 근거로 답합니다 — 이어지는 질문은 맥락 유지"
+          }
+          context={generated ? competitorContext(generated) : null}
+          placeholder="예: 이번 분기에서 S.LSI가 주목할 변화는? 최신 공시로 보강해줘."
+        />
+      </div>
 
       <div className="flex flex-col gap-8">
         {generated && <CompetitorCard c={generated} generated />}

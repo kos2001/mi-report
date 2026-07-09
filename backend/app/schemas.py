@@ -221,6 +221,44 @@ class RagQueryRequest(BaseModel):
     profile: str | None = None
 
 
+class RagSearchRequest(BaseModel):
+    """코퍼스 검색(검색만, LLM 답변 없음) — hermes 에이전트의 근거 조회용."""
+
+    query: str = Field(..., min_length=1, description="검색 질의(자연어).")
+    topic: str | None = Field(default=None, description="문서 topic 필터(선택).")
+    limit: int = Field(default=6, ge=1, le=20, description="반환할 문서 최대 건수.")
+    maxChars: int = Field(default=1500, ge=200, le=8000, description="문서당 본문 최대 길이.")
+
+
+class AgentChatRequest(BaseModel):
+    """hermes 에이전트와의 멀티턴 대화 요청."""
+
+    message: str = Field(..., min_length=1, description="사용자 메시지.")
+    sessionId: str | None = Field(
+        default=None, description="대화 세션 ID(멀티턴). 없으면 서버가 새로 발급."
+    )
+    userId: str = Field(
+        ..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
+        description="사용자 ID — 세션 소유·메모리 스코프 구분(멀티유저).",
+    )
+
+
+class DigestCommentItem(BaseModel):
+    """에이전트 코멘트 대상 다이제스트 항목(요약본)."""
+
+    title: str = Field(..., min_length=1)
+    summary: str = ""
+    impact: str = ""
+
+
+class DigestAgentCommentRequest(BaseModel):
+    """다이제스트 초안에 대한 hermes 에이전트 코멘트 요청."""
+
+    issueNo: int = Field(default=1, ge=1)
+    period: str = ""
+    items: list[DigestCommentItem] = Field(..., min_length=1)
+
+
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
 class ReportGenerateRequest(BaseModel):
     """다이제스트 + 주제 요약 + 총평을 묶은 주간 리포트 생성 요청."""

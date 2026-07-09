@@ -15,7 +15,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -25,7 +25,10 @@ from .schemas import (
     FeedbackRequest,
     IngestBatch,
     IngestText,
+    AgentChatRequest,
+    DigestAgentCommentRequest,
     RagQueryRequest,
+    RagSearchRequest,
     ReportGenerateRequest,
     ScheduleConfig,
     SourceCreate,
@@ -65,6 +68,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     collection.init_db()
+    agentchat.init_db()
     task = None
     if os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"):
         task = asyncio.create_task(_scheduler_loop())  # 앱 내 스케줄러(옵트인)
@@ -481,6 +485,107 @@ async def rag_query(req: RagQueryRequest):
         raise HTTPException(status_code=502, detail=f"답변 생성 실패: {e}") from e
 
 
+@app.post("/rag/search")
+async def rag_search(req: RagSearchRequest):
+    """코퍼스 검색만 수행(LLM 답변 없음) — hermes 에이전트의 근거 조회 도구.
+
+    hybrid(BM25+임베딩) 검색 상위 문서를 본문 스니펫과 함께 반환한다.
+    """
+    docs = await asyncio.to_thread(
+        collection.documents_for_rag, req.query,
+        limit=req.limit, topic=req.topic, max_chars=req.maxChars,
+    )
+    return {"query": req.query, "count": len(docs), "docs": docs}
+
+
+# ── hermes 에이전트 대화 (멀티턴, 멀티유저, 도구 사용) ────────────────────
+def _owned_session_or_404(session_id: str, user_id: str) -> dict:
+    """세션 조회 + 소유자 확인. 남의 세션은 존재를 노출하지 않고 404."""
+    sess = agentchat.get_session(session_id)
+    if not sess or sess["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    return sess
+
+
+@app.post("/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    """hermes 에이전트와 대화한다(세션 유지 멀티턴, 사용자별 분리).
+
+    에이전트가 스스로 코퍼스 검색 skill·웹 검색 등 도구를 조합해 답한다.
+    같은 sessionId 로 다시 호출하면 이전 대화 맥락이 이어진다. 세션은
+    userId 에 귀속되며 대화는 서버에 저장돼 재개할 수 있다.
+    """
+    if req.sessionId:
+        await asyncio.to_thread(_owned_session_or_404, req.sessionId, req.userId)
+    load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
+    try:
+        result = await agentchat.chat(req.message, req.sessionId, user_id=req.userId)
+    except LLMError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+    # 환각 방어: 답변 수치를 코퍼스 재검색 문서와 대조(웹 출처 수치는 미근거로 표시될 수 있음)
+    result.update(await agentchat.ground_answer(req.message, result["answer"]))
+    await asyncio.to_thread(
+        agentchat.record_turn, req.userId, result["sessionId"], req.message, result
+    )
+    return result
+
+
+def _sse_response(gen):
+    """이벤트 dict async generator → SSE 응답(각 이벤트는 data: JSON 한 줄)."""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    async def _stream():
+        try:
+            async for ev in gen:
+                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        except LLMError as e:
+            err = {"type": "error", "status": e.status, "detail": str(e.detail)}
+            yield f"data: {_json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/agent/chat/stream")
+async def agent_chat_stream(req: AgentChatRequest):
+    """/agent/chat 의 SSE 버전 — 도구 진행사항(progress)·답변 델타(delta)를
+    실시간 중계하고, 마지막에 검증·출처를 포함한 done 이벤트를 보낸다."""
+    if req.sessionId:
+        await asyncio.to_thread(_owned_session_or_404, req.sessionId, req.userId)
+    load_profile()
+    return _sse_response(agentchat.stream_events(req.message, req.sessionId, req.userId))
+
+
+@app.get("/agent/sessions")
+async def agent_sessions(userId: str):
+    """사용자의 에이전트 대화 세션 목록(최근순)."""
+    if not agentchat.is_valid_user_id(userId):
+        raise HTTPException(status_code=400, detail="userId 형식이 올바르지 않습니다.")
+    return {"sessions": await asyncio.to_thread(agentchat.list_sessions, userId)}
+
+
+@app.get("/agent/sessions/{session_id}")
+async def agent_session_detail(session_id: str, userId: str):
+    """세션 상세(메시지 전체) — 대화 재개용."""
+    sess = await asyncio.to_thread(_owned_session_or_404, session_id, userId)
+    messages = await asyncio.to_thread(agentchat.session_messages, session_id)
+    return {
+        "id": sess["id"], "title": sess["title"],
+        "createdAt": sess["created_at"], "updatedAt": sess["updated_at"],
+        "messages": messages,
+    }
+
+
+@app.delete("/agent/sessions/{session_id}", status_code=204)
+async def agent_session_delete(session_id: str, userId: str):
+    await asyncio.to_thread(_owned_session_or_404, session_id, userId)
+    await asyncio.to_thread(agentchat.delete_session, session_id)
+
+
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
 async def _generate_report_result(req: ReportGenerateRequest) -> dict:
     """리포트 생성 공통 로직(문서 수집 → 생성 → 자산 저장). 엔드포인트들이 공유."""
@@ -565,6 +670,32 @@ async def digest_generate(req: DigestGenerateRequest):
     except ValueError as e:
         # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
         raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+@app.post("/digest/agent-comment")
+async def digest_agent_comment(req: DigestAgentCommentRequest):
+    """다이제스트 초안에 hermes 에이전트 코멘트를 단다.
+
+    에이전트가 코퍼스·웹을 검색해 초안의 타당성·놓친 리스크·수정 제안을
+    코멘트로 작성한다. 답변 수치는 코퍼스 대조 검증(numbersGrounded)을 거친다.
+    """
+    load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
+    try:
+        return await agentchat.digest_comment(
+            req.issueNo, req.period, [i.model_dump() for i in req.items]
+        )
+    except LLMError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+
+
+@app.post("/digest/agent-comment/stream")
+async def digest_agent_comment_stream(req: DigestAgentCommentRequest):
+    """/digest/agent-comment 의 SSE 버전 — 진행사항·델타 중계(일회성, 저장 안 함)."""
+    load_profile()
+    message = agentchat.digest_comment_prompt(
+        req.issueNo, req.period, [i.model_dump() for i in req.items]
+    )
+    return _sse_response(agentchat.stream_events(message, None, None, persist=False))
 
 
 @app.get("/digest/latest")

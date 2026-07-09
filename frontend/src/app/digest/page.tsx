@@ -2,8 +2,62 @@
 
 import { useEffect, useState } from "react";
 import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { digests } from "@/lib/data";
+import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
+import { Markdown } from "@/components/markdown";
+
+// hermes 에이전트가 초안을 검토한 코멘트(수치 검증·관련 문서 포함)
+interface AgentComment {
+  issueNo: number;
+  answer: string;
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sources?: { title: string; source: string; publishedAt: string | null }[];
+}
+
+function digestContext(d: GeneratedDigest): string {
+  const items = d.items
+    .map((it) => `- [영향도 ${it.impact}] ${it.title}: ${it.summary}`)
+    .join("\n");
+  return `다음은 뉴스 다이제스트 제${d.issueNo}호(${d.period}) 초안이다. 이 초안과 수집 문서·웹 근거를 참고해 질문에 답하라.\n${items}`;
+}
+
+function AgentCommentCard({ comment }: { comment: AgentComment }) {
+  return (
+    <Card className="mb-4 border-violet-900/40 bg-violet-950/15">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-300">
+        🤖 에이전트 코멘트 — 초안 검토
+      </p>
+      {comment.numbersGrounded === false &&
+        comment.ungroundedNumbers &&
+        comment.ungroundedNumbers.length > 0 && (
+          <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+            ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
+            <span className="font-mono">{comment.ungroundedNumbers.join(", ")}</span>
+          </p>
+        )}
+      <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-200" />
+      {comment.sources && comment.sources.length > 0 && (
+        <div className="mt-3 border-t border-zinc-800 pt-2">
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            관련 수집 문서
+          </p>
+          <ul className="flex flex-col gap-1">
+            {comment.sources.map((s, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs text-zinc-300">
+                <Tag>{s.source}</Tag>
+                <span>{s.title}</span>
+                {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 // 다음 호수: 목업 최신호 + 1 (백엔드가 호수를 관리하기 전 임시 규칙)
 const NEXT_ISSUE_NO = Math.max(...digests.map((d) => d.issueNo)) + 1;
@@ -90,6 +144,45 @@ export default function DigestPage() {
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [fb, setFb] = useState<"up" | "down" | null>(null);
+  const [comment, setComment] = useState<AgentComment | null>(null);
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentSteps, setCommentSteps] = useState<ProgressStep[]>([]);
+  const [commentPartial, setCommentPartial] = useState("");
+  const [commentFor, setCommentFor] = useState<number | null>(null);
+
+  async function handleAgentComment(d: GeneratedDigest) {
+    if (commentLoading || d.items.length === 0) return;
+    setCommentFor(d.issueNo);
+    setCommentLoading(true);
+    setCommentError(null);
+    setCommentSteps([]);
+    setCommentPartial("");
+    try {
+      // SSE 스트리밍 — 도구 진행사항·답변 델타를 실시간 표시
+      const r = await streamAgent(
+        "/digest/agent-comment/stream",
+        {
+          issueNo: d.issueNo,
+          period: d.period,
+          items: d.items.map((it) => ({
+            title: it.title, summary: it.summary, impact: it.impact,
+          })),
+        },
+        {
+          progress: (p) => setCommentSteps((prev) => applyProgress(prev, p)),
+          delta: (t) => setCommentPartial((prev) => prev + t),
+        },
+      );
+      setComment({ issueNo: d.issueNo, ...r });
+    } catch (e) {
+      setCommentError(e instanceof Error ? e.message : "에이전트 코멘트 실패");
+    } finally {
+      setCommentLoading(false);
+      setCommentSteps([]);
+      setCommentPartial("");
+    }
+  }
 
   async function handleFeedback(d: GeneratedDigest, rating: "up" | "down") {
     setFb(rating);
@@ -183,6 +276,20 @@ export default function DigestPage() {
         )}
       </Card>
 
+      {/* 다이제스트 자유 질문 — 표시 중인 초안(생성본 우선)을 컨텍스트로 */}
+      <div className="mb-8">
+        <AgentChatCard
+          title="💬 다이제스트에 질문하기"
+          description={
+            (generated ?? latest)
+              ? `제${(generated ?? latest)!.issueNo}호 초안을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
+              : "에이전트가 수집 문서·웹 근거로 답합니다 — 이어지는 질문은 맥락 유지"
+          }
+          context={(generated ?? latest) ? digestContext((generated ?? latest)!) : null}
+          placeholder="예: 이번 호에서 S.LSI에 가장 중요한 항목은? 최신 뉴스로 보강해줘."
+        />
+      </div>
+
       <div className="flex flex-col gap-8">
         {/* 스케줄(cron) 자동 생성 — 마지막 저장본 */}
         {latest && (
@@ -192,11 +299,29 @@ export default function DigestPage() {
                 제{latest.issueNo}호{" "}
                 <span className="ml-1 text-sm font-normal text-zinc-400">{latest.period}</span>
               </h2>
-              <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
-                자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
-                {latest.sourceDocCount}건
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
+                  자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
+                  {latest.sourceDocCount}건
+                </span>
+                <button
+                  onClick={() => handleAgentComment(latest)}
+                  disabled={commentLoading || latest.items.length === 0}
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                </button>
+              </div>
             </div>
+            {commentLoading && commentFor === latest.issueNo && (
+              <div className="mb-4">
+                <AgentProgressView steps={commentSteps} partial={commentPartial} />
+              </div>
+            )}
+            {comment && comment.issueNo === latest.issueNo && (
+              <AgentCommentCard comment={comment} />
+            )}
             {latest.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
@@ -225,6 +350,14 @@ export default function DigestPage() {
                 <span className="rounded-full border border-sky-900/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-400">
                   AI 생성 초안 · 문서 {generated.sourceDocCount}건 기반
                 </span>
+                <button
+                  onClick={() => handleAgentComment(generated)}
+                  disabled={commentLoading || generated.items.length === 0}
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                </button>
                 <button
                   onClick={() => handleSend(generated)}
                   disabled={sending || generated.items.length === 0}
@@ -271,6 +404,19 @@ export default function DigestPage() {
               >
                 {sendMsg.text}
               </p>
+            )}
+            {commentError && (
+              <p className="mb-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+                {commentError}
+              </p>
+            )}
+            {commentLoading && commentFor === generated.issueNo && (
+              <div className="mb-4">
+                <AgentProgressView steps={commentSteps} partial={commentPartial} />
+              </div>
+            )}
+            {comment && comment.issueNo === generated.issueNo && (
+              <AgentCommentCard comment={comment} />
             )}
             {generated.items.length === 0 ? (
               <Card>

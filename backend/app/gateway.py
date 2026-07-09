@@ -9,6 +9,12 @@
   - OPENROUTER_MODEL    (기본 minimax/minimax-m3, .env 로 재정의)
   - OPENROUTER_BASE_URL (기본 https://openrouter.ai/api/v1)
 
+chat LLM 만 별도 엔드포인트로 보내려면 MI_LLM_* 로 재정의한다
+(embeddings/reranker/VLM 은 계속 OPENROUTER_* 를 사용):
+  - MI_LLM_BASE_URL  예: http://127.0.0.1:8644/v1 (hermes profile mi-report api_server)
+  - MI_LLM_API_KEY   예: hermes api_server 토큰
+  - MI_LLM_MODEL     예: mi-report
+
 참조 설계: gitspace/lsi_error_analyzer (agno.models.openrouter.OpenRouter + Agent).
 """
 
@@ -63,8 +69,9 @@ class LLMClient:
     """agno + OpenRouter 백엔드의 OpenAI 호환 chat 클라이언트."""
 
     def __init__(self) -> None:
-        self.model = os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL)
-        self.base_url = os.getenv("OPENROUTER_BASE_URL", DEFAULT_BASE_URL)
+        # chat 전용 MI_LLM_* 가 있으면 우선 — embeddings/reranker/VLM 은 OPENROUTER_* 를 유지.
+        self.model = os.getenv("MI_LLM_MODEL") or os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL)
+        self.base_url = os.getenv("MI_LLM_BASE_URL") or os.getenv("OPENROUTER_BASE_URL", DEFAULT_BASE_URL)
         try:
             self.max_tokens = int(os.getenv("OPENROUTER_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
         except ValueError:
@@ -76,9 +83,9 @@ class LLMClient:
 
     def _build_agent(self, model: str | None, temperature: float, instructions: list[str]):
         """설정별 Agent 를 캐시에서 재사용한다(시스템 메시지는 instructions 로)."""
-        api_key = os.getenv("OPENROUTER_API_KEY")
+        api_key = os.getenv("MI_LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise LLMError(401, "OPENROUTER_API_KEY 미설정 — 프로파일 .env 에 키를 넣으세요.")
+            raise LLMError(401, "MI_LLM_API_KEY/OPENROUTER_API_KEY 미설정 — 프로파일 .env 에 키를 넣으세요.")
         cache_key = (
             model or self.model, self.base_url, api_key, temperature,
             self.max_tokens, tuple(instructions), tuple(sorted(self.headers.items())),
