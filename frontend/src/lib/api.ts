@@ -304,6 +304,20 @@ export const ragApi = {
     }),
 };
 
+// ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
+export interface AgentChatResponse {
+  answer: string;
+  sessionId: string;
+}
+
+export const agentApi = {
+  chat: (body: { message: string; sessionId?: string }) =>
+    req<AgentChatResponse>("/agent/chat", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 // ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────
 export interface GeneratedReport {
   generatedAt: string;

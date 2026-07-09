@@ -15,7 +15,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from . import assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -25,7 +25,9 @@ from .schemas import (
     FeedbackRequest,
     IngestBatch,
     IngestText,
+    AgentChatRequest,
     RagQueryRequest,
+    RagSearchRequest,
     ReportGenerateRequest,
     ScheduleConfig,
     SourceCreate,
@@ -479,6 +481,34 @@ async def rag_query(req: RagQueryRequest):
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"답변 생성 실패: {e}") from e
+
+
+@app.post("/rag/search")
+async def rag_search(req: RagSearchRequest):
+    """코퍼스 검색만 수행(LLM 답변 없음) — hermes 에이전트의 근거 조회 도구.
+
+    hybrid(BM25+임베딩) 검색 상위 문서를 본문 스니펫과 함께 반환한다.
+    """
+    docs = await asyncio.to_thread(
+        collection.documents_for_rag, req.query,
+        limit=req.limit, topic=req.topic, max_chars=req.maxChars,
+    )
+    return {"query": req.query, "count": len(docs), "docs": docs}
+
+
+# ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
+@app.post("/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    """hermes 에이전트와 대화한다(세션 유지 멀티턴).
+
+    에이전트가 스스로 코퍼스 검색 skill·웹 검색 등 도구를 조합해 답한다.
+    같은 sessionId 로 다시 호출하면 이전 대화 맥락이 이어진다.
+    """
+    load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
+    try:
+        return await agentchat.chat(req.message, req.sessionId)
+    except LLMError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
