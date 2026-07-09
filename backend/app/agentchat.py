@@ -11,10 +11,12 @@ OPENROUTER_* 폴백은 하지 않는다 — 미설정 시 503 성격의 LLMError
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from typing import Any
 
+from . import collection, grounding
 from .gateway import LLMError
 
 # 에이전트는 도구(웹 검색·코퍼스 검색)를 쓸 수 있어 완결형 호출보다 오래 걸린다.
@@ -89,3 +91,46 @@ async def chat(message: str, session_id: str | None = None) -> dict[str, Any]:
     except (ValueError, KeyError, IndexError, TypeError) as e:
         raise LLMError(502, f"hermes 응답 형식 오류: {r.text[:300]}") from e
     return {"answer": answer, "sessionId": sid}
+
+
+# 검증용 재검색 폭 — 질문·답변 각각으로 검색해 union 하므로 실질 최대 2×limit.
+_GROUND_SEARCH_LIMIT = 8
+_GROUND_MAX_CHARS = 8000
+_SOURCES_MAX = 6
+
+
+async def ground_answer(question: str, answer: str) -> dict[str, Any]:
+    """에이전트 답변을 코퍼스와 대조해 {수치 검증, 관련 문서} 를 만든다.
+
+    에이전트는 스스로 검색하므로 어떤 문서를 근거로 썼는지 서버가 모른다.
+    → 질문·답변 텍스트로 코퍼스를 재검색(결정적 하이브리드)한 문서로:
+      - sources: 관련 수집 문서 목록(항상 반환 — 답변 옆에 출처로 표시)
+      - 수치 검증: 답변의 수치가 그 본문에 실재하는지 strict(직접 매칭) 대조.
+        가수 폴백은 쓰지 않는다 — 문서가 많으면 우연 일치로 무력화되기 때문.
+    미근거 수치가 곧 환각은 아니다(웹 출처일 수 있음) — UI 는
+    '수집 문서에서 미확인'으로 표기한다.
+    """
+
+    def _gather_docs() -> list[dict[str, Any]]:
+        seen: dict[str, dict[str, Any]] = {}
+        for query in (question, answer[:600]):
+            docs = collection.documents_for_rag(
+                query, limit=_GROUND_SEARCH_LIMIT, max_chars=_GROUND_MAX_CHARS,
+            )
+            for d in docs:
+                seen.setdefault(d["id"], d)  # 질문 기준 검색 결과를 우선 유지
+        return list(seen.values())
+
+    docs = await asyncio.to_thread(_gather_docs)
+    sources = [
+        {"title": d.get("title", ""), "source": d.get("source", ""),
+         "publishedAt": d.get("publishedAt")}
+        for d in docs[:_SOURCES_MAX]
+    ]
+    if grounding.extract_numbers(answer):
+        g = grounding.check(
+            answer, [d.get("content", "") for d in docs], mantissa_fallback=False,
+        )
+    else:
+        g = {"numbersGrounded": True, "ungroundedNumbers": []}
+    return {**g, "sources": sources}

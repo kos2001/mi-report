@@ -90,6 +90,50 @@ def test_chat_rejects_oversized_session_id(hermes_env):
     assert e.value.status == 400
 
 
+# ── 답변 수치 grounding (환각 방어) + 관련 문서(sources) ──────────────────
+
+_CORPUS = [{
+    "id": "d1", "title": "HBM4 메모", "source": "Confluence", "publishedAt": "2026-06-14",
+    "content": "HBM4 양산 목표는 2027년 상반기, 수요는 35% 증가.",
+}]
+
+
+def test_ground_answer_checks_numbers_and_returns_sources(monkeypatch):
+    monkeypatch.setattr(
+        agentchat.collection, "documents_for_rag", lambda q, **k: _CORPUS
+    )
+    ok = asyncio.run(agentchat.ground_answer("질문", "양산은 2027년, 수요 35% 증가 전망."))
+    assert ok["numbersGrounded"] is True
+    assert ok["sources"] == [
+        {"title": "HBM4 메모", "source": "Confluence", "publishedAt": "2026-06-14"}
+    ]
+
+    bad = asyncio.run(agentchat.ground_answer("질문", "수요는 87% 증가 전망."))
+    assert bad["numbersGrounded"] is False
+    assert any("87" in n for n in bad["ungroundedNumbers"])
+
+
+def test_ground_answer_strict_no_mantissa_coincidence(monkeypatch):
+    """가수 우연 일치(2.07 ≈ 2,076,000)가 미근거 수치를 통과시키면 안 된다."""
+    corpus = [{"id": "d1", "title": "t", "source": "s", "publishedAt": None,
+               "content": "성장률 2.07배, 점유율 5.7%."}]
+    monkeypatch.setattr(
+        agentchat.collection, "documents_for_rag", lambda q, **k: corpus
+    )
+    out = asyncio.run(agentchat.ground_answer("질문", "종가는 2,076,000원."))
+    assert out["numbersGrounded"] is False
+    assert "2076000" in out["ungroundedNumbers"]
+
+
+def test_ground_answer_no_numbers_still_returns_sources(monkeypatch):
+    monkeypatch.setattr(
+        agentchat.collection, "documents_for_rag", lambda q, **k: _CORPUS
+    )
+    out = asyncio.run(agentchat.ground_answer("질문", "수치가 없는 답변입니다."))
+    assert out["numbersGrounded"] is True and out["ungroundedNumbers"] == []
+    assert len(out["sources"]) == 1
+
+
 # ── 엔드포인트 (TestClient) ────────────────────────────────────────────────
 
 def test_agent_chat_endpoint(client, monkeypatch):
@@ -99,7 +143,11 @@ def test_agent_chat_endpoint(client, monkeypatch):
     monkeypatch.setattr(agentchat, "chat", fake_chat)
     r = client.post("/agent/chat", json={"message": "안녕", "sessionId": "s1"})
     assert r.status_code == 200
-    assert r.json() == {"answer": "echo:안녕", "sessionId": "s1"}
+    # 수치 없는 답변 → grounded 통과, 빈 코퍼스 → sources 없음
+    assert r.json() == {
+        "answer": "echo:안녕", "sessionId": "s1",
+        "numbersGrounded": True, "ungroundedNumbers": [], "sources": [],
+    }
 
 
 def test_agent_chat_endpoint_maps_llm_error(client, monkeypatch):

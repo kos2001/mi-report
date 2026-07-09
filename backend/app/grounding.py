@@ -64,16 +64,21 @@ def extract_numbers(text: str) -> list[str]:
     return out
 
 
-def ungrounded_numbers(text: str, source_texts: list[str]) -> list[str]:
+def ungrounded_numbers(text: str, source_texts: list[str], *,
+                       mantissa_fallback: bool = True) -> list[str]:
     """답변의 수치 중 근거 문서 원문에 등장하지 않는 것을 반환.
 
     1) 직접 매칭: 콤마 정규화 후 부분문자열로 등장하는가(연도·날짜·표기 그대로).
     2) 가수 매칭(폴백): 원문 어느 수치와 10의 거듭제곱·반올림을 무시하고 같은가
        (예: 원문 40,319,000,000 → 답변 403.19억/40.3B). 단위 환산·반올림을 흡수하되
        허용오차(0.5%)로 우연 일치를 억제해 진짜 환각은 계속 잡는다.
+
+    mantissa_fallback=False 는 1)만 쓴다 — 대조 문서가 많아 수치가 수백 개면
+    가수 공간([1,10))이 우연 일치로 채워져 폴백이 무력화되므로, 넓은 문서 집합
+    (에이전트 답변 검증 등)에는 strict 매칭이 맞다.
     """
     src = _norm(" ".join(t for t in source_texts if t))
-    src_mant = [_mantissa(v) for v in _floats(src)]
+    src_mant = [_mantissa(v) for v in _floats(src)] if mantissa_fallback else []
     bad: list[str] = []
     for n in extract_numbers(text):
         if n in src:
@@ -89,9 +94,9 @@ def ungrounded_numbers(text: str, source_texts: list[str]) -> list[str]:
     return bad
 
 
-def check(text: str, source_texts: list[str]) -> dict:
+def check(text: str, source_texts: list[str], *, mantissa_fallback: bool = True) -> dict:
     """수치 근거 검증 결과: {numbersGrounded, ungroundedNumbers}."""
-    bad = ungrounded_numbers(text, source_texts)
+    bad = ungrounded_numbers(text, source_texts, mantissa_fallback=mantissa_fallback)
     return {"numbersGrounded": not bad, "ungroundedNumbers": bad}
 
 

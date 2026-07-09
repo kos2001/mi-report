@@ -287,27 +287,20 @@ export const competitorsApi = {
 };
 
 // ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
-export interface RagAnswer {
-  question: string;
-  answer: string;
-  sources: { index: number; title: string; source: string }[];
-  usedDocCount: number;
-  numbersGrounded?: boolean;
-  ungroundedNumbers?: string[];
+// ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
+export interface AgentSource {
+  title: string;
+  source: string;
+  publishedAt: string | null;
 }
 
-export const ragApi = {
-  query: (body: { question: string; topic?: string; q?: string; limit?: number }) =>
-    req<RagAnswer>("/rag/query", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-};
-
-// ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
 export interface AgentChatResponse {
   answer: string;
   sessionId: string;
+  // 환각 방어(서버 부여): 답변 수치의 코퍼스 대조 결과 + 관련 수집 문서
+  numbersGrounded?: boolean;
+  ungroundedNumbers?: string[];
+  sources?: AgentSource[];
 }
 
 export const agentApi = {

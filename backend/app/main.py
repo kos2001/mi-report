@@ -506,9 +506,12 @@ async def agent_chat(req: AgentChatRequest):
     """
     load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
     try:
-        return await agentchat.chat(req.message, req.sessionId)
+        result = await agentchat.chat(req.message, req.sessionId)
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
+    # 환각 방어: 답변 수치를 코퍼스 재검색 문서와 대조(웹 출처 수치는 미근거로 표시될 수 있음)
+    result.update(await agentchat.ground_answer(req.message, result["answer"]))
+    return result
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
