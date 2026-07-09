@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { agentApi, type AgentSessionInfo, type AgentSource } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { loadUserId } from "@/lib/user";
+import { AgentProgressView } from "@/components/agent-chat";
 import { Card, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 
@@ -24,6 +26,8 @@ export default function AskPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [steps, setSteps] = useState<ProgressStep[]>([]);
+  const [partial, setPartial] = useState("");
 
   const refreshSessions = useCallback(async (uid: string) => {
     try {
@@ -35,6 +39,7 @@ export default function AskPage() {
 
   useEffect(() => {
     const uid = loadUserId();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage(브라우저 전용)를 마운트 후 1회 읽어야 SSR hydration 불일치가 없다
     setUserId(uid);
     refreshSessions(uid);
   }, [refreshSessions]);
@@ -46,12 +51,17 @@ export default function AskPage() {
     setInput("");
     setLoading(true);
     setError(null);
+    setSteps([]);
+    setPartial("");
     try {
-      const res = await agentApi.chat({
-        message: msg,
-        sessionId: sessionId ?? undefined,
-        userId,
-      });
+      const res = await streamAgent(
+        "/agent/chat/stream",
+        { message: msg, sessionId: sessionId ?? undefined, userId },
+        {
+          progress: (p) => setSteps((prev) => applyProgress(prev, p)),
+          delta: (t) => setPartial((prev) => prev + t),
+        },
+      );
       setSessionId(res.sessionId);
       setMessages((prev) => [
         ...prev,
@@ -68,6 +78,8 @@ export default function AskPage() {
       setError(e instanceof Error ? e.message : "에이전트 응답 실패");
     } finally {
       setLoading(false);
+      setSteps([]);
+      setPartial("");
     }
   }
 
@@ -250,7 +262,7 @@ export default function AskPage() {
                 </div>
               ),
             )}
-            {loading && <p className="text-sm text-zinc-500">에이전트가 조사 중… (도구 사용 시 수십 초)</p>}
+            {loading && <AgentProgressView steps={steps} partial={partial} />}
             {error && (
               <p className="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
                 {error}

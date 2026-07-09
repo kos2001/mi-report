@@ -530,6 +530,36 @@ async def agent_chat(req: AgentChatRequest):
     return result
 
 
+def _sse_response(gen):
+    """이벤트 dict async generator → SSE 응답(각 이벤트는 data: JSON 한 줄)."""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    async def _stream():
+        try:
+            async for ev in gen:
+                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        except LLMError as e:
+            err = {"type": "error", "status": e.status, "detail": str(e.detail)}
+            yield f"data: {_json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/agent/chat/stream")
+async def agent_chat_stream(req: AgentChatRequest):
+    """/agent/chat 의 SSE 버전 — 도구 진행사항(progress)·답변 델타(delta)를
+    실시간 중계하고, 마지막에 검증·출처를 포함한 done 이벤트를 보낸다."""
+    if req.sessionId:
+        await asyncio.to_thread(_owned_session_or_404, req.sessionId, req.userId)
+    load_profile()
+    return _sse_response(agentchat.stream_events(req.message, req.sessionId, req.userId))
+
+
 @app.get("/agent/sessions")
 async def agent_sessions(userId: str):
     """사용자의 에이전트 대화 세션 목록(최근순)."""
@@ -656,6 +686,16 @@ async def digest_agent_comment(req: DigestAgentCommentRequest):
         )
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
+
+
+@app.post("/digest/agent-comment/stream")
+async def digest_agent_comment_stream(req: DigestAgentCommentRequest):
+    """/digest/agent-comment 의 SSE 버전 — 진행사항·델타 중계(일회성, 저장 안 함)."""
+    load_profile()
+    message = agentchat.digest_comment_prompt(
+        req.issueNo, req.period, [i.model_dump() for i in req.items]
+    )
+    return _sse_response(agentchat.stream_events(message, None, None, persist=False))
 
 
 @app.get("/digest/latest")

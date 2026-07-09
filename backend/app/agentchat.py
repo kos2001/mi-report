@@ -149,9 +149,118 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
     return {**g, "sources": sources}
 
 
+# ── 스트리밍 (진행사항 + 답변 델타) ────────────────────────────────────────
+
+async def parse_sse(lines) -> Any:
+    """SSE 라인 스트림 → (event, data) 튜플의 async generator.
+
+    event: 가 없는 data: 는 event=None. 빈 줄이 디스패치 경계, ':' 시작은
+    keepalive 주석. data: [DONE] 은 (None, "[DONE]") 로 그대로 넘긴다.
+    """
+    event: str | None = None
+    async for raw in lines:
+        line = raw.rstrip("\n")
+        if not line:
+            event = None  # 이벤트 경계
+            continue
+        if line.startswith(":"):
+            continue  # keepalive
+        if line.startswith("event:"):
+            event = line[len("event:"):].strip()
+        elif line.startswith("data:"):
+            yield event, line[len("data:"):].strip()
+
+
+async def stream_events(message: str, session_id: str | None = None,
+                        user_id: str | None = None, *,
+                        persist: bool = True) -> Any:
+    """hermes 스트리밍 chat 을 이벤트 dict 로 중계하는 async generator.
+
+    산출 이벤트:
+      {"type": "progress", "tool", "emoji"?, "label"?, "status"}  도구 진행사항
+      {"type": "delta", "text"}                                    답변 토큰
+      {"type": "done", "answer", "sessionId", numbersGrounded, ungroundedNumbers, sources}
+    오류는 LLMError 로 raise(호출부가 SSE error 이벤트로 변환).
+    """
+    base, key, model = _hermes_config()
+    sid = (session_id or "").strip() or new_session_id()
+    if len(sid) > 256:
+        raise LLMError(400, "sessionId 가 너무 깁니다(최대 256자).")
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "X-Hermes-Session-Id": sid,
+    }
+    if user_id:
+        headers["X-Hermes-Session-Key"] = f"mi-report:{user_id}"
+    body = {"model": model, "stream": True,
+            "messages": [{"role": "user", "content": message}]}
+
+    import httpx
+
+    parts: list[str] = []
+    try:
+        async with _http().stream(
+            "POST", f"{base}/chat/completions", headers=headers, json=body,
+            timeout=AGENT_TIMEOUT,
+        ) as r:
+            if r.status_code >= 400:
+                detail = (await r.aread()).decode("utf-8", "replace")[:300]
+                try:
+                    detail = json.loads(detail).get("error", {}).get("message") or detail
+                except ValueError:
+                    pass
+                raise LLMError(r.status_code, f"hermes 에이전트 오류: {detail}")
+            async for event, data in parse_sse(r.aiter_lines()):
+                if data == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data)
+                except ValueError:
+                    continue
+                if event == "hermes.tool.progress":
+                    yield {"type": "progress", **payload}
+                    continue
+                delta = (payload.get("choices") or [{}])[0].get("delta", {})
+                text = delta.get("content")
+                if text:
+                    parts.append(text)
+                    yield {"type": "delta", "text": text}
+    except httpx.HTTPError as e:
+        raise LLMError(502, f"hermes 에이전트 연결 실패: {e}") from e
+
+    answer = "".join(parts)
+    if not answer:
+        raise LLMError(502, "hermes 에이전트가 빈 응답을 반환했습니다.")
+    result: dict[str, Any] = {"answer": answer, "sessionId": sid}
+    result.update(await ground_answer(message, answer))
+    if persist and user_id:
+        await asyncio.to_thread(record_turn, user_id, sid, message, result)
+    yield {"type": "done", **result}
+
+
 # ── 다이제스트 초안 에이전트 코멘트 ────────────────────────────────────────
 
 _COMMENT_SUMMARY_CHARS = 300
+
+
+def digest_comment_prompt(issue_no: int, period: str,
+                          items: list[dict[str, Any]]) -> str:
+    lines = [
+        f"- (영향도 {it.get('impact') or '?'}) {it.get('title', '')}: "
+        f"{(it.get('summary') or '')[:_COMMENT_SUMMARY_CHARS]}"
+        for it in items
+    ]
+    return (
+        "다음은 발송 전 검토 단계의 주간 뉴스 다이제스트 초안이다. "
+        "MI 애널리스트 관점의 에이전트 코멘트를 작성하라.\n"
+        "코퍼스 검색(필요시 웹 검색 병행)으로 근거를 확인해서 간결하게:\n"
+        "1) 항목별 타당성과 놓친 근거, 2) 초안에 빠진 리스크·시사점, "
+        "3) 발송 전 수정 제안.\n"
+        "근거 문서·출처는 본문에 인용하라.\n\n"
+        f"제{issue_no}호 {period}\n" + "\n".join(lines)
+    )
 
 
 async def digest_comment(issue_no: int, period: str,
@@ -161,20 +270,7 @@ async def digest_comment(issue_no: int, period: str,
     에이전트가 코퍼스·웹을 검색해 초안의 타당성 검토, 근거 보강, 놓친
     리스크/시사점을 코멘트로 작성한다. 답변 수치는 코퍼스 대조로 검증한다.
     """
-    lines = [
-        f"- (영향도 {it.get('impact') or '?'}) {it.get('title', '')}: "
-        f"{(it.get('summary') or '')[:_COMMENT_SUMMARY_CHARS]}"
-        for it in items
-    ]
-    message = (
-        "다음은 발송 전 검토 단계의 주간 뉴스 다이제스트 초안이다. "
-        "MI 애널리스트 관점의 에이전트 코멘트를 작성하라.\n"
-        "코퍼스 검색(필요시 웹 검색 병행)으로 근거를 확인해서 간결하게:\n"
-        "1) 항목별 타당성과 놓친 근거, 2) 초안에 빠진 리스크·시사점, "
-        "3) 발송 전 수정 제안.\n"
-        "근거 문서·출처는 본문에 인용하라.\n\n"
-        f"제{issue_no}호 {period}\n" + "\n".join(lines)
-    )
+    message = digest_comment_prompt(issue_no, period, items)
     result = await chat(message)  # 매번 새 세션(일회성 코멘트)
     result.update(await ground_answer(message, result["answer"]))
     return result

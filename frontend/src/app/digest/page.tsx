@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { agentApi, digestApi, feedbackApi, type AgentSource, type GeneratedDigest } from "@/lib/api";
-import { loadUserId } from "@/lib/user";
+import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { digests } from "@/lib/data";
+import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 
@@ -16,151 +17,11 @@ interface AgentComment {
   sources?: { title: string; source: string; publishedAt: string | null }[];
 }
 
-// 다이제스트 자유 질문 — 첫 질문에 표시 중인 다이제스트를 컨텍스트로 붙이고,
-// 이후 턴은 같은 hermes 세션이 맥락을 기억한다(/agent/chat 재사용).
-interface DigestChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  numbersGrounded?: boolean;
-  ungroundedNumbers?: string[];
-  sources?: AgentSource[];
-}
-
 function digestContext(d: GeneratedDigest): string {
   const items = d.items
     .map((it) => `- [영향도 ${it.impact}] ${it.title}: ${it.summary}`)
     .join("\n");
   return `다음은 뉴스 다이제스트 제${d.issueNo}호(${d.period}) 초안이다. 이 초안과 수집 문서·웹 근거를 참고해 질문에 답하라.\n${items}`;
-}
-
-function DigestAskCard({ digest }: { digest: GeneratedDigest | null }) {
-  const [messages, setMessages] = useState<DigestChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function send() {
-    const q = input.trim();
-    if (!q || loading) return;
-    setMessages((prev) => [...prev, { role: "user", content: q }]);
-    setInput("");
-    setLoading(true);
-    setError(null);
-    try {
-      // 첫 턴에만 다이제스트 컨텍스트를 붙인다 — 이후엔 세션이 기억.
-      const message =
-        !sessionId && digest ? `${digestContext(digest)}\n\n질문: ${q}` : q;
-      const res = await agentApi.chat({
-        message,
-        sessionId: sessionId ?? undefined,
-        userId: loadUserId(),
-      });
-      setSessionId(res.sessionId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: res.answer,
-          numbersGrounded: res.numbersGrounded,
-          ungroundedNumbers: res.ungroundedNumbers,
-          sources: res.sources,
-        },
-      ]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "에이전트 응답 실패");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Card className="border-sky-900/40 bg-sky-950/10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-sky-200">💬 다이제스트에 질문하기</h2>
-          <p className="mt-0.5 text-xs text-zinc-400">
-            {digest
-              ? `제${digest.issueNo}호 초안을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
-              : "에이전트가 수집 문서·웹 근거로 답합니다 — 이어지는 질문은 맥락 유지"}
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <button
-            onClick={() => {
-              setMessages([]);
-              setSessionId(null);
-              setError(null);
-            }}
-            className="text-xs text-zinc-400 hover:text-zinc-200"
-          >
-            새 질문
-          </button>
-        )}
-      </div>
-      {messages.length > 0 && (
-        <div className="mt-3 flex flex-col gap-3">
-          {messages.map((m, i) =>
-            m.role === "user" ? (
-              <div key={i} className="self-end rounded-lg bg-sky-950/60 px-3 py-2 text-sm text-sky-100">
-                {m.content}
-              </div>
-            ) : (
-              <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-                {m.numbersGrounded === false && m.ungroundedNumbers && m.ungroundedNumbers.length > 0 && (
-                  <p className="mb-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
-                    ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
-                    <span className="font-mono">{m.ungroundedNumbers.join(", ")}</span>
-                  </p>
-                )}
-                <Markdown text={m.content} className="text-sm text-zinc-200" />
-                {m.sources && m.sources.length > 0 && (
-                  <div className="mt-3 border-t border-zinc-800 pt-2">
-                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                      관련 수집 문서
-                    </p>
-                    <ul className="flex flex-col gap-1">
-                      {m.sources.map((s, j) => (
-                        <li key={j} className="flex items-center gap-2 text-xs text-zinc-300">
-                          <Tag>{s.source}</Tag>
-                          <span>{s.title}</span>
-                          {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ),
-          )}
-        </div>
-      )}
-      {loading && <p className="mt-3 text-sm text-zinc-500">에이전트가 조사 중… (도구 사용 시 수십 초)</p>}
-      {error && (
-        <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
-          {error}
-        </p>
-      )}
-      <div className="mt-3 flex items-center gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !loading) send();
-          }}
-          placeholder="예: 이번 호에서 S.LSI에 가장 중요한 항목은? 최신 뉴스로 보강해줘."
-          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
-        />
-        <button
-          onClick={send}
-          disabled={loading || !input.trim()}
-          className="shrink-0 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
-        >
-          {loading ? "조사 중…" : "질문"}
-        </button>
-      </div>
-    </Card>
-  );
 }
 
 function AgentCommentCard({ comment }: { comment: AgentComment }) {
@@ -286,24 +147,40 @@ export default function DigestPage() {
   const [comment, setComment] = useState<AgentComment | null>(null);
   const [commentLoading, setCommentLoading] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentSteps, setCommentSteps] = useState<ProgressStep[]>([]);
+  const [commentPartial, setCommentPartial] = useState("");
+  const [commentFor, setCommentFor] = useState<number | null>(null);
 
   async function handleAgentComment(d: GeneratedDigest) {
     if (commentLoading || d.items.length === 0) return;
+    setCommentFor(d.issueNo);
     setCommentLoading(true);
     setCommentError(null);
+    setCommentSteps([]);
+    setCommentPartial("");
     try {
-      const r = await digestApi.agentComment({
-        issueNo: d.issueNo,
-        period: d.period,
-        items: d.items.map((it) => ({
-          title: it.title, summary: it.summary, impact: it.impact,
-        })),
-      });
+      // SSE 스트리밍 — 도구 진행사항·답변 델타를 실시간 표시
+      const r = await streamAgent(
+        "/digest/agent-comment/stream",
+        {
+          issueNo: d.issueNo,
+          period: d.period,
+          items: d.items.map((it) => ({
+            title: it.title, summary: it.summary, impact: it.impact,
+          })),
+        },
+        {
+          progress: (p) => setCommentSteps((prev) => applyProgress(prev, p)),
+          delta: (t) => setCommentPartial((prev) => prev + t),
+        },
+      );
       setComment({ issueNo: d.issueNo, ...r });
     } catch (e) {
       setCommentError(e instanceof Error ? e.message : "에이전트 코멘트 실패");
     } finally {
       setCommentLoading(false);
+      setCommentSteps([]);
+      setCommentPartial("");
     }
   }
 
@@ -401,7 +278,16 @@ export default function DigestPage() {
 
       {/* 다이제스트 자유 질문 — 표시 중인 초안(생성본 우선)을 컨텍스트로 */}
       <div className="mb-8">
-        <DigestAskCard digest={generated ?? latest} />
+        <AgentChatCard
+          title="💬 다이제스트에 질문하기"
+          description={
+            (generated ?? latest)
+              ? `제${(generated ?? latest)!.issueNo}호 초안을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
+              : "에이전트가 수집 문서·웹 근거로 답합니다 — 이어지는 질문은 맥락 유지"
+          }
+          context={(generated ?? latest) ? digestContext((generated ?? latest)!) : null}
+          placeholder="예: 이번 호에서 S.LSI에 가장 중요한 항목은? 최신 뉴스로 보강해줘."
+        />
       </div>
 
       <div className="flex flex-col gap-8">
@@ -428,6 +314,11 @@ export default function DigestPage() {
                 </button>
               </div>
             </div>
+            {commentLoading && commentFor === latest.issueNo && (
+              <div className="mb-4">
+                <AgentProgressView steps={commentSteps} partial={commentPartial} />
+              </div>
+            )}
             {comment && comment.issueNo === latest.issueNo && (
               <AgentCommentCard comment={comment} />
             )}
@@ -518,6 +409,11 @@ export default function DigestPage() {
               <p className="mb-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
                 {commentError}
               </p>
+            )}
+            {commentLoading && commentFor === generated.issueNo && (
+              <div className="mb-4">
+                <AgentProgressView steps={commentSteps} partial={commentPartial} />
+              </div>
             )}
             {comment && comment.issueNo === generated.issueNo && (
               <AgentCommentCard comment={comment} />

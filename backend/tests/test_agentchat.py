@@ -214,6 +214,128 @@ def test_sessions_rejects_bad_user_id(client):
     assert client.get("/agent/sessions", params={"userId": "한글불가"}).status_code == 400
 
 
+# ── 스트리밍 (진행사항 + 델타) ─────────────────────────────────────────────
+
+async def _alines(lines):
+    for ln in lines:
+        yield ln
+
+
+def test_parse_sse_pairs_events_and_data():
+    lines = [
+        "event: hermes.tool.progress",
+        'data: {"tool": "web_search", "status": "running"}',
+        "",
+        ": keepalive",
+        'data: {"choices": []}',
+        "",
+        "data: [DONE]",
+    ]
+
+    async def run():
+        return [pair async for pair in agentchat.parse_sse(_alines(lines))]
+
+    out = asyncio.run(run())
+    assert out == [
+        ("hermes.tool.progress", '{"tool": "web_search", "status": "running"}'),
+        (None, '{"choices": []}'),
+        (None, "[DONE]"),
+    ]
+
+
+class FakeStreamResponse:
+    status_code = 200
+
+    def __init__(self, lines):
+        self._lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def aiter_lines(self):
+        return _alines(self._lines)
+
+    async def aread(self):
+        return b""
+
+
+class FakeStreamHttp:
+    def __init__(self, lines):
+        self._lines = lines
+        self.last: dict | None = None
+
+    def stream(self, method, url, *, headers=None, json=None, timeout=None):
+        self.last = {"method": method, "url": url, "headers": headers, "json": json}
+        return FakeStreamResponse(self._lines)
+
+
+_SSE_LINES = [
+    "event: hermes.tool.progress",
+    'data: {"tool": "web_search", "emoji": "🔍", "label": "검색", "status": "running"}',
+    "",
+    'data: {"choices": [{"delta": {"content": "안녕"}}]}',
+    "",
+    'data: {"choices": [{"delta": {"content": "하세요"}}]}',
+    "",
+    "data: [DONE]",
+]
+
+
+def test_stream_events_relays_progress_delta_done(monkeypatch, hermes_env, client):
+    fake = FakeStreamHttp(_SSE_LINES)
+    monkeypatch.setattr(agentchat, "_http", lambda: fake)
+
+    async def run():
+        return [ev async for ev in agentchat.stream_events("질문", None, "user-a")]
+
+    events = asyncio.run(run())
+    assert events[0]["type"] == "progress" and events[0]["tool"] == "web_search"
+    assert [e["text"] for e in events if e["type"] == "delta"] == ["안녕", "하세요"]
+    done = events[-1]
+    assert done["type"] == "done" and done["answer"] == "안녕하세요"
+    assert done["numbersGrounded"] is True and done["sources"] == []
+    assert fake.last["json"]["stream"] is True
+    # persist: 턴이 세션으로 저장된다
+    sessions = agentchat.list_sessions("user-a")
+    assert len(sessions) == 1 and sessions[0]["messageCount"] == 2
+
+
+def test_agent_chat_stream_endpoint(client, monkeypatch):
+    async def fake_stream(message, session_id=None, user_id=None, persist=True):
+        yield {"type": "progress", "tool": "terminal", "status": "running"}
+        yield {"type": "delta", "text": "답"}
+        yield {"type": "done", "answer": "답", "sessionId": "s1",
+               "numbersGrounded": True, "ungroundedNumbers": [], "sources": []}
+
+    monkeypatch.setattr(agentchat, "stream_events", fake_stream)
+    r = client.post("/agent/chat/stream", json={"message": "안녕", "userId": "user-a"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    lines = [ln for ln in r.text.splitlines() if ln.startswith("data: ")]
+    types = [json.loads(ln[6:])["type"] for ln in lines]
+    assert types == ["progress", "delta", "done"]
+
+
+def test_digest_comment_stream_endpoint(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(message, session_id=None, user_id=None, persist=True):
+        captured["message"] = message
+        captured["persist"] = persist
+        yield {"type": "done", "answer": "코멘트", "sessionId": "s1"}
+
+    monkeypatch.setattr(agentchat, "stream_events", fake_stream)
+    r = client.post("/digest/agent-comment/stream", json={
+        "issueNo": 3, "period": "p", "items": [{"title": "T", "summary": "S"}],
+    })
+    assert r.status_code == 200
+    assert "제3호" in captured["message"] and "T" in captured["message"]
+    assert captured["persist"] is False
+
+
 # ── 다이제스트 에이전트 코멘트 ─────────────────────────────────────────────
 
 def test_digest_agent_comment(client, monkeypatch):
