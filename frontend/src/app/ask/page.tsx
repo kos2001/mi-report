@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { agentApi, type AgentSessionInfo, type AgentSource } from "@/lib/api";
+import { loadUserId } from "@/lib/user";
 import { Card, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 
@@ -12,17 +13,6 @@ interface AgentMessage {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   sources?: AgentSource[];
-}
-
-// 브라우저별 사용자 ID(localStorage) — 멀티유저 세션 분리의 기본 신원.
-function loadUserId(): string {
-  const KEY = "mi-user-id";
-  let id = localStorage.getItem(KEY);
-  if (!id) {
-    id = `user-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    localStorage.setItem(KEY, id);
-  }
-  return id;
 }
 
 export default function AskPage() {
