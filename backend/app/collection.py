@@ -287,29 +287,66 @@ def add_crawled_document(
     *, url: str | None = None, topic: str | None = None,
 ) -> dict[str, Any]:
     """수집한 페이지 본문을 문서로 저장하고 소스 카운트를 갱신한다."""
+    return add_crawled_documents(
+        source_id, source_name,
+        [{"title": title, "text": text, "url": url, "topic": topic}],
+    )[0]
+
+
+def add_crawled_documents(source_id: str, source_name: str,
+                          items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """수집한 페이지 여러 건을 일괄 저장한다(임베딩 배치 1회 + 단일 트랜잭션).
+
+    커넥터(Confluence/한경 등)는 한 번에 수십 건을 동기화한다. 건별로 저장하면
+    문서마다 임베딩 왕복(원격 모델 300~500ms)과 쓰기 트랜잭션이 각각 발생해
+    수집 시간이 건수에 비례했다. 여기서는 배치 임베딩 1회 + 트랜잭션 1회로 처리한다.
+
+    items 각 항목: {title, text, url?, topic?}. 반환은 입력 순서와 동일.
+    """
+    if not items:
+        return []
     config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    doc_id = uuid.uuid4().hex
-    safe_title = (Path(title).name or "untitled").strip()[:120] or "untitled"
-    dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
-    body = f"# {title}\n원본: {url}\n\n{text}" if url else text
-    dest.write_text(body, encoding="utf-8")
-    # 임베딩(네트워크/모델 호출 가능)은 쓰기 트랜잭션 밖에서 계산 — 잠금 시간 최소화
-    embedding = _compute_embedding(title, topic, text)
-    with _conn() as conn:
-        conn.execute(
-            "INSERT INTO documents (id, source_id, source_name, title, filename, path, topic,"
-            " published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (doc_id, source_id, source_name, safe_title, url or safe_title, str(dest),
-             topic, _today(), "수집됨", _now()),
-        )
-        conn.execute(
-            "UPDATE sources SET count = count + 1, status='정상', last_run=? WHERE id=?",
-            (_now(), source_id),
-        )
-        _index_content(conn, doc_id, text, title=title, topic=topic)  # 제목+주제+본문 색인
-        _insert_embedding(conn, doc_id, embedding)  # 의미 임베딩(활성 시)
-        row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
-    return _row_to_document(row)
+    # 파일 쓰기·임베딩(네트워크/모델 호출)은 쓰기 트랜잭션 밖에서 — 잠금 시간 최소화
+    prepared: list[tuple[str, str, Path, dict[str, Any]]] = []
+    for it in items:
+        doc_id = uuid.uuid4().hex
+        safe_title = (Path(it["title"]).name or "untitled").strip()[:120] or "untitled"
+        dest = config.UPLOADS_DIR / f"{doc_id}__{safe_title}.txt"
+        url = it.get("url")
+        body = f"# {it['title']}\n원본: {url}\n\n{it['text']}" if url else it["text"]
+        dest.write_text(body, encoding="utf-8")
+        prepared.append((doc_id, safe_title, dest, it))
+    embs = _compute_embeddings(
+        [_embed_doc_text(it["title"], it.get("topic"), it["text"]) for *_, it in prepared]
+    )
+    out: list[dict[str, Any]] = []
+    try:
+        with _conn() as conn:
+            for (doc_id, safe_title, dest, it), emb in zip(prepared, embs):
+                conn.execute(
+                    "INSERT INTO documents (id, source_id, source_name, title, filename, path,"
+                    " topic, published_at, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (doc_id, source_id, source_name, safe_title,
+                     it.get("url") or safe_title, str(dest),
+                     it.get("topic"), _today(), "수집됨", _now()),
+                )
+                # 제목+주제+본문 색인
+                _index_content(conn, doc_id, it["text"],
+                               title=it["title"], topic=it.get("topic"))
+                _insert_embedding(conn, doc_id, emb)  # 의미 임베딩(활성 시)
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE id=?", (doc_id,)
+                ).fetchone()
+                out.append(_row_to_document(row))
+            conn.execute(
+                "UPDATE sources SET count = count + ?, status='정상', last_run=? WHERE id=?",
+                (len(prepared), _now(), source_id),
+            )
+    except Exception:
+        for _i, _s, dest, _it in prepared:  # 롤백 시 미리 써 둔 파일 회수
+            dest.unlink(missing_ok=True)
+        raise
+    return out
 
 
 def collect_source(sid: str) -> dict[str, Any]:

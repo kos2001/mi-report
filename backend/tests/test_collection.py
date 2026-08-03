@@ -264,6 +264,35 @@ def _stub_embeddings(monkeypatch, vectors: dict[str, list[float]], dim: int = 4)
     return calls
 
 
+def test_add_crawled_documents_single_embedding_batch(isolated, monkeypatch):
+    """커넥터 일괄 수집은 문서당 임베딩 왕복이 아니라 배치 1회여야 한다."""
+    calls = _stub_embeddings(monkeypatch, {})
+    src = collection.create_source("뉴스 배치", "news", {"url": "https://x/y"}, True)
+    items = [{"title": f"페이지 {i}", "text": f"본문 {i}", "url": f"https://x/{i}"}
+             for i in range(6)]
+    docs = collection.add_crawled_documents(src["id"], src["name"], items)
+    assert [d["title"] for d in docs] == [f"페이지 {i}" for i in range(6)]
+    assert calls == [6]  # 배치 1회
+    assert collection.get_source(src["id"])["count"] == 6  # 카운트도 일괄 반영
+    # 본문은 URL 헤더와 함께 저장되고 검색 색인에도 들어간다
+    assert "본문 3" in (collection.read_document_text(docs[3]["id"]) or "")
+    assert any(d["id"] == docs[3]["id"] for d in collection.search_documents("페이지"))
+
+
+def test_add_crawled_documents_rolls_back_files_on_failure(isolated, monkeypatch):
+    """트랜잭션 실패 시 미리 써 둔 .txt 가 고아로 남지 않아야 한다."""
+    from app import config
+
+    src = collection.create_source("뉴스 실패", "news", {"url": "https://x/y"}, True)
+    monkeypatch.setattr(collection, "_index_content",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("색인 실패")))
+    with pytest.raises(RuntimeError):
+        collection.add_crawled_documents(
+            src["id"], src["name"], [{"title": "T", "text": "본문", "url": "https://x/1"}]
+        )
+    assert not list(config.UPLOADS_DIR.glob("*__T.txt"))
+
+
 def test_hybrid_search_multi_uses_one_embedding_call(isolated, monkeypatch):
     """질의 N개를 검색해도 임베딩 호출은 배치 1회여야 한다(원격 왕복 절감)."""
     calls = _stub_embeddings(monkeypatch, {})
