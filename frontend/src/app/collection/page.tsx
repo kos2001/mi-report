@@ -614,6 +614,9 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
 }
 
 // ── 업로드 탭 ────────────────────────────────────────────────────────
+// 동시 업로드 수. 브라우저 연결 수와 백엔드 쓰기 잠금을 함께 고려한 보수적 값.
+const UPLOAD_CONCURRENCY = 4;
+
 function UploadTab({ onChange }: { onChange: () => void }) {
   const [topic, setTopic] = useState("");
   const [drag, setDrag] = useState(false);
@@ -621,14 +624,29 @@ function UploadTab({ onChange }: { onChange: () => void }) {
   const [recent, setRecent] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 여러 파일을 한 건씩 순차 업로드하면 총 시간이 파일 수만큼 늘어난다.
+  // 동시 UPLOAD_CONCURRENCY 건씩 올린다(백엔드 업로드는 스트리밍 저장 + 워커 스레드
+  // 등록이라 동시 요청에 안전). 개별 실패는 나머지를 막지 않는다.
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const queue = Array.from(files);
     setUploading(true);
     try {
-      for (const f of Array.from(files)) {
-        await api.upload(f, topic || undefined);
-        setRecent((r) => [f.name, ...r].slice(0, 8));
-      }
+      let next = 0;
+      const worker = async () => {
+        while (next < queue.length) {
+          const f = queue[next++];
+          try {
+            await api.upload(f, topic || undefined);
+            setRecent((r) => [f.name, ...r].slice(0, 8));
+          } catch {
+            /* 개별 파일 실패는 건너뛴다 — 목록 새로고침으로 결과 확인 */
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(UPLOAD_CONCURRENCY, queue.length) }, worker),
+      );
       onChange();
     } finally {
       setUploading(false);

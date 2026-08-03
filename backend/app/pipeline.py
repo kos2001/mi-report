@@ -30,13 +30,13 @@ async def collect_source(
     if source["type"] == "hankyung":
         return await collect_hankyung_source(source, client)
 
-    documents: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     urls = collection.source_urls(source)
     # URL fetch 는 네트워크 대기가 지배적 → 동시 수행(문서 저장은 순서대로).
     fetched_all = await asyncio.gather(
         *(fetcher.fetch_url(client, url) for url in urls), return_exceptions=True
     )
+    items: list[dict[str, Any]] = []
     for url, fetched in zip(urls, fetched_all):
         if isinstance(fetched, BaseException):
             if isinstance(fetched, httpx.HTTPError):
@@ -46,13 +46,13 @@ async def collect_source(
         if not fetched["text"]:
             errors.append({"url": url, "error": "본문 추출 실패(빈 텍스트)"})
             continue
-        # 문서 저장(DB+파일+임베딩 계산)은 블로킹 → 워커 스레드에서 수행
-        documents.append(
-            await asyncio.to_thread(
-                collection.add_crawled_document,
-                source["id"], source["name"], fetched["title"], fetched["text"], url=url,
-            )
-        )
+        items.append({"title": fetched["title"], "text": fetched["text"], "url": url})
+    if not items:
+        return [], errors
+    # 문서 저장(DB+파일+임베딩)은 블로킹 → 워커 스레드에서 일괄 수행(임베딩 배치 1회)
+    documents = await asyncio.to_thread(
+        collection.add_crawled_documents, source["id"], source["name"], items
+    )
     return documents, errors
 
 
@@ -71,12 +71,10 @@ async def collect_confluence_source(
     # (DB+파일+임베딩 저장은 블로킹 → 워커 스레드에서 일괄 수행)
     def _sync() -> list[dict[str, Any]]:
         collection.delete_documents_by_source(source["id"])
-        return [
-            collection.add_crawled_document(
-                source["id"], source["name"], p["title"], p["text"], url=p["url"]
-            )
-            for p in pages
-        ]
+        return collection.add_crawled_documents(
+            source["id"], source["name"],
+            [{"title": p["title"], "text": p["text"], "url": p["url"]} for p in pages],
+        )
 
     return await asyncio.to_thread(_sync), []
 
@@ -144,12 +142,11 @@ async def collect_hankyung_source(
 
     def _sync() -> list[dict[str, Any]]:
         collection.delete_documents_by_source(source["id"])
-        return [
-            collection.add_crawled_document(
-                source["id"], source["name"], r["title"], r["text"], url=r["url"], topic=topic
-            )
-            for r in reports
-        ]
+        return collection.add_crawled_documents(
+            source["id"], source["name"],
+            [{"title": r["title"], "text": r["text"], "url": r["url"], "topic": topic}
+             for r in reports],
+        )
 
     return await asyncio.to_thread(_sync), []
 

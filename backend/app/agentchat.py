@@ -124,17 +124,14 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
     '수집 문서에서 미확인'으로 표기한다.
     """
 
-    def _gather_docs() -> list[dict[str, Any]]:
-        seen: dict[str, dict[str, Any]] = {}
-        for query in (question, answer[:600]):
-            docs = collection.documents_for_rag(
-                query, limit=_GROUND_SEARCH_LIMIT, max_chars=_GROUND_MAX_CHARS,
-            )
-            for d in docs:
-                seen.setdefault(d["id"], d)  # 질문 기준 검색 결과를 우선 유지
-        return list(seen.values())
-
-    docs = await asyncio.to_thread(_gather_docs)
+    # 질문·답변 두 질의를 배치로 — 임베딩 왕복 1회, 벡터 로드 1회, 겹친 문서 본문
+    # 읽기 1회(질의별 순차 검색 대비 원격 임베딩 왕복 한 번을 그대로 절약).
+    docs = await asyncio.to_thread(
+        collection.documents_for_rag_multi,
+        [question, answer[:600]],
+        limit=_GROUND_SEARCH_LIMIT,
+        max_chars=_GROUND_MAX_CHARS,
+    )
     sources = [
         {"title": d.get("title", ""), "source": d.get("source", ""),
          "publishedAt": d.get("publishedAt")}

@@ -100,7 +100,7 @@ _CORPUS = [{
 
 def test_ground_answer_checks_numbers_and_returns_sources(monkeypatch):
     monkeypatch.setattr(
-        agentchat.collection, "documents_for_rag", lambda q, **k: _CORPUS
+        agentchat.collection, "documents_for_rag_multi", lambda qs, **k: _CORPUS
     )
     ok = asyncio.run(agentchat.ground_answer("질문", "양산은 2027년, 수요 35% 증가 전망."))
     assert ok["numbersGrounded"] is True
@@ -118,7 +118,7 @@ def test_ground_answer_strict_no_mantissa_coincidence(monkeypatch):
     corpus = [{"id": "d1", "title": "t", "source": "s", "publishedAt": None,
                "content": "성장률 2.07배, 점유율 5.7%."}]
     monkeypatch.setattr(
-        agentchat.collection, "documents_for_rag", lambda q, **k: corpus
+        agentchat.collection, "documents_for_rag_multi", lambda qs, **k: corpus
     )
     out = asyncio.run(agentchat.ground_answer("질문", "종가는 2,076,000원."))
     assert out["numbersGrounded"] is False
@@ -127,7 +127,7 @@ def test_ground_answer_strict_no_mantissa_coincidence(monkeypatch):
 
 def test_ground_answer_no_numbers_still_returns_sources(monkeypatch):
     monkeypatch.setattr(
-        agentchat.collection, "documents_for_rag", lambda q, **k: _CORPUS
+        agentchat.collection, "documents_for_rag_multi", lambda qs, **k: _CORPUS
     )
     out = asyncio.run(agentchat.ground_answer("질문", "수치가 없는 답변입니다."))
     assert out["numbersGrounded"] is True and out["ungroundedNumbers"] == []

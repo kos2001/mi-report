@@ -239,6 +239,133 @@ def test_hybrid_search_falls_back_to_bm25_on_embedding_error(isolated, monkeypat
     assert any("HBM4" in d["title"] for d in hits)  # 폴백으로 회수
 
 
+def _stub_embeddings(monkeypatch, vectors: dict[str, list[float]], dim: int = 4):
+    """임베딩을 결정적 로컬 스텁으로 대체하고 호출 배치 크기를 기록해 반환한다.
+
+    vectors: 텍스트 접두어 → 벡터. 매칭 없으면 영벡터에 가까운 기본값.
+    """
+    import numpy as np
+
+    from app import embeddings
+
+    calls: list[int] = []
+
+    def fake_embed(texts, is_query=False):
+        calls.append(len(texts))
+        out = []
+        for t in texts:
+            vec = next((v for k, v in vectors.items() if t.startswith(k)), None)
+            out.append(vec if vec else [1e-3] * dim)
+        return np.asarray(out, dtype="float32")
+
+    monkeypatch.setattr(embeddings, "active", lambda: True)
+    monkeypatch.setattr(embeddings, "model_name", lambda: "test-model")
+    monkeypatch.setattr(embeddings, "embed", fake_embed)
+    return calls
+
+
+def test_add_crawled_documents_single_embedding_batch(isolated, monkeypatch):
+    """커넥터 일괄 수집은 문서당 임베딩 왕복이 아니라 배치 1회여야 한다."""
+    calls = _stub_embeddings(monkeypatch, {})
+    src = collection.create_source("뉴스 배치", "news", {"url": "https://x/y"}, True)
+    items = [{"title": f"페이지 {i}", "text": f"본문 {i}", "url": f"https://x/{i}"}
+             for i in range(6)]
+    docs = collection.add_crawled_documents(src["id"], src["name"], items)
+    assert [d["title"] for d in docs] == [f"페이지 {i}" for i in range(6)]
+    assert calls == [6]  # 배치 1회
+    assert collection.get_source(src["id"])["count"] == 6  # 카운트도 일괄 반영
+    # 본문은 URL 헤더와 함께 저장되고 검색 색인에도 들어간다
+    assert "본문 3" in (collection.read_document_text(docs[3]["id"]) or "")
+    assert any(d["id"] == docs[3]["id"] for d in collection.search_documents("페이지"))
+
+
+def test_add_crawled_documents_rolls_back_files_on_failure(isolated, monkeypatch):
+    """트랜잭션 실패 시 미리 써 둔 .txt 가 고아로 남지 않아야 한다."""
+    from app import config
+
+    src = collection.create_source("뉴스 실패", "news", {"url": "https://x/y"}, True)
+    monkeypatch.setattr(collection, "_index_content",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("색인 실패")))
+    with pytest.raises(RuntimeError):
+        collection.add_crawled_documents(
+            src["id"], src["name"], [{"title": "T", "text": "본문", "url": "https://x/1"}]
+        )
+    assert not list(config.UPLOADS_DIR.glob("*__T.txt"))
+
+
+def test_hybrid_search_multi_uses_one_embedding_call(isolated, monkeypatch):
+    """질의 N개를 검색해도 임베딩 호출은 배치 1회여야 한다(원격 왕복 절감)."""
+    calls = _stub_embeddings(monkeypatch, {})
+    collection.ingest_text("HBM 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
+    calls.clear()  # 적재 시의 문서 임베딩 호출 제외
+    out = collection.hybrid_search_multi(["HBM 수요", "파운드리 가격", "메모리 재고"], limit=5)
+    assert len(out) == 3
+    assert calls == [3]
+
+
+def test_documents_for_rag_multi_dedups_and_prefers_first_query(isolated, monkeypatch):
+    """여러 질의 결과를 앞 질의 우선으로 중복 없이 합친다(본문도 1회만 읽음)."""
+    _stub_embeddings(monkeypatch, {})
+    collection.ingest_text("HBM 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
+    collection.ingest_text("파운드리 가동률", "선단 공정 가동률 상승", topic="파운드리")
+    docs = collection.documents_for_rag_multi(["HBM 수요", "파운드리 가동률"], limit=5)
+    ids = [d["id"] for d in docs]
+    assert len(ids) == len(set(ids))  # 중복 없음
+    assert "HBM" in docs[0]["title"]  # 첫 질의 결과가 앞에
+
+
+def test_vector_cache_invalidated_by_delete(isolated, monkeypatch):
+    """벡터 캐시가 삭제된 문서를 계속 회수하면 안 된다(캐시 무효화 회귀 가드)."""
+    _stub_embeddings(monkeypatch, {"HBM": [1.0, 0.0, 0.0, 0.0]})
+    doc = collection.ingest_text("HBM 시장 전망", "AI 가속기 수요로 HBM 성장", topic="HBM")
+    assert any(d["id"] == doc["id"] for d in collection.hybrid_search("HBM 수요", limit=5))
+    collection.delete_document(doc["id"])
+    assert all(d["id"] != doc["id"] for d in collection.hybrid_search("HBM 수요", limit=5))
+
+
+def test_vector_cache_sees_newly_ingested_doc(isolated, monkeypatch):
+    """캐시 이후에 적재된 문서도 dense 경로에서 회수돼야 한다."""
+    _stub_embeddings(monkeypatch, {"질의": [1.0, 0.0, 0.0, 0.0], "신규": [1.0, 0.0, 0.0, 0.0]})
+    collection.ingest_text("기존 문서", "무관한 본문")
+    collection.hybrid_search("질의", limit=5)  # 캐시 채우기
+    fresh = collection.ingest_text("신규 문서", "신규 본문")
+    hits = collection.hybrid_search("질의", limit=5)  # 어휘로는 안 걸리는 질의
+    assert any(d["id"] == fresh["id"] for d in hits)
+
+
+def test_vector_cache_invalidated_when_row_counts_repeat(isolated, monkeypatch):
+    """마지막 행 삭제 후 삽입 — (행 수, MAX(rowid)) 가 같은 값으로 되돌아오는 경우.
+
+    이 경우까지 무효화하는 것이 쓰기 버전 카운터의 존재 이유다(캐시가 삭제된 문서를
+    돌려주거나 새 문서를 놓치면 회귀).
+    """
+    _stub_embeddings(monkeypatch, {"질의": [1.0, 0.0, 0.0, 0.0], "신규": [1.0, 0.0, 0.0, 0.0]})
+    collection.ingest_text("문서 A", "본문 A")
+    gone = collection.ingest_text("문서 B", "본문 B")
+    collection.hybrid_search("질의", limit=5)  # 캐시 채우기 (행 2, MAX(rowid) 2)
+    collection.delete_document(gone["id"])
+    fresh = collection.ingest_text("신규 문서", "신규 본문")  # 다시 행 2, MAX(rowid) 2
+    ids = [d["id"] for d in collection.hybrid_search("질의", limit=5)]
+    assert fresh["id"] in ids and gone["id"] not in ids
+
+
+def test_read_path_text_prefix_read(isolated):
+    """max_chars 는 파일 앞부분만 읽는다 — 멀티바이트 경계가 깨지지 않고,
+    바이너리는 계속 None(비텍스트 판정)."""
+    from app import config
+
+    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    text_file = config.UPLOADS_DIR / "long.txt"
+    text_file.write_text("가나다라마바사" * 500, encoding="utf-8")
+    out = collection._read_path_text(str(text_file), max_chars=10)
+    assert out == "가나다라마바사가나다"  # 잘린 경계에 깨진 문자 없음
+
+    bin_file = config.UPLOADS_DIR / "blob.docx"
+    bin_file.write_bytes(b"PK\x03\x04" + bytes(range(128, 256)) * 20)
+    assert collection._read_path_text(str(bin_file), max_chars=4000) is None
+    assert collection._read_path_text(str(config.UPLOADS_DIR / "없음.txt"), max_chars=10) is None
+
+
 def test_documents_for_competitor_finds_company_docs(isolated):
     # 한경 리포트 스타일 문서 + 무관 문서
     collection.ingest_text("[증권사 리포트] 삼성물산(028260) 지분가치 재평가",

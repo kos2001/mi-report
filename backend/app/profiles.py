@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,20 +88,50 @@ def get_active_profile_name() -> str:
     return DEFAULT_PROFILE
 
 
+# 파싱 결과 캐시 — load_profile 은 요청마다 불린다(get_client, /agent/chat 등).
+# .env 읽기+파싱과 config.yaml YAML 파싱을 매번 반복하면 요청당 약 0.5ms 의
+# 블로킹 파일 I/O 가 이벤트 루프에서 발생한다. 파일 (mtime_ns, size) 가 그대로면
+# 파싱 결과를 재사용한다(파일을 고치면 자동으로 다시 읽는다).
+# os.environ 적용은 매번 수행 — '이미 있는 값은 보존' 규약과 동작이 동일하다.
+_parse_cache: dict[str, tuple[tuple[int, int], Any]] = {}
+_parse_lock = threading.Lock()
+
+
+def _cached_parse(path: Path, parse):
+    """path 내용을 parse(text) 한 결과를 (mtime_ns, size) 키로 캐시해 반환."""
+    st = path.stat()  # OSError 는 호출부가 처리
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _parse_cache.get(str(path))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = parse(path.read_text(encoding="utf-8"))
+    with _parse_lock:
+        _parse_cache[str(path)] = (key, value)
+    return value
+
+
+def _parse_dotenv(text: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            out.append((key, value.strip().strip('"').strip("'")))
+    return out
+
+
 def _load_dotenv(env_path: Path) -> None:
     """프로파일 .env 를 os.environ 에 로드 (이미 설정된 값은 덮어쓰지 않음)."""
     try:
-        for raw in env_path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
+        pairs = _cached_parse(env_path, _parse_dotenv)
     except OSError:
-        pass
+        return
+    for key, value in pairs:
+        if key not in os.environ:
+            os.environ[key] = value
 
 
 def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderConfig]:
@@ -136,7 +167,10 @@ def load_profile(name: str | None = None) -> Profile:
     if has_env:
         _load_dotenv(env_file)
 
-    data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    try:
+        data = _cached_parse(config_file, lambda t: yaml.safe_load(t) or {})
+    except OSError as e:  # is_file 통과 후 사라진 경우
+        raise FileNotFoundError(f"프로파일 '{name}' 의 config.yaml 을 읽을 수 없습니다: {config_file}") from e
     model_cfg = data.get("model", {}) or {}
 
     return Profile(
