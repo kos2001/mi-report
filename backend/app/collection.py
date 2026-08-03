@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -97,6 +98,13 @@ def init_db() -> None:
             -- 본문 전문검색(FTS5): RAG 검색용. 외부 콘텐츠가 아니라 본문을 직접 보관·색인한다
             -- (본문은 디스크 파일에 있고 DB 엔 없으므로 별도 테이블로 색인). doc_id 로 documents 와 조인.
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_content_fts USING fts5(doc_id UNINDEXED, body);
+
+            -- 캐시 무효화 버전(프로세스 간 공유). 벡터 행렬 인메모리 캐시가 이 값으로
+            -- 최신성을 확인한다. 쓰기 트랜잭션에서 함께 증가시킨다.
+            CREATE TABLE IF NOT EXISTS cache_version (
+                name    TEXT PRIMARY KEY,
+                version INTEGER NOT NULL
+            );
 
             -- 의미 임베딩(하이브리드 검색용). vec 는 float32 raw bytes, model 로 차원/모델 추적.
             CREATE TABLE IF NOT EXISTS documents_embeddings (
@@ -227,6 +235,7 @@ def delete_source(sid: str) -> None:
             conn.execute("DELETE FROM documents WHERE id=?", (r["id"],))
             _index_content(conn, r["id"], None)
         conn.execute("DELETE FROM sources WHERE id=?", (sid,))
+        _bump_vec_version(conn)  # 문서 삭제 → 임베딩 CASCADE 삭제 → 벡터 캐시 무효화
 
 
 def get_source(sid: str) -> dict[str, Any]:
@@ -338,15 +347,31 @@ def _fts_match(q: str, *, op: str = "AND") -> str | None:
 
 
 def _read_path_text(path: str | None, *, max_chars: int | None = None) -> str | None:
-    """디스크 경로의 텍스트를 읽는다(비텍스트/없음이면 None)."""
+    """디스크 경로의 텍스트를 읽는다(비텍스트/없음이면 None).
+
+    max_chars 가 주어지면 파일 전체가 아니라 필요한 앞부분만 읽는다(UTF-8 은 문자당
+    최대 4바이트 → max_chars*4 바이트면 충분). 인제스트 문서는 수 MB 까지 커지는데
+    LLM 컨텍스트엔 앞 4천 자만 쓰므로, 전체 읽기는 그만큼 낭비된 I/O 였다.
+    디코딩은 strict 를 유지한다(바이너리 업로드는 계속 None) — 다만 앞부분만 읽으면
+    마지막 문자가 잘릴 수 있으므로, 끝 4바이트 안에서 난 디코드 오류만 절단으로 보고
+    그 지점까지를 쓴다. 그보다 앞에서 깨지면 실제 비텍스트로 판단해 None.
+    """
     if not path:
         return None
     p = Path(path)
-    if not p.exists():
-        return None
     try:
-        text = p.read_text(encoding="utf-8").strip()
-    except (UnicodeDecodeError, OSError):
+        if max_chars:
+            with p.open("rb") as fh:
+                raw = fh.read(max_chars * 4)
+            try:
+                text = raw.decode("utf-8").strip()
+            except UnicodeDecodeError as e:
+                if e.start < len(raw) - 4:
+                    return None  # 앞부분부터 깨짐 → 비텍스트(.docx 등)
+                text = raw[: e.start].decode("utf-8").strip()
+        else:
+            text = p.read_text(encoding="utf-8").strip()
+    except (UnicodeDecodeError, OSError):  # 없음/권한/비텍스트
         return None
     if not text:
         return None
@@ -477,6 +502,7 @@ def _insert_embedding(conn: sqlite3.Connection, doc_id: str,
         "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
         (doc_id, computed[0], computed[1]),
     )
+    _bump_vec_version(conn)  # 벡터 캐시 무효화
 
 
 def rebuild_embeddings() -> int:
@@ -503,31 +529,99 @@ def rebuild_embeddings() -> int:
                 "INSERT OR REPLACE INTO documents_embeddings(doc_id, model, vec) VALUES(?,?,?)",
                 (did, embeddings.model_name(), vec.tobytes()),
             )
+        _bump_vec_version(conn)  # 벡터 캐시 무효화
     return len(ids)
 
 
-def _load_doc_vectors(conn: sqlite3.Connection, *, topic: str | None = None,
-                      source_id: str | None = None):
-    """저장된 문서 임베딩을 (ids, matrix) 로 로드(필터 적용). 없으면 (None, None)."""
+# 문서 벡터 행렬 프로세스 캐시 — 질의마다 전체 임베딩을 DB 에서 읽어 numpy 로 만드는
+# 비용(20k 문서 × 1024차원에서 약 46ms, 코퍼스 크기에 선형)을 제거한다. L2 정규화까지
+# 미리 해 두므로 질의당 비용은 행렬-벡터 곱 한 번이다.
+#
+# 무효화 규약: (cache_version 행, MAX(rowid)) — 둘 다 O(1) 조회다.
+# 임베딩을 쓰거나 문서를 삭제하는 경로가 _bump_vec_version(conn) 으로 DB 버전을 올리고,
+# 그 값이 트랜잭션과 함께 커밋되므로 같은 DB 를 쓰는 다른 프로세스(tools/ 스크립트)도
+# 자동으로 무효화된다. MAX(rowid) 는 그 호출을 빼먹은 쓰기에 대한 예비 감지.
+# (임베딩 행 수를 키로 쓰면 COUNT(*) 가 4KB 블롭 페이지를 전부 훑어 캐시보다 비싸다.)
+# 쓰기 경로에 새 임베딩 저장을 추가하면 _bump_vec_version(conn) 도 함께 호출할 것.
+_vec_lock = threading.Lock()
+_vec_cache: dict[str, tuple[tuple, list[str], Any]] = {}
+
+
+def _bump_vec_version(conn: sqlite3.Connection) -> None:
+    """임베딩/문서 쓰기와 같은 트랜잭션에서 벡터 캐시 버전을 올린다."""
+    conn.execute(
+        "INSERT INTO cache_version(name, version) VALUES('vectors', 1) "
+        "ON CONFLICT(name) DO UPDATE SET version = version + 1"
+    )
+
+
+def _vec_cache_key(conn: sqlite3.Connection) -> tuple:
+    ver = conn.execute(
+        "SELECT version FROM cache_version WHERE name='vectors'"
+    ).fetchone()
+    mx = conn.execute("SELECT MAX(rowid) AS mx FROM documents_embeddings").fetchone()
+    return (ver["version"] if ver else 0, mx["mx"] if mx else None)
+
+
+def _all_doc_vectors(conn: sqlite3.Connection):
+    """전체 문서 임베딩을 (ids, 정규화 행렬) 로 반환(캐시). 없으면 (None, None)."""
     import numpy as np
 
-    sql = (
-        "SELECT e.doc_id AS doc_id, e.vec AS vec FROM documents_embeddings e "
-        "JOIN documents d ON d.id = e.doc_id WHERE 1=1"
-    )
-    params: list[Any] = []
-    if source_id:
-        sql += " AND d.source_id=?"
-        params.append(source_id)
-    if topic:
-        sql += " AND d.topic=?"
-        params.append(topic)
-    rows = conn.execute(sql, params).fetchall()
+    key = _vec_cache_key(conn)
+    if key[1] is None:  # 임베딩 없음
+        return None, None
+    path = str(config.COLLECTION_DB)
+    cached = _vec_cache.get(path)
+    if cached is not None and cached[0] == key:
+        return cached[1], cached[2]
+    rows = conn.execute("SELECT doc_id, vec FROM documents_embeddings").fetchall()
     if not rows:
         return None, None
     ids = [r["doc_id"] for r in rows]
     mat = np.frombuffer(b"".join(r["vec"] for r in rows), dtype="float32").reshape(len(rows), -1)
-    return ids, mat
+    unit = mat / np.maximum(np.linalg.norm(mat, axis=1, keepdims=True), 1e-9)
+    with _vec_lock:
+        _vec_cache[path] = (key, ids, unit)
+    return ids, unit
+
+
+def _filter_mask(conn: sqlite3.Connection, ids: list[str], *, topic: str | None,
+                 source_id: str | None):
+    """topic/source_id 필터에 해당하는 문서만 True 인 마스크(필터 없으면 None).
+
+    벡터 행렬은 전체를 캐시하고 점수 단계에서 마스킹한다(필터별 행렬 사본 방지).
+    """
+    if not topic and not source_id:
+        return None
+    import numpy as np
+
+    sql = "SELECT id FROM documents WHERE 1=1"
+    params: list[Any] = []
+    if source_id:
+        sql += " AND source_id=?"
+        params.append(source_id)
+    if topic:
+        sql += " AND topic=?"
+        params.append(topic)
+    allowed = {r["id"] for r in conn.execute(sql, params)}
+    return np.fromiter((d in allowed for d in ids), dtype=bool, count=len(ids))
+
+
+def _top_ids(ids: list[str], sims, k: int) -> list[str]:
+    """유사도 상위 k 개 문서 id(내림차순). 전체 정렬 대신 부분 선택(argpartition).
+
+    RRF 는 두 순위 리스트의 상위만 의미가 있으므로 dense 순위도 k(=pool)까지만 만든다
+    (20k 문서에서 전체 argsort 8.4ms → 1.4ms). -inf(필터 제외)는 결과에서 뺀다.
+    """
+    import numpy as np
+
+    n = len(ids)
+    if k >= n:
+        order = np.argsort(-sims)
+    else:
+        part = np.argpartition(-sims, k)[:k]
+        order = part[np.argsort(-sims[part])]
+    return [ids[i] for i in order if np.isfinite(sims[i])]
 
 
 def _rrf(rank_lists: list[list[str]], k: int = 60) -> dict[str, float]:
@@ -547,25 +641,50 @@ def hybrid_search(query: str, *, limit: int = 8, topic: str | None = None,
     BM25 폴백 절차: 임베딩이 비활성이거나, 질의 임베딩/벡터 로드/dense 계산이 실패하면
     항상 BM25(어휘) 결과로 폴백한다(임베딩 장애가 검색을 막지 않음).
     """
-    bm25 = search_documents(query, limit=pool, topic=topic, source_id=source_id)
+    return hybrid_search_multi(
+        [query], limit=limit, topic=topic, source_id=source_id, pool=pool
+    )[0]
+
+
+def hybrid_search_multi(queries: list[str], *, limit: int = 8, topic: str | None = None,
+                        source_id: str | None = None,
+                        pool: int = 30) -> list[list[dict[str, Any]]]:
+    """여러 질의를 한 번의 임베딩 호출·한 번의 벡터 로드로 검색(질의별 결과 리스트).
+
+    질의당 임베딩 왕복 1회씩 들던 것을 배치 1회로 줄인다. 원격 임베딩(bge-m3)은
+    왕복이 300~500ms 라, 그라운딩처럼 질문·답변 2개 질의를 쓰는 경로에서 그대로 절약된다.
+    폴백 규약은 hybrid_search 와 동일 — 어떤 단계가 실패해도 질의별 BM25 결과를 돌려준다.
+    """
+    bm25_lists = [
+        search_documents(q, limit=pool, topic=topic, source_id=source_id) for q in queries
+    ]
+    fallback = [b[:limit] for b in bm25_lists]
     if not embeddings.active():
-        return bm25[:limit]  # 폴백 1: 임베딩 비활성
+        return fallback  # 폴백 1: 임베딩 비활성
     try:
         import numpy as np
 
-        qmat = embeddings.embed([query], is_query=True)
+        qmat = embeddings.embed(list(queries), is_query=True)
         with _conn() as conn:
-            ids, mat = _load_doc_vectors(conn, topic=topic, source_id=source_id)
-        if qmat is None or ids is None:
-            return bm25[:limit]  # 폴백 2: 임베딩/벡터 없음(임베딩 호출 실패 포함)
-        qv = qmat[0]
-        sims = mat @ qv / (np.linalg.norm(mat, axis=1) * np.linalg.norm(qv) + 1e-9)
-        dense_order = [ids[i] for i in np.argsort(-sims)]
-        fused = _rrf([[d["id"] for d in bm25], dense_order])
-        top_ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]]
-        docs = {d["id"]: d for d in bm25}
-        missing = [i for i in top_ids if i not in docs]
-        if missing:
+            ids, unit = _all_doc_vectors(conn)
+            mask = (
+                _filter_mask(conn, ids, topic=topic, source_id=source_id)
+                if ids is not None else None
+            )
+        # 폴백 2: 임베딩/벡터 없음(임베딩 호출 실패 포함) 또는 배치 응답 개수 불일치
+        if qmat is None or ids is None or len(qmat) != len(queries):
+            return fallback
+        fused_ids: list[list[str]] = []
+        for i, bm25 in enumerate(bm25_lists):
+            qv = qmat[i]
+            sims = unit @ (qv / (float(np.linalg.norm(qv)) + 1e-9))
+            if mask is not None:
+                sims = np.where(mask, sims, -np.inf)
+            fused = _rrf([[d["id"] for d in bm25], _top_ids(ids, sims, pool)])
+            fused_ids.append([k for k, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]])
+        docs = {d["id"]: d for bm25 in bm25_lists for d in bm25}
+        missing = list({i for lst in fused_ids for i in lst if i not in docs})
+        if missing:  # dense 로만 올라온 문서의 메타데이터를 한 번의 쿼리로 채운다
             with _conn() as conn:
                 qmarks = ",".join("?" * len(missing))
                 rows = conn.execute(
@@ -573,9 +692,9 @@ def hybrid_search(query: str, *, limit: int = 8, topic: str | None = None,
                 ).fetchall()
             for r in rows:
                 docs[r["id"]] = _row_to_document(r)
-        return [docs[i] for i in top_ids if i in docs]
+        return [[docs[i] for i in lst if i in docs] for lst in fused_ids]
     except Exception:
-        return bm25[:limit]  # 폴백 3: dense 단계 예외 → 어휘 검색으로 안전 복귀
+        return fallback  # 폴백 3: dense 단계 예외 → 어휘 검색으로 안전 복귀
 
 
 def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
@@ -656,6 +775,26 @@ def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
     if not hits:
         hits = list_documents(source_id=source_id, topic=topic, limit=limit)
     return _docs_with_content(hits, max_chars=max_chars)
+
+
+def documents_for_rag_multi(queries: list[str], *, limit: int = 8, topic: str | None = None,
+                            source_id: str | None = None,
+                            max_chars: int = 4000) -> list[dict[str, Any]]:
+    """여러 질의의 RAG 문서를 한 번에 모아 중복 없이 반환(앞 질의 우선).
+
+    질의별로 documents_for_rag 를 반복하던 것과 결과는 같고, 임베딩 호출·벡터 로드는
+    1회로 줄고 겹친 문서의 본문 파일 읽기도 한 번만 한다(그라운딩: 질문+답변 2질의).
+    """
+    if not queries:
+        return []
+    seen: dict[str, dict[str, Any]] = {}
+    for hits in hybrid_search_multi(queries, limit=limit, topic=topic, source_id=source_id):
+        for d in hits:
+            seen.setdefault(d["id"], d)
+    if not seen:  # 매칭 없음 → 최근 문서 폴백(documents_for_rag 와 동일)
+        for d in list_documents(source_id=source_id, topic=topic, limit=limit):
+            seen.setdefault(d["id"], d)
+    return _docs_with_content(list(seen.values()), max_chars=max_chars)
 
 
 def list_documents(source_id: str | None = None, q: str | None = None,
@@ -821,6 +960,7 @@ def delete_document(doc_id: str) -> None:
             Path(row["path"]).unlink(missing_ok=True)
         conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
         _index_content(conn, doc_id, None)  # 본문 FTS 에서도 제거
+        _bump_vec_version(conn)  # 임베딩 CASCADE 삭제 → 벡터 캐시 무효화
 
 
 def delete_documents_by_source(source_id: str) -> int:
@@ -835,6 +975,7 @@ def delete_documents_by_source(source_id: str) -> int:
             conn.execute("DELETE FROM documents WHERE id=?", (r["id"],))
             _index_content(conn, r["id"], None)
         conn.execute("UPDATE sources SET count=0 WHERE id=?", (source_id,))
+        _bump_vec_version(conn)  # 임베딩 CASCADE 삭제 → 벡터 캐시 무효화
     return len(rows)
 
 
