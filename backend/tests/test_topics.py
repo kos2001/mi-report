@@ -77,7 +77,9 @@ def test_generate_topic_summary_assigns_metadata():
     assert result["updatedAt"] == "2026-06-13"
     assert result["generated"] is True
     assert len(result["history"]) == 2
-    assert len(client.calls) == 1
+    assert result["unsupportedClaims"] == []
+    # 요약 호출 + 총평 검증(audit) 호출
+    assert len(client.calls) == 2
 
 
 def test_generate_topic_summary_grounds_numbers_and_history():
@@ -101,6 +103,34 @@ def test_generate_topic_summary_grounds_numbers_and_history():
     assert out["history"][0]["sourceVerified"] is True   # 출처·제목 일치
     assert out["history"][1]["sourceVerified"] is False  # 거짓 출처
     assert out["unverifiedHistoryCount"] == 1
+
+
+def test_generate_topic_summary_flags_unsupported_claims():
+    # summary/insight 에 원문이 뒷받침하지 않는 추세 주장 → 독립 검증 agent 가 잡는다.
+    class RoutingFakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                content = json.dumps({
+                    "category": "수요/시황",
+                    "summary": "HBM 수요가 3주 연속 악화되고 있다.",
+                    "insight": "S.LSI 연계.",
+                    "history": [],
+                }, ensure_ascii=False)
+            else:
+                content = json.dumps({
+                    "unsupported": [{"claim": "3주 연속 악화되고 있다", "why": "원문에 추세 언급 없음"}],
+                }, ensure_ascii=False)
+            return {"choices": [{"message": {"content": content}}]}
+
+    docs = [{"title": "HBM", "source": "뉴스", "publishedAt": "2026-06-10", "content": "HBM 수요 관련 보도."}]
+    out = asyncio.run(
+        topics.generate_topic_summary(RoutingFakeClient(), "HBM", docs, updated_at="2026-06-13")
+    )
+    assert out["unsupportedClaims"] == ["3주 연속 악화되고 있다"]
 
 
 def test_generate_topic_summary_empty_docs_raises():

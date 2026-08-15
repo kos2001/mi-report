@@ -52,3 +52,31 @@ def test_schedule_endpoints(client):
     assert updated["schedule"]["frequency"] == "weekly" and updated["schedule"]["hour"] == 9
     assert updated["crontab"] == "30 9 * * 5"  # 금요일(4) → cron 5
     assert "금" in updated["describe"]
+
+
+def test_log_run_and_recent_runs(isolated):
+    schedule.log_run(trigger="manual", status="success", ingested=7)
+    schedule.log_run(trigger="auto", status="failure", error="LLM 게이트웨이 타임아웃")
+    runs = schedule.recent_runs(limit=10)
+    assert len(runs) == 2
+    # 최신 실행이 먼저 온다
+    assert runs[0]["trigger"] == "auto"
+    assert runs[0]["status"] == "failure"
+    assert runs[0]["error"] == "LLM 게이트웨이 타임아웃"
+    assert runs[0]["ingested"] is None
+    assert runs[1]["trigger"] == "manual"
+    assert runs[1]["status"] == "success"
+    assert runs[1]["ingested"] == 7
+    assert runs[1]["error"] is None
+
+
+def test_recent_runs_respects_limit(isolated):
+    for i in range(5):
+        schedule.log_run(trigger="manual", status="success", ingested=i)
+    assert len(schedule.recent_runs(limit=3)) == 3
+
+
+def test_schedule_view_includes_runs_and_last_status(client):
+    got = client.get("/schedule").json()
+    assert got["runs"] == []
+    assert got["lastStatus"] is None and got["lastError"] is None

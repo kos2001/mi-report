@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import difflib
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 
 class ProfileInfo(BaseModel):
@@ -132,7 +133,27 @@ class DigestSendRequest(BaseModel):
 
 
 # ── 주제별 History (AI agent 생성) ────────────────────────────────────────
-TopicCategory = Literal["SET", "반도체 설계", "반도체 제조", "수요/시황"]
+_TOPIC_CATEGORIES = ("SET", "반도체 설계", "반도체 제조", "수요/시황")
+_DEFAULT_TOPIC_CATEGORY = "수요/시황"
+
+
+def _coerce_topic_category(v: Any) -> Any:
+    """LLM 이 낸 category 오타/환각을 가장 가까운 허용값으로 보정.
+
+    Literal 은 완전 일치만 허용해, 예를 들어 '수요/시징'(오타) 하나로 리포트
+    생성 전체가 검증 실패로 죽는 일이 있었다(#topics.py category). 문자열일 때만
+    보정하고, 그 외 타입은 그대로 넘겨 Literal 이 정상적으로 타입 오류를 내게 둔다.
+    """
+    if not isinstance(v, str) or v in _TOPIC_CATEGORIES:
+        return v
+    match = difflib.get_close_matches(v, _TOPIC_CATEGORIES, n=1, cutoff=0.4)
+    return match[0] if match else _DEFAULT_TOPIC_CATEGORY
+
+
+TopicCategory = Annotated[
+    Literal["SET", "반도체 설계", "반도체 제조", "수요/시황"],
+    BeforeValidator(_coerce_topic_category),
+]
 
 
 class TopicHistoryEntry(BaseModel):
@@ -208,6 +229,33 @@ class DocClassificationOut(BaseModel):
     topic: str = ""
     category: TopicCategory = "수요/시황"
     tags: list[str] = Field(default_factory=list)
+
+
+# ── 주간 리포트 심층분석 (AI agent — Priority/Risk·Critical Point) ────────
+class EvidenceQuote(BaseModel):
+    """분석 항목의 판단 근거가 된 원문 인용(출처 + 원문 발췌)."""
+
+    source: str = ""
+    quote: str = ""
+
+
+class PriorityRiskItemOut(BaseModel):
+    """LLM 이 산출하는 Top Priority/Risk 항목."""
+
+    rank: int = 1
+    title: str = ""
+    rationale: str = ""
+    evidence: list[EvidenceQuote] = Field(default_factory=list)
+
+
+class CriticalPointOut(BaseModel):
+    """LLM 이 산출하는 치명적 관리포인트."""
+
+    title: str = ""
+    rootCause: str = ""
+    chainEffect: str = ""
+    decisionNeeded: str = ""
+    evidence: list[EvidenceQuote] = Field(default_factory=list)
 
 
 # ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────

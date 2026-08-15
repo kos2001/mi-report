@@ -51,9 +51,10 @@ async def _scheduler_loop():
                 last_run = now
                 schedule.mark_run(now.strftime("%Y-%m-%d %H:%M"))
                 try:
-                    await pipeline.run_pipeline(period="자동(스케줄)", limit=sched["digestLimit"])
-                except Exception:
-                    pass  # 실행 실패가 루프를 멈추지 않게
+                    result = await pipeline.run_pipeline(period="자동(스케줄)", limit=sched["digestLimit"])
+                    schedule.log_run(trigger="auto", status="success", ingested=result.get("ingested"))
+                except Exception as e:
+                    schedule.log_run(trigger="auto", status="failure", error=str(e))  # 실행 실패가 루프를 멈추지 않게
         except Exception:
             pass
         await asyncio.sleep(30)
@@ -212,14 +213,19 @@ def qa_golden_delete(qa_id: str):
 
 # ── 스케줄(파이프라인 cron) ───────────────────────────────────────────────
 def _schedule_view(sched: dict) -> dict:
-    """스케줄 + 다음 실행/crontab/설명/앱내 스케줄러 활성여부를 함께 반환."""
+    """스케줄 + 다음 실행/crontab/설명/앱내 스케줄러 활성여부/실행 이력을 함께 반환."""
     now = datetime.now(timezone.utc).astimezone()
+    runs = schedule.recent_runs(limit=10)
+    last = runs[0] if runs else None
     return {
         "schedule": sched,
         "describe": schedule.describe(sched),
         "crontab": schedule.crontab_expr(sched),
         "nextRun": schedule.next_run(now, sched).strftime("%Y-%m-%d %H:%M") if sched["enabled"] else None,
         "inAppScheduler": os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"),
+        "runs": runs,
+        "lastStatus": last["status"] if last else None,
+        "lastError": last["error"] if last else None,
     }
 
 
@@ -247,9 +253,12 @@ async def schedule_run_now():
     try:
         result = await pipeline.run_pipeline(period="수동 실행", limit=sched["digestLimit"])
     except LLMError as e:
+        schedule.log_run(trigger="manual", status="failure", error=e.detail)
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
+        schedule.log_run(trigger="manual", status="failure", error=f"게이트웨이 연결 실패: {e}")
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
+    schedule.log_run(trigger="manual", status="success", ingested=result.get("ingested"))
     schedule.mark_run(datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M"))
     return result
 

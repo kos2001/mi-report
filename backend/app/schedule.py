@@ -42,6 +42,18 @@ def init_schedule() -> None:
             """
         )
         conn.execute("INSERT OR IGNORE INTO schedule (id) VALUES (1)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_run_log (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                ran_at   TEXT NOT NULL,
+                trigger  TEXT NOT NULL,
+                status   TEXT NOT NULL,
+                error    TEXT,
+                ingested INTEGER
+            )
+            """
+        )
 
 
 def _row(r: sqlite3.Row) -> dict[str, Any]:
@@ -81,6 +93,35 @@ def set_schedule(*, enabled: bool, frequency: str, hour: int, minute: int,
 def mark_run(when: str) -> None:
     with _conn() as conn:
         conn.execute("UPDATE schedule SET last_run_at=? WHERE id=1", (when,))
+
+
+def log_run(*, trigger: str, status: str, error: str | None = None,
+            ingested: int | None = None) -> None:
+    """실행 시도 결과(자동/수동, 성공/실패) 기록."""
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO schedule_run_log (ran_at, trigger, status, error, ingested) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), trigger, status, error, ingested),
+        )
+
+
+def recent_runs(limit: int = 10) -> list[dict[str, Any]]:
+    """최근 실행 이력(최신순)."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT ran_at, trigger, status, error, ingested FROM schedule_run_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "ranAt": r["ran_at"],
+            "trigger": r["trigger"],
+            "status": r["status"],
+            "error": r["error"],
+            "ingested": r["ingested"],
+        }
+        for r in rows
+    ]
 
 
 def next_run(now: datetime, sched: dict[str, Any]) -> datetime:

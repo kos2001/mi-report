@@ -59,6 +59,12 @@ class RoutingFakeClient:
             kind, content = "digest", _DIGEST_JSON
         elif "주제 이력" in sys:
             kind, content = "topic", _TOPIC_JSON
+        elif "Top Priority(기회)" in sys:
+            kind, content = "priority_risk", '{"priorities": [], "risks": []}'
+        elif "관리포인트를 1~3개" in sys:
+            kind, content = "critical_point", '{"criticalPoints": []}'
+        elif "사실검증 agent다" in sys:
+            kind, content = "audit", '{"unsupported": []}'
         elif "총평" in sys:
             kind, content = "overview", _OVERVIEW
         else:
@@ -95,8 +101,18 @@ def test_generate_report_orchestrates_all_parts():
     assert result["digest"]["items"][0]["title"] == "HBM4 채택 공식화"
     assert len(result["topics"]) == 1
     assert result["topics"][0]["title"] == "HBM 수요"
-    # 다이제스트 → 주제 → 총평 순으로 호출
-    assert client.kinds == ["digest", "topic", "overview"]
+    assert result["priorities"] == [] and result["risks"] == []
+    assert result["criticalPoints"] == []
+    assert result["overviewUnsupportedClaims"] == []
+    # 병렬 그룹(다이제스트/priority-risk/critical-point/주제+주제 자체 audit) → 총평 → 총평 검증.
+    # 마지막 둘은 리포트 총평 생성→검증(overview, audit) 순서가 고정이고, 그 앞은 병렬이라
+    # 순서가 뒤섞일 수 있다(주제 요약 자체도 audit 을 한 번 더 부른다).
+    assert client.kinds.count("digest") == 1
+    assert client.kinds.count("priority_risk") == 1
+    assert client.kinds.count("critical_point") == 1
+    assert client.kinds.count("topic") == 1
+    assert client.kinds.count("audit") == 2  # 주제 요약 감사 1회 + 총평 감사 1회
+    assert client.kinds[-2:] == ["overview", "audit"]
 
 
 def test_generate_report_rolls_up_ungrounded_numbers():
@@ -108,6 +124,12 @@ def test_generate_report_rolls_up_ungrounded_numbers():
                 c = _DIGEST_JSON
             elif "주제 이력" in sys:
                 c = _TOPIC_JSON
+            elif "Top Priority(기회)" in sys:
+                c = '{"priorities": [], "risks": []}'
+            elif "관리포인트를 1~3개" in sys:
+                c = '{"criticalPoints": []}'
+            elif "사실검증 agent다" in sys:
+                c = '{"unsupported": []}'
             else:
                 c = "이번 주 매출 777억으로 급증했습니다."
             return {"choices": [{"message": {"content": c}}]}

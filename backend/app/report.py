@@ -11,14 +11,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from . import digest, grounding, topics
+from . import digest, grounding, report_agents, topics
 
 REPORT_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
-이번 주 다이제스트 항목과 주제 요약을 종합해 주간 리포트의 '총평'을 작성한다.
+이번 주 다이제스트 항목·주제 요약·Top Priority/Risk·치명적 관리포인트를 종합해
+주간 리포트의 '총평'을 작성한다.
 
 규칙:
 - 제공된 자료에만 근거한다. 새로운 사실·수치를 지어내지 않는다.
 - 이번 주의 핵심 흐름과 S.LSI(시스템 LSI) 관점 시사점을 3~5문장으로 정리한다.
+- Priority/Risk·관리포인트가 있으면 그중 가장 중요한 것을 반영한다.
 - 출력은 평문(문장)만. JSON/코드펜스/머리말을 붙이지 않는다."""
 
 
@@ -27,7 +29,10 @@ class ChatClient(Protocol):
 
 
 def build_overview_messages(
-    digest_obj: dict[str, Any] | None, topic_summaries: list[dict[str, Any]]
+    digest_obj: dict[str, Any] | None,
+    topic_summaries: list[dict[str, Any]],
+    priority_risk: dict[str, Any] | None = None,
+    critical_points: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     parts: list[str] = []
     if digest_obj:
@@ -36,6 +41,14 @@ def build_overview_messages(
             parts.append(f"[다이제스트] {it.get('title', '')}: {it.get('summary', '')}")
     for t in topic_summaries:
         parts.append(f"[주제: {t.get('title', '')}] {t.get('summary', '')}")
+    if priority_risk:
+        for p in priority_risk.get("priorities", []):
+            parts.append(f"[Priority {p.get('rank', '')}] {p.get('title', '')}: {p.get('rationale', '')}")
+        for r in priority_risk.get("risks", []):
+            parts.append(f"[Risk {r.get('rank', '')}] {r.get('title', '')}: {r.get('rationale', '')}")
+    if critical_points:
+        for c in critical_points.get("criticalPoints", []):
+            parts.append(f"[관리포인트] {c.get('title', '')}: {c.get('rootCause', '')}")
     user = "다음 자료를 종합해 이번 주 MI 리포트 총평을 작성하라.\n\n" + "\n\n".join(parts)
     return [
         {"role": "system", "content": REPORT_SYSTEM_PROMPT},
@@ -54,11 +67,14 @@ async def generate_overview(
     client: ChatClient,
     digest_obj: dict[str, Any] | None,
     topic_summaries: list[dict[str, Any]],
+    priority_risk: dict[str, Any] | None = None,
+    critical_points: dict[str, Any] | None = None,
     *,
     temperature: float = 0.3,
 ) -> str:
     completion = await client.chat(
-        build_overview_messages(digest_obj, topic_summaries), temperature=temperature
+        build_overview_messages(digest_obj, topic_summaries, priority_risk, critical_points),
+        temperature=temperature,
     )
     return extract_content(completion).strip()
 
@@ -76,24 +92,36 @@ async def generate_report(
     if not digest_docs and not topic_docs:
         raise ValueError("리포트로 만들 본문 있는 문서가 없습니다.")
 
-    # 다이제스트와 주제 요약은 서로 독립 LLM 호출 → 동시 수행(총평만 이후 순차).
+    # 심층분석 agent(Priority/Risk·Critical Point)를 포함해 서로 독립인 LLM 호출은
+    # 모두 동시 수행한다(weekly-report-harness 의 A1~A5 병렬 패턴). 총평·총평 검증만
+    # 그 결과에 의존하므로 이후 순차 수행.
     named_topics = [(name, docs) for name, docs in topic_docs.items() if docs]
+    all_docs = list(digest_docs)
+    for docs in topic_docs.values():
+        all_docs.extend(docs)
     digest_task = (
         digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period)
         if digest_docs
         else None
     )
-    results = await asyncio.gather(
-        *([digest_task] if digest_task else []),
-        *(topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
-          for name, docs in named_topics),
-    )
-    if digest_task:
-        digest_obj, *topic_summaries = results
-    else:
-        digest_obj, topic_summaries = None, list(results)
+    priority_risk_task = report_agents.generate_priority_risk(client, all_docs) if all_docs else None
+    critical_point_task = report_agents.generate_critical_points(client, all_docs) if all_docs else None
+    parallel_tasks = [
+        t for t in (digest_task, priority_risk_task, critical_point_task) if t is not None
+    ]
+    topic_tasks = [
+        topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
+        for name, docs in named_topics
+    ]
+    results = await asyncio.gather(*parallel_tasks, *topic_tasks)
+    n_parallel = len(parallel_tasks)
+    parallel_results = results[:n_parallel]
+    topic_summaries = list(results[n_parallel:])
+    digest_obj = parallel_results.pop(0) if digest_task else None
+    priority_risk = parallel_results.pop(0) if priority_risk_task else None
+    critical_points = parallel_results.pop(0) if critical_point_task else None
 
-    overview = await generate_overview(client, digest_obj, topic_summaries)
+    overview = await generate_overview(client, digest_obj, topic_summaries, priority_risk, critical_points)
 
     # 환각 방어(MI 서비스): 총평의 수치를 실제 근거 문서(다이제스트·주제 원문)와 대조하고,
     # 하위 산출물(다이제스트·주제 요약)의 미근거 수치를 리포트 수준으로 롤업한다.
@@ -101,6 +129,8 @@ async def generate_report(
     for docs in topic_docs.values():
         src_texts.extend(d.get("content", "") for d in docs)
     overview_ungrounded = grounding.ungrounded_numbers(overview, src_texts)
+    # 독립 검증 agent(V3-style): 수치가 아닌 서술 주장 중 근거 없는 것을 별도로 잡는다.
+    overview_unsupported = await report_agents.audit_overview(client, overview, src_texts)
 
     rolled = list(overview_ungrounded)
     if digest_obj:
@@ -116,8 +146,12 @@ async def generate_report(
         "overview": overview,
         "overviewGrounded": not overview_ungrounded,
         "overviewUngroundedNumbers": overview_ungrounded,
+        "overviewUnsupportedClaims": overview_unsupported,
         "digest": digest_obj,
         "topics": topic_summaries,
+        "priorities": priority_risk.get("priorities", []) if priority_risk else [],
+        "risks": priority_risk.get("risks", []) if priority_risk else [],
+        "criticalPoints": critical_points.get("criticalPoints", []) if critical_points else [],
         "numbersGrounded": not rolled,
         "ungroundedNumbers": rolled,
     }
@@ -133,6 +167,12 @@ DEFAULT_REPORT_TEMPLATE = """# 주간 MI 리포트 제{{issue_no}}호
 ## 총평
 {{overview}}
 
+## Top Priority / Risk
+{{priority_risk}}
+
+## 치명적 관리포인트
+{{critical_points}}
+
 ## 뉴스 다이제스트
 {{digest}}
 
@@ -143,7 +183,10 @@ DEFAULT_REPORT_TEMPLATE = """# 주간 MI 리포트 제{{issue_no}}호
 _본 리포트는 수집 문서를 근거로 AI가 생성한 초안이며, 발송 전 사람의 검토가 필요합니다._
 """
 
-REPORT_PLACEHOLDERS = ("issue_no", "period", "generated_at", "overview", "digest", "topics")
+REPORT_PLACEHOLDERS = (
+    "issue_no", "period", "generated_at", "overview",
+    "priority_risk", "critical_points", "digest", "topics",
+)
 
 
 def _render_digest_md(digest_obj: dict[str, Any] | None) -> str:
@@ -162,6 +205,41 @@ def _render_digest_md(digest_obj: dict[str, Any] | None) -> str:
         for label, val in meta:
             if val:
                 lines.append(f"- **{label}**: {val}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _render_priority_risk_md(priorities: list[dict[str, Any]], risks: list[dict[str, Any]]) -> str:
+    if not priorities and not risks:
+        return "_선정된 Priority/Risk 가 없습니다._"
+    lines: list[str] = []
+    if priorities:
+        lines.append("**Priority**")
+        for p in priorities:
+            flag = "" if p.get("evidenceGrounded", True) else " ⚠ 근거 미확인"
+            lines.append(f"{p.get('rank', '')}. {p.get('title', '')} — {p.get('rationale', '')}{flag}")
+        lines.append("")
+    if risks:
+        lines.append("**Risk**")
+        for r in risks:
+            flag = "" if r.get("evidenceGrounded", True) else " ⚠ 근거 미확인"
+            lines.append(f"{r.get('rank', '')}. {r.get('title', '')} — {r.get('rationale', '')}{flag}")
+    return "\n".join(lines).strip()
+
+
+def _render_critical_points_md(critical_points: list[dict[str, Any]]) -> str:
+    if not critical_points:
+        return "_선별된 관리포인트가 없습니다._"
+    lines: list[str] = []
+    for c in critical_points:
+        flag = "" if c.get("evidenceGrounded", True) else " ⚠ 근거 미확인"
+        lines.append(f"### {c.get('title', '')}{flag}")
+        if c.get("rootCause"):
+            lines.append(f"- **근본원인**: {c['rootCause']}")
+        if c.get("chainEffect"):
+            lines.append(f"- **연쇄효과**: {c['chainEffect']}")
+        if c.get("decisionNeeded"):
+            lines.append(f"- **필요한 결정**: {c['decisionNeeded']}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -193,19 +271,24 @@ def render_report_markdown(report: dict[str, Any], template: str | None = None) 
         "period": report.get("period") or "—",
         "generated_at": report.get("generatedAt") or "—",
         "overview": report.get("overview") or "_총평이 없습니다._",
+        "priority_risk": _render_priority_risk_md(report.get("priorities", []), report.get("risks", [])),
+        "critical_points": _render_critical_points_md(report.get("criticalPoints", [])),
         "digest": _render_digest_md(report.get("digest")),
         "topics": _render_topics_md(report.get("topics", [])),
     }
     out = tmpl
     for key in REPORT_PLACEHOLDERS:
         out = out.replace("{{" + key + "}}", values[key])
-    # 환각 방어: 미근거 수치가 있으면 문서 상단(제목 다음)에 검토 경고를 덧붙인다.
+    # 환각 방어: 미근거 수치·근거 없는 서술 주장이 있으면 문서 상단(제목 다음)에 검토 경고를 덧붙인다.
     ungrounded = report.get("ungroundedNumbers") or []
-    if ungrounded:
-        notice = (
-            "> ⚠ **검토 필요** — 다음 수치는 제공 문서에서 그대로 확인되지 않았습니다: "
-            + ", ".join(ungrounded[:10]) + "\n\n"
-        )
+    unsupported = report.get("overviewUnsupportedClaims") or []
+    if ungrounded or unsupported:
+        bits = []
+        if ungrounded:
+            bits.append("다음 수치는 제공 문서에서 그대로 확인되지 않았습니다: " + ", ".join(ungrounded[:10]))
+        if unsupported:
+            bits.append("다음 총평 서술은 근거가 확인되지 않았습니다: " + " / ".join(unsupported[:5]))
+        notice = "> ⚠ **검토 필요** — " + " ".join(bits) + "\n\n"
         if out.startswith("# "):
             nl = out.find("\n")
             out = out[: nl + 1] + "\n" + notice + out[nl + 1:]
