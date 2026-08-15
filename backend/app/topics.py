@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import grounding
+from . import grounding, report_agents
 from .llm_json import extract_json
 from .schemas import TopicSummaryOut
 
@@ -114,6 +114,10 @@ async def generate_topic_summary(
         unverified_history += int(not ok)
         history.append(hd)
 
+    # 독립 검증 agent(V3-style): 요약·인사이트의 수치 아닌 서술 주장(추세·인과) 중
+    # 근거 없는 것을 별도로 잡는다. grounding.check 는 수치만 검증한다.
+    unsupported = await report_agents.audit_overview(client, f"{out.summary} {out.insight}".strip(), src)
+
     return {
         "id": slugify(topic_title),
         "title": topic_title,
@@ -127,4 +131,5 @@ async def generate_topic_summary(
         "numbersGrounded": g["numbersGrounded"],
         "ungroundedNumbers": g["ungroundedNumbers"],
         "unverifiedHistoryCount": unverified_history,
+        "unsupportedClaims": unsupported,
     }

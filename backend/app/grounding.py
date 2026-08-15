@@ -100,6 +100,19 @@ def check(text: str, source_texts: list[str], *, mantissa_fallback: bool = True)
     return {"numbersGrounded": not bad, "ungroundedNumbers": bad}
 
 
+def quote_grounded(quote: str, source_texts: list[str]) -> bool:
+    """인용문이 근거 문서 원문에 (공백 정규화 후) 그대로 등장하는지 확인.
+
+    심층분석 agent(Priority/Risk·Critical Point)의 evidence 인용 검증에 쓴다 —
+    수치뿐 아니라 서술 인용도 '지어낸 근거'를 걸러내야 하므로 별도 헬퍼로 둔다.
+    """
+    q = " ".join((quote or "").split())
+    if not q:
+        return False
+    src = " ".join(" ".join((t or "").split()) for t in source_texts)
+    return q in src
+
+
 def caveat_line(ungrounded: list[str]) -> str:
     """미근거 수치가 있을 때 답변에 덧붙일 경고 문구."""
     if not ungrounded:

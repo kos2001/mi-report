@@ -197,8 +197,17 @@ export default function SchedulePage() {
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">마지막 실행</dt>
-                <dd className="font-mono text-zinc-400">{view.schedule.lastRunAt ?? "—"}</dd>
+                <dd className="flex items-center gap-1.5 font-mono text-zinc-400">
+                  {view.schedule.lastRunAt ?? "—"}
+                  {view.lastStatus === "success" && <span className="text-emerald-400">✓</span>}
+                  {view.lastStatus === "failure" && <span className="text-red-400">⚠️ 실패</span>}
+                </dd>
               </div>
+              {view.lastStatus === "failure" && view.lastError && (
+                <div className="rounded-md border border-red-900/60 bg-red-950/30 px-2.5 py-1.5 text-xs text-red-300">
+                  {view.lastError}
+                </div>
+              )}
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">앱 내 스케줄러</dt>
                 <dd className={view.inAppScheduler ? "text-emerald-400" : "text-zinc-400"}>
@@ -218,6 +227,43 @@ export default function SchedulePage() {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-5">
+        <h2 className="text-sm font-semibold text-zinc-100">실행 이력</h2>
+        {view && view.runs.length === 0 && (
+          <p className="mt-3 text-xs text-zinc-500">아직 실행 이력이 없습니다.</p>
+        )}
+        {view && view.runs.length > 0 && (
+          <table className="mt-3 w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-zinc-800 text-zinc-500">
+                <th className="pb-2 font-medium">시각</th>
+                <th className="pb-2 font-medium">트리거</th>
+                <th className="pb-2 font-medium">상태</th>
+                <th className="pb-2 font-medium">결과</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.runs.map((r, i) => (
+                <tr key={i} className="border-b border-zinc-900 last:border-0">
+                  <td className="py-2 font-mono text-zinc-400">{r.ranAt}</td>
+                  <td className="py-2 text-zinc-400">{r.trigger === "auto" ? "자동" : "수동"}</td>
+                  <td className="py-2">
+                    {r.status === "success" ? (
+                      <span className="text-emerald-400">✓ 성공</span>
+                    ) : (
+                      <span className="text-red-400">⚠️ 실패</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-zinc-400">
+                    {r.status === "success" ? `수집 ${r.ingested ?? 0}건` : (r.error ?? "—")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     </>
   );
 }

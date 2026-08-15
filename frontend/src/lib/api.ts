@@ -241,10 +241,11 @@ export interface GeneratedTopic {
   updatedAt: string;
   generated: boolean;
   history: { date: string; event: string; source: string; sourceVerified?: boolean }[];
-  // 환각 방어(서버 부여)
+  // 환각 방어(서버 부여) — 수치 근거 검증 + 독립 검증 agent 의 서술 주장 검증
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   unverifiedHistoryCount?: number;
+  unsupportedClaims?: string[];
 }
 
 export const topicsApi = {
@@ -362,6 +363,25 @@ export const agentApi = {
 };
 
 // ── 주간 MI 리포트 통합 생성 ──────────────────────────────────────────────
+export interface ReportEvidenceQuote {
+  source: string;
+  quote: string;
+}
+export interface ReportPriorityRiskItem {
+  rank: number;
+  title: string;
+  rationale: string;
+  evidence: ReportEvidenceQuote[];
+  evidenceGrounded: boolean;
+}
+export interface ReportCriticalPoint {
+  title: string;
+  rootCause: string;
+  chainEffect: string;
+  decisionNeeded: string;
+  evidence: ReportEvidenceQuote[];
+  evidenceGrounded: boolean;
+}
 export interface GeneratedReport {
   generatedAt: string;
   period: string;
@@ -369,9 +389,14 @@ export interface GeneratedReport {
   overview: string;
   digest: GeneratedDigest | null;
   topics: GeneratedTopic[];
-  // 환각 방어(서버 부여): 총평·하위 산출물 수치 근거 검증
+  // 심층분석 agent(Priority/Risk·Critical Point) — weekly-report-harness 패턴 이식
+  priorities?: ReportPriorityRiskItem[];
+  risks?: ReportPriorityRiskItem[];
+  criticalPoints?: ReportCriticalPoint[];
+  // 환각 방어(서버 부여): 총평·하위 산출물 수치 근거 검증 + 독립 검증 agent 의 서술 주장 검증
   overviewGrounded?: boolean;
   overviewUngroundedNumbers?: string[];
+  overviewUnsupportedClaims?: string[];
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
 }
@@ -486,12 +511,22 @@ export interface ScheduleState {
   digestLimit: number;
   lastRunAt: string | null;
 }
+export interface ScheduleRunLogEntry {
+  ranAt: string;
+  trigger: "auto" | "manual";
+  status: "success" | "failure";
+  error: string | null;
+  ingested: number | null;
+}
 export interface ScheduleView {
   schedule: ScheduleState;
   describe: string;
   crontab: string;
   nextRun: string | null;
   inAppScheduler: boolean;
+  runs: ScheduleRunLogEntry[];
+  lastStatus: "success" | "failure" | null;
+  lastError: string | null;
 }
 
 export const scheduleApi = {

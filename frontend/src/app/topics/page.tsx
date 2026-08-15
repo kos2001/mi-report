@@ -14,6 +14,7 @@ type TopicLike = {
   sourceCount: number;
   updatedAt: string;
   history: { date: string; event: string; source: string }[];
+  unsupportedClaims?: string[];
 };
 
 // 카테고리별 색상 — 주제 카드를 한눈에 구분할 수 있게 한다.
@@ -77,6 +78,12 @@ function TopicCard({ topic, generated }: { topic: TopicLike; generated?: boolean
         </div>
 
         <p className="mt-3 text-sm leading-relaxed text-zinc-300">{topic.summary}</p>
+
+        {topic.unsupportedClaims && topic.unsupportedClaims.length > 0 && (
+          <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {topic.unsupportedClaims.join(" / ")}
+          </p>
+        )}
 
         <div className={`mt-4 rounded-lg border px-4 py-3 ${st.insight}`}>
           <p className={`text-[11px] font-medium uppercase tracking-wide ${st.insightText}`}>

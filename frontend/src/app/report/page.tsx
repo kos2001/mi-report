@@ -12,6 +12,12 @@ const TEMPLATE_PLACEHOLDER = `# 주간 MI 리포트 제{{issue_no}}호
 ## 총평
 {{overview}}
 
+## Top Priority / Risk
+{{priority_risk}}
+
+## 치명적 관리포인트
+{{critical_points}}
+
 ## 뉴스 다이제스트
 {{digest}}
 
@@ -124,7 +130,7 @@ export default function ReportPage() {
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-sky-500"
               />
               <p className="mt-1 text-[11px] text-zinc-500">
-                토큰: <code className="text-zinc-400">{"{{issue_no}} {{period}} {{generated_at}} {{overview}} {{digest}} {{topics}}"}</code>
+                토큰: <code className="text-zinc-400">{"{{issue_no}} {{period}} {{generated_at}} {{overview}} {{priority_risk}} {{critical_points}} {{digest}} {{topics}}"}</code>
               </p>
             </div>
           )}
@@ -160,7 +166,77 @@ export default function ReportPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
               {report.overview}
             </p>
+            {report.overviewUnsupportedClaims && report.overviewUnsupportedClaims.length > 0 && (
+              <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                ⚠ 검토 필요 — 다음 총평 서술은 근거가 확인되지 않았습니다:{" "}
+                {report.overviewUnsupportedClaims.join(" / ")}
+              </p>
+            )}
           </Card>
+
+          {/* Top Priority / Risk (심층분석 agent) */}
+          {((report.priorities && report.priorities.length > 0) ||
+            (report.risks && report.risks.length > 0)) && (
+            <section>
+              <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                Top Priority / Risk
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {report.priorities && report.priorities.length > 0 && (
+                  <Card>
+                    <h4 className="text-sm font-semibold text-emerald-400">Priority</h4>
+                    <ol className="mt-2 flex flex-col gap-2 text-sm text-zinc-300">
+                      {report.priorities.map((p, i) => (
+                        <li key={i}>
+                          <span className="font-medium text-zinc-100">{p.rank}. {p.title}</span>
+                          {!p.evidenceGrounded && <span className="ml-1 text-amber-400">⚠ 근거 미확인</span>}
+                          <p className="text-xs text-zinc-400">{p.rationale}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </Card>
+                )}
+                {report.risks && report.risks.length > 0 && (
+                  <Card>
+                    <h4 className="text-sm font-semibold text-red-400">Risk</h4>
+                    <ol className="mt-2 flex flex-col gap-2 text-sm text-zinc-300">
+                      {report.risks.map((r, i) => (
+                        <li key={i}>
+                          <span className="font-medium text-zinc-100">{r.rank}. {r.title}</span>
+                          {!r.evidenceGrounded && <span className="ml-1 text-amber-400">⚠ 근거 미확인</span>}
+                          <p className="text-xs text-zinc-400">{r.rationale}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </Card>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* 치명적 관리포인트 (심층분석 agent) */}
+          {report.criticalPoints && report.criticalPoints.length > 0 && (
+            <section>
+              <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                치명적 관리포인트 ({report.criticalPoints.length})
+              </h3>
+              <div className="flex flex-col gap-3">
+                {report.criticalPoints.map((c, i) => (
+                  <Card key={i}>
+                    <h4 className="text-sm font-semibold text-zinc-100">
+                      {c.title}
+                      {!c.evidenceGrounded && <span className="ml-1 text-amber-400">⚠ 근거 미확인</span>}
+                    </h4>
+                    <dl className="mt-2 flex flex-col gap-1 text-xs text-zinc-400">
+                      {c.rootCause && <div><dt className="inline font-medium text-zinc-300">근본원인: </dt>{c.rootCause}</div>}
+                      {c.chainEffect && <div><dt className="inline font-medium text-zinc-300">연쇄효과: </dt>{c.chainEffect}</div>}
+                      {c.decisionNeeded && <div><dt className="inline font-medium text-zinc-300">필요한 결정: </dt>{c.decisionNeeded}</div>}
+                    </dl>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* 다이제스트 */}
           {report.digest && report.digest.items.length > 0 && (
