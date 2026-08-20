@@ -855,10 +855,10 @@ async def _digest_generate_result(
     client = _client(req.profile)
     try:
         result = await digest.generate_digest(
-            client, docs, issue_no=req.issueNo, period=req.period, on_progress=on_progress,
+            client, docs, period=req.period, on_progress=on_progress,
             feedback_notes=assets.recent_negative_feedback("digest"),
         )
-        assets.save_artifact_safe("digest", f"제{req.issueNo}호", str(req.issueNo), result)
+        assets.save_artifact_safe("digest", result["week"], result["week"], result)
         return result
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
@@ -891,7 +891,7 @@ async def digest_agent_comment(req: DigestAgentCommentRequest):
     load_profile()  # MI_LLM_* 를 프로파일 .env 에서 로드
     try:
         return await agentchat.digest_comment(
-            req.issueNo, req.period, [i.model_dump() for i in req.items]
+            req.week, req.period, [i.model_dump() for i in req.items]
         )
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
@@ -902,7 +902,7 @@ async def digest_agent_comment_stream(req: DigestAgentCommentRequest):
     """/digest/agent-comment 의 SSE 버전 — 진행사항·델타 중계(일회성, 저장 안 함)."""
     load_profile()
     message = agentchat.digest_comment_prompt(
-        req.issueNo, req.period, [i.model_dump() for i in req.items]
+        req.week, req.period, [i.model_dump() for i in req.items]
     )
     return _sse_response(agentchat.stream_events(message, None, None, persist=False))
 
@@ -921,7 +921,7 @@ def digest_send(req: DigestSendRequest):
     미리보기(평문)를 돌려준다. 발송 여부는 status 로 구분(예외 대신 200 + status).
     """
     load_profile()  # 활성 프로파일 .env(SMTP_*) 를 os.environ 에 보장
-    digest = {"issueNo": req.issueNo, "period": req.period,
+    digest = {"week": req.week, "period": req.period,
               "items": [it.model_dump() for it in req.items]}
     subject, text, html = mailer.render_digest_email(digest, subject=req.subject)
     to = req.to or mailer.default_recipients()
@@ -945,10 +945,10 @@ def digest_send(req: DigestSendRequest):
 
 # ── 스케줄 파이프라인 (수집 → 다이제스트 생성·저장) ───────────────────────
 @app.post("/pipeline/run")
-async def pipeline_run(issueNo: int = 1, period: str = "자동 수집분", limit: int = 20):
+async def pipeline_run(period: str = "자동 수집분", limit: int = 20):
     """수집 + 다이제스트 생성·저장을 한 번에 실행한다(cron/수동 트리거 공용)."""
     try:
-        return await pipeline.run_pipeline(issue_no=issueNo, period=period, limit=limit)
+        return await pipeline.run_pipeline(period=period, limit=limit)
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:

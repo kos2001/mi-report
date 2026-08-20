@@ -32,13 +32,13 @@ def render_digest_email(
     digest: dict[str, Any], *, subject: str | None = None
 ) -> tuple[str, str, str]:
     """다이제스트 → (제목, 평문, HTML). 발송/미리보기 공용."""
-    issue = digest.get("issueNo", "")
+    week = digest.get("week", "")
     period = digest.get("period", "") or ""
     items = digest.get("items", []) or []
-    subj = subject or f"[MI 다이제스트] 제{issue}호 — {period}".strip(" —")
+    subj = subject or f"[MI 다이제스트] {week} — {period}".strip(" —")
 
     # 평문
-    tlines = [f"MI 뉴스 다이제스트 제{issue}호  {period}".strip(), ""]
+    tlines = [f"MI 뉴스 다이제스트 {week}  {period}".strip(), ""]
     for i, it in enumerate(items, 1):
         imp = _IMPACT_LABEL.get(it.get("impact", ""), it.get("impact", ""))
         tlines.append(f"{i}. [{imp}] {it.get('title', '')}")
@@ -77,7 +77,7 @@ def render_digest_email(
         )
     html = (
         f"<div style='font-family:sans-serif;max-width:680px;margin:0 auto'>"
-        f"<h2 style='color:#18181b'>MI 뉴스 다이제스트 제{_esc(issue)}호 "
+        f"<h2 style='color:#18181b'>MI 뉴스 다이제스트 {_esc(week)} "
         f"<span style='font-weight:400;color:#71717a;font-size:14px'>{_esc(period)}</span></h2>"
         + ("".join(blocks) or "<p>항목 없음</p>")
         + "<p style='color:#a1a1aa;font-size:12px;margin-top:16px'>MI Report Agent 자동 생성 — 발송 전 검토 요망</p>"

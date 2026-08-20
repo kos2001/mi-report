@@ -167,7 +167,7 @@ export default function DashboardPage() {
             href="/report"
             step="④ 주간 리포트"
             title="종합 생성"
-            metric={latest ? `제${latest.issueNo}호` : "—"}
+            metric={latest ? latest.week : "—"}
             sub={latest?.generatedAt ? `자동 생성 ${latest.generatedAt}` : "생성 전"}
             accent={STAGE.report}
           />
@@ -196,7 +196,7 @@ export default function DashboardPage() {
         <Card>
           <p className="text-xs text-zinc-500">최근 다이제스트</p>
           <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
-            {latest ? `제${latest.issueNo}호` : "없음"}
+            {latest ? latest.week : "없음"}
           </p>
           <Link href="/digest" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
             뉴스 다이제스트 →

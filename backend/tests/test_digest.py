@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import io
 import json
 
@@ -90,13 +91,18 @@ def test_parse_items_bad_json_raises():
         digest.parse_items('{"items": [oops not json]}')
 
 
+def test_current_week_label_formats_year_and_iso_week():
+    label = digest.current_week_label(datetime.date(2026, 8, 20))
+    assert label == "2026년 34주차"
+
+
 def test_generate_digest_assigns_ids_and_metadata():
     client = FakeClient(_VALID_RESPONSE)
     docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문"}]
     result = asyncio.run(
-        digest.generate_digest(client, docs, issue_no=47, period="2026.06.08 – 06.11")
+        digest.generate_digest(client, docs, period="2026.06.08 – 06.11")
     )
-    assert result["issueNo"] == 47
+    assert result["week"] == digest.current_week_label()
     assert result["mailedAt"] is None  # 초안
     assert result["generated"] is True
     assert result["sourceDocCount"] == 1
@@ -115,7 +121,7 @@ def test_generate_digest_emits_progress_events():
         events.append((ev["tool"], ev["status"]))
 
     asyncio.run(digest.generate_digest(
-        client, docs, issue_no=47, period="", on_progress=on_progress,
+        client, docs, period="", on_progress=on_progress,
     ))
     assert events == [
         ("digest_generate", "running"), ("digest_generate", "completed"),
@@ -144,13 +150,13 @@ def test_generate_digest_flags_unsupported_claims():
             return {"choices": [{"message": {"content": content}}]}
 
     docs = [{"title": "T", "source": "뉴스", "publishedAt": "2026-06-01", "content": "수요 관련 보도."}]
-    result = asyncio.run(digest.generate_digest(RoutingFakeClient(), docs, issue_no=1, period=""))
+    result = asyncio.run(digest.generate_digest(RoutingFakeClient(), docs, period=""))
     assert result["unsupportedClaims"] == ["3주 연속 수요가 악화되고 있다"]
 
 
 def test_generate_digest_empty_docs_raises():
     with pytest.raises(ValueError):
-        asyncio.run(digest.generate_digest(FakeClient(""), [], issue_no=1, period=""))
+        asyncio.run(digest.generate_digest(FakeClient(""), [], period=""))
 
 
 def test_generate_digest_flags_ungrounded_numbers():
@@ -162,7 +168,7 @@ def test_generate_digest_flags_ungrounded_numbers():
     }]}, ensure_ascii=False)
     docs = [{"title": "HBM4 12단 채택", "source": "기술뉴스",
              "publishedAt": "2026-06-10", "content": "HBM4 12단 채택. 점유율 35.2% 기록."}]
-    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, issue_no=1, period="P"))
+    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, period="P"))
     item = res["items"][0]
     assert "1234" in item["ungroundedNumbers"]   # 지어낸 수치
     assert "35.2" not in item["ungroundedNumbers"]  # 문서 근거 수치는 통과
@@ -180,7 +186,7 @@ def test_generate_digest_flags_unverified_source():
     }]}, ensure_ascii=False)
     docs = [{"title": "HBM4 12단 채택", "source": "기술뉴스",
              "publishedAt": "2026-06-10", "content": "HBM4 채택."}]
-    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, issue_no=1, period="P"))
+    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, period="P"))
     assert res["items"][0]["sourceVerified"] is False
     assert res["unverifiedSourceCount"] == 1
 
@@ -200,10 +206,10 @@ def test_digest_generate_endpoint(client, monkeypatch):
     # 게이트웨이를 페이크로 치환
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
 
-    r = client.post("/digest/generate", json={"issueNo": 47, "period": "2026.06.08 – 06.11"})
+    r = client.post("/digest/generate", json={"period": "2026.06.08 – 06.11"})
     assert r.status_code == 200
     body = r.json()
-    assert body["issueNo"] == 47
+    assert body["week"] == digest.current_week_label()
     assert body["sourceDocCount"] == 1
     assert body["items"][0]["id"] == "d1"
     assert body["items"][0]["impact"] == "high"
@@ -213,7 +219,7 @@ def test_digest_generate_stream_endpoint(client, monkeypatch):
     _upload(client, "hbm_news.txt", "HBM4 12단 채택 공식화. AI 가속기 수요 강세.", "HBM")
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
 
-    r = client.post("/digest/generate/stream", json={"issueNo": 47, "period": ""})
+    r = client.post("/digest/generate/stream", json={"period": ""})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/event-stream")
     events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
@@ -221,7 +227,7 @@ def test_digest_generate_stream_endpoint(client, monkeypatch):
     assert types[0] == "progress" and types[-1] == "done"
     tools = [e["tool"] for e in events if e["type"] == "progress"]
     assert tools == ["digest_generate", "digest_generate", "digest_audit", "digest_audit"]
-    assert events[-1]["issueNo"] == 47
+    assert events[-1]["week"] == digest.current_week_label()
 
 
 def test_digest_generate_stream_no_documents_emits_error(client, monkeypatch):

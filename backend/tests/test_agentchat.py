@@ -329,10 +329,10 @@ def test_digest_comment_stream_endpoint(client, monkeypatch):
 
     monkeypatch.setattr(agentchat, "stream_events", fake_stream)
     r = client.post("/digest/agent-comment/stream", json={
-        "issueNo": 3, "period": "p", "items": [{"title": "T", "summary": "S"}],
+        "week": "2026년 3주차", "period": "p", "items": [{"title": "T", "summary": "S"}],
     })
     assert r.status_code == 200
-    assert "제3호" in captured["message"] and "T" in captured["message"]
+    assert "2026년 3주차" in captured["message"] and "T" in captured["message"]
     assert captured["persist"] is False
 
 
@@ -347,7 +347,7 @@ def test_digest_agent_comment(client, monkeypatch):
 
     monkeypatch.setattr(agentchat, "chat", fake_chat)
     r = client.post("/digest/agent-comment", json={
-        "issueNo": 48, "period": "2026.07.06 – 07.09",
+        "week": "2026년 48주차", "period": "2026.07.06 – 07.09",
         "items": [
             {"title": "HBM4 채택 공식화", "summary": "양산 2027년 상반기", "impact": "high"},
             {"title": "스마트폰 출하 하향", "summary": "", "impact": "medium"},
@@ -357,8 +357,8 @@ def test_digest_agent_comment(client, monkeypatch):
     body = r.json()
     assert body["answer"] == "초안 코멘트입니다."
     assert body["numbersGrounded"] is True and body["sources"] == []
-    # 프롬프트에 호수·항목 제목·요약이 들어간다
-    assert "제48호" in captured["message"]
+    # 프롬프트에 주차·항목 제목·요약이 들어간다
+    assert "2026년 48주차" in captured["message"]
     assert "HBM4 채택 공식화" in captured["message"]
     assert "양산 2027년 상반기" in captured["message"]
     # 다이제스트 코멘트는 일회성 — 대화 세션으로 저장되지 않는다

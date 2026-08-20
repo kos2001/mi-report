@@ -242,7 +242,7 @@ async def stream_events(message: str, session_id: str | None = None,
 _COMMENT_SUMMARY_CHARS = 300
 
 
-def digest_comment_prompt(issue_no: int, period: str,
+def digest_comment_prompt(week: str, period: str,
                           items: list[dict[str, Any]]) -> str:
     lines = [
         f"- (영향도 {it.get('impact') or '?'}) {it.get('title', '')}: "
@@ -256,18 +256,18 @@ def digest_comment_prompt(issue_no: int, period: str,
         "1) 항목별 타당성과 놓친 근거, 2) 초안에 빠진 리스크·시사점, "
         "3) 발송 전 수정 제안.\n"
         "근거 문서·출처는 본문에 인용하라.\n\n"
-        f"제{issue_no}호 {period}\n" + "\n".join(lines)
+        f"{week} {period}\n" + "\n".join(lines)
     )
 
 
-async def digest_comment(issue_no: int, period: str,
+async def digest_comment(week: str, period: str,
                          items: list[dict[str, Any]]) -> dict[str, Any]:
     """다이제스트 초안에 대한 에이전트 코멘트(일회성 — 세션 저장 안 함).
 
     에이전트가 코퍼스·웹을 검색해 초안의 타당성 검토, 근거 보강, 놓친
     리스크/시사점을 코멘트로 작성한다. 답변 수치는 코퍼스 대조로 검증한다.
     """
-    message = digest_comment_prompt(issue_no, period, items)
+    message = digest_comment_prompt(week, period, items)
     result = await chat(message)  # 매번 새 세션(일회성 코멘트)
     result.update(await ground_answer(message, result["answer"]))
     return result

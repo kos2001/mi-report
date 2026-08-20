@@ -109,7 +109,6 @@ class DigestGenerateRequest(BaseModel):
     source: str | None = Field(default=None, description="소스 ID 필터(선택).")
     topic: str | None = Field(default=None, description="주제 필터(선택).")
     limit: int = Field(default=20, ge=1, le=100, description="입력 문서 최대 건수.")
-    issueNo: int = Field(default=1, ge=1, description="다이제스트 호수.")
     period: str = Field(default="", description="대상 기간 표기(예: 2026.06.08 – 06.11).")
     profile: str | None = None
 
@@ -126,7 +125,7 @@ class FeedbackRequest(BaseModel):
 class DigestSendRequest(BaseModel):
     """다이제스트 메일 발송 요청(생성된 초안을 그대로 전달)."""
 
-    issueNo: int = Field(default=1, ge=1)
+    week: str = Field(default="", description="다이제스트 주차 표기(예: 2026년 34주차).")
     period: str = ""
     items: list[DigestItemOut] = Field(default_factory=list)
     to: list[str] | None = Field(default=None, description="수신자(미지정 시 SMTP_TO).")
@@ -314,7 +313,7 @@ class DigestCommentItem(BaseModel):
 class DigestAgentCommentRequest(BaseModel):
     """다이제스트 초안에 대한 hermes 에이전트 코멘트 요청."""
 
-    issueNo: int = Field(default=1, ge=1)
+    week: str = Field(default="", description="다이제스트 주차 표기(예: 2026년 34주차).")
     period: str = ""
     items: list[DigestCommentItem] = Field(..., min_length=1)
 
