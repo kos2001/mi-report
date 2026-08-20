@@ -41,6 +41,12 @@ export default function RootLayout({
     <html
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // next/font 가 생성하는 이 클래스 해시가 Turbopack dev 에서 서버/클라이언트
+      // 패스 사이에 흔들리는 경우가 있다(폰트 로더 자체의 dev-mode 재계산 —
+      // 앱 로직과 무관). Next 공식 문서가 바로 이 케이스(next/font + html 태그)를
+      // suppressHydrationWarning 의 대표 예시로 든다: 시각적 영향 없는 CSS 클래스
+      // 해시 하나만 다를 뿐이라 진짜 불일치를 숨기는 게 아니다.
+      suppressHydrationWarning
     >
       {/* 셸을 뷰포트 높이에 고정(h-screen + overflow-hidden)해야 main 의
           overflow-y-auto 가 바운드된 높이를 갖고 내부 스크롤이 동작한다.
