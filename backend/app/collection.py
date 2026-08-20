@@ -1137,13 +1137,17 @@ def list_untagged_ids(limit: int = 50) -> list[str]:
 
 def delete_document(doc_id: str) -> None:
     with _conn() as conn:
-        row = conn.execute("SELECT path FROM documents WHERE id=?", (doc_id,)).fetchone()
+        row = conn.execute("SELECT path, source_id FROM documents WHERE id=?", (doc_id,)).fetchone()
         if row is None:
             raise KeyError(doc_id)
         if row["path"]:
             Path(row["path"]).unlink(missing_ok=True)
         conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
         _index_content(conn, doc_id, None)  # 본문 FTS 에서도 제거
+        if row["source_id"]:
+            conn.execute(
+                "UPDATE sources SET count = MAX(0, count - 1) WHERE id=?", (row["source_id"],),
+            )
         _bump_vec_version(conn)  # 임베딩 CASCADE 삭제 → 벡터 캐시 무효화
 
 

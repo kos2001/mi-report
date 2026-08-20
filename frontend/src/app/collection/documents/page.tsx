@@ -51,6 +51,7 @@ export default function CollectionDocumentsPage() {
   const [contentError, setContentError] = useState<string | null>(null);
   const [classifyingId, setClassifyingId] = useState<string | null>(null);
   const [batchClassifying, setBatchClassifying] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const openDoc = useCallback(async (id: string) => {
     setSelectedId(id);
@@ -129,6 +130,22 @@ export default function CollectionDocumentsPage() {
       if (contentDoc?.id === id) setContentDoc(result.document);
     } finally {
       setClassifyingId(null);
+    }
+  };
+
+  const deleteOne = async (doc: CollectedDoc) => {
+    if (!window.confirm(`'${doc.title}' 문서를 삭제할까요? (이 문서만 개별 삭제 — 소스는 유지됩니다)`)) return;
+    setDeletingId(doc.id);
+    try {
+      await api.deleteDocument(doc.id);
+      setDocs((current) => current.filter((d) => d.id !== doc.id));
+      if (selectedId === doc.id) {
+        setSelectedId(null);
+        setContent(null);
+        setContentDoc(null);
+      }
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -314,6 +331,16 @@ export default function CollectionDocumentsPage() {
                         >
                           원본 열기 ↗
                         </a>
+                      )}
+                      {contentDoc && (
+                        <button
+                          onClick={() => deleteOne(contentDoc)}
+                          disabled={deletingId === contentDoc.id}
+                          title="이 문서만 개별 삭제(소스는 유지)"
+                          className="rounded-lg border border-red-200 px-3 py-2 text-[11px] font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                        >
+                          {deletingId === contentDoc.id ? "삭제 중…" : "문서 삭제"}
+                        </button>
                       )}
                     </div>
                   </div>

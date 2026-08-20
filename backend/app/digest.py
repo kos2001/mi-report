@@ -26,9 +26,12 @@ DIGEST_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애�
   반올림해 새 숫자를 만들지 않는다. 근거가 없으면 수치를 쓰지 말고 정성 서술만 한다.
 - source 는 그 항목의 근거가 된 문서의 '출처' 표기를 그대로 사용한다(지어내지 않는다).
 - 각 항목에 S.LSI 제품군 연관성(slsiRelevance), 수요 변동 영향(demandImpact), 리스크(risk)를 명시한다.
+  summary/slsiRelevance/demandImpact/risk 는 완결된 문장이 아니라 개조식으로 작성한다.
 - 영향도(impact)는 high/medium/low 중 하나로 평가한다.
 - 단일 출처에만 근거한 항목은 risk 에 '단일 출처 — 교차검증 필요'를 함께 적는다.
-- 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다.
+- 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다."""
+
+DIGEST_SYSTEM_PROMPT += report_agents.OUTLINE_STYLE_DIRECTIVE + """
 
 출력 형식:
 {"items":[{"title":"...","source":"...","publishedAt":"YYYY-MM-DD",
