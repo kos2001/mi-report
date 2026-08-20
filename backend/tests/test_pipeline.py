@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app import collection, confluence, config, digest, fetcher, pipeline
+from app import collection, confluence, digest, fetcher, pipeline
 
 
 async def _no_confluence(*args, **kwargs):
@@ -94,13 +94,35 @@ def test_run_digest_saves_and_latest_loads(client, monkeypatch, isolated):
     result = asyncio.run(pipeline.run_digest(period="테스트"))
     assert result["week"] == digest.current_week_label()
     assert result["items"][0]["id"] == "d1"
-    # 파일로 저장됨
-    assert (config.DIGESTS_DIR / "latest.json").exists()
+    assert "generatedAt" in result
     # load_latest_digest 로 읽힘
     latest = pipeline.load_latest_digest()
     assert latest is not None
     assert latest["week"] == digest.current_week_label()
     assert "generatedAt" in latest
+
+
+def test_run_digest_appears_in_history_and_is_deletable(client, monkeypatch, isolated):
+    # 수동 실행(pipeline.run_digest)으로 만든 다이제스트도 대화형 생성(/digest/generate)과
+    # 같은 저장소(artifacts)를 쓴다 — 생성 이력에 나타나고 삭제할 수 있어야 한다.
+    import io
+
+    client.post(
+        "/collection/upload",
+        files={"file": ("d.txt", io.BytesIO("HBM 본문".encode()), "text/plain")},
+    )
+    monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
+    asyncio.run(pipeline.run_digest(period="테스트"))
+
+    r = client.get("/artifacts", params={"kind": "digest"})
+    assert r.status_code == 200
+    artifacts = r.json()["artifacts"]
+    assert len(artifacts) == 1
+    aid = artifacts[0]["id"]
+
+    r = client.delete(f"/artifacts/{aid}")
+    assert r.status_code == 204
+    assert client.get("/artifacts", params={"kind": "digest"}).json()["artifacts"] == []
 
 
 def test_run_pipeline_end_to_end(client, monkeypatch):

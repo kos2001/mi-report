@@ -11,11 +11,15 @@ export function ArtifactHistoryPanel({
   kind,
   refFilter,
   onSelect,
+  onDeleted,
   emptyLabel = "아직 생성 이력이 없습니다.",
 }: {
   kind: string;
   refFilter?: string;
   onSelect: (artifact: ArtifactFull) => void;
+  // 삭제 성공 후 호출된다 — 이 패널 밖에서 같은 생성물을 별도로 캐싱해 보여주는
+  // 화면(예: 다이제스트 page 의 "최신 자동 생성" 섹션)이 있다면 갱신할 수 있게.
+  onDeleted?: (id: string) => void;
   emptyLabel?: string;
 }) {
   const [items, setItems] = useState<ArtifactMeta[]>([]);
@@ -53,6 +57,7 @@ export function ArtifactHistoryPanel({
     try {
       await artifactsApi.remove(id);
       setItems((prev) => prev.filter((a) => a.id !== id));
+      onDeleted?.(id);
     } catch {
       setError("삭제 실패");
     } finally {

@@ -36,7 +36,7 @@ async def _main(period: str, limit: int) -> int:
     if dg is None:
         print(f"[다이제스트] 생성 안 됨: {result.get('digestError', '사유 미상')}")
         return 1
-    print(f"[다이제스트] {dg['week']} · 항목 {len(dg['items'])}개 → 저장: {dg['savedPath']}")
+    print(f"[다이제스트] {dg['week']} · 항목 {len(dg['items'])}개 → 생성물로 저장됨")
     return 0
 
 

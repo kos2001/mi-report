@@ -281,20 +281,20 @@ export default function DigestPage() {
     }
   }
 
-  // 스케줄 파이프라인(cron)이 마지막으로 저장한 다이제스트를 표시
-  useEffect(() => {
-    let alive = true;
+  // 스케줄 파이프라인(cron)이 마지막으로 저장한 다이제스트를 표시.
+  // 수동 실행분도 이제 같은 생성물 저장소(artifacts)를 쓰므로, 생성 이력에서
+  // 그 항목을 삭제하면 이 표시도 갱신되어야 한다(refreshLatest 를 이력 패널에 연결).
+  function refreshLatest() {
     digestApi
       .latest()
-      .then((d) => {
-        if (alive) setLatest(d);
-      })
+      .then(setLatest)
       .catch(() => {
         /* 백엔드 구버전/미저장 시 무시 */
       });
-    return () => {
-      alive = false;
-    };
+  }
+
+  useEffect(() => {
+    refreshLatest();
   }, []);
 
   function handleGenerate() {
@@ -401,6 +401,7 @@ export default function DigestPage() {
         <ArtifactHistoryPanel
           kind="digest"
           onSelect={(a) => setHistoryPick(a.payload as unknown as GeneratedDigest)}
+          onDeleted={refreshLatest}
           emptyLabel="아직 생성된 다이제스트가 없습니다."
         />
       </div>

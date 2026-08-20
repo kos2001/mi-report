@@ -33,7 +33,6 @@ from app import config  # noqa: E402
 config.DATA_DIR = tmp
 config.COLLECTION_DB = tmp / "collection.db"
 config.UPLOADS_DIR = tmp / "uploads"
-config.DIGESTS_DIR = tmp / "digests"
 
 from app import collection, digest, sec_edgar  # noqa: E402
 from app.gateway import get_client  # noqa: E402
