@@ -328,7 +328,12 @@ def render_report_markdown(report: dict[str, Any], template: str | None = None) 
         if ungrounded:
             bits.append("다음 수치는 제공 문서에서 그대로 확인되지 않았습니다: " + ", ".join(ungrounded[:10]))
         if unsupported:
-            bits.append("다음 총평 서술은 근거가 확인되지 않았습니다: " + " / ".join(unsupported[:5]))
+            claims = [
+                f"{u.get('claim', '')}({u['why']})" if isinstance(u, dict) and u.get("why") else
+                (u.get("claim", "") if isinstance(u, dict) else str(u))
+                for u in unsupported[:5]
+            ]
+            bits.append("다음 총평 서술은 근거가 확인되지 않았습니다: " + " / ".join(claims))
         notice = "> ⚠ **검토 필요** — " + " ".join(bits) + "\n\n"
         if out.startswith("# "):
             nl = out.find("\n")

@@ -130,7 +130,7 @@ def test_generate_topic_summary_flags_unsupported_claims():
     out = asyncio.run(
         topics.generate_topic_summary(RoutingFakeClient(), "HBM", docs, updated_at="2026-06-13")
     )
-    assert out["unsupportedClaims"] == ["3주 연속 악화되고 있다"]
+    assert out["unsupportedClaims"] == [{"claim": "3주 연속 악화되고 있다", "why": "원문에 추세 언급 없음"}]
 
 
 def test_generate_topic_summary_empty_docs_raises():

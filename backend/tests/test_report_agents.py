@@ -65,7 +65,7 @@ def test_audit_overview_flags_unsupported_claims():
     src_texts = [d["content"] for d in _DOCS]
     result = asyncio.run(report_agents.audit_overview(
         FakeClient(audit_json), "이번 주는 3주 연속 악화되고 있다.", src_texts))
-    assert result == ["3주 연속 악화되고 있다"]
+    assert result == [{"claim": "3주 연속 악화되고 있다", "why": "원문에 추세 언급 없음"}]
 
 
 def test_feedback_block_empty_when_no_notes():

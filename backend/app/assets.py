@@ -230,7 +230,7 @@ def quality_summary(limit_flagged: int = 10) -> dict[str, Any]:
             "FROM artifacts GROUP BY kind"
         ).fetchall()
         flagged_rows = conn.execute(
-            "SELECT id, kind, title, created_at, ungrounded_count, unsupported_count FROM artifacts "
+            "SELECT id, kind, title, created_at, ungrounded_count, unsupported_count, payload FROM artifacts "
             "WHERE ungrounded_count > 0 OR unsupported_count > 0 "
             "ORDER BY created_at DESC, rowid DESC LIMIT ?",
             (limit_flagged,),
@@ -248,13 +248,22 @@ def quality_summary(limit_flagged: int = 10) -> dict[str, Any]:
     for k in ARTIFACT_KINDS:
         by_kind.setdefault(k, {"count": 0, "flaggedCount": 0, "up": 0, "down": 0})
 
+    def _detail(row: sqlite3.Row) -> dict[str, Any]:
+        payload = json.loads(row["payload"])
+        unsupported = payload.get("unsupportedClaims") or payload.get("overviewUnsupportedClaims") or []
+        return {
+            "id": row["id"], "kind": row["kind"], "title": row["title"], "createdAt": row["created_at"],
+            "ungroundedCount": row["ungrounded_count"], "unsupportedCount": row["unsupported_count"],
+            # 자기개선 loop 이 "N건"이라는 숫자만이 아니라 실제 근거 없는 서술과 그 이유를 보게 한다.
+            "ungroundedNumbers": payload.get("ungroundedNumbers") or [],
+            "unsupportedClaims": [
+                {"claim": u.get("claim", ""), "why": u.get("why", "")} if isinstance(u, dict)
+                else {"claim": str(u), "why": ""}
+                for u in unsupported
+            ],
+        }
+
     return {
         "byKind": by_kind,
-        "recentFlagged": [
-            {
-                "id": r["id"], "kind": r["kind"], "title": r["title"], "createdAt": r["created_at"],
-                "ungroundedCount": r["ungrounded_count"], "unsupportedCount": r["unsupported_count"],
-            }
-            for r in flagged_rows
-        ],
+        "recentFlagged": [_detail(r) for r in flagged_rows],
     }

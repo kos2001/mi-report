@@ -4,6 +4,14 @@
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+// 독립 검증 agent(audit_overview)가 잡아낸 "근거 없는 서술" 한 건 — 무엇이(claim)
+// 왜(why) 근거가 없다고 판단됐는지 함께 담는다(자기개선 loop 이 이유 없이 숫자만
+// 보여주지 않도록).
+export interface UnsupportedClaim {
+  claim: string;
+  why: string;
+}
+
 export type SourceType =
   | "edm"
   | "confluence"
@@ -214,7 +222,7 @@ export interface GeneratedDigest {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   unverifiedSourceCount?: number;
-  unsupportedClaims?: string[];
+  unsupportedClaims?: UnsupportedClaim[];
   // hermes 에이전트가 생성 시점에 자동으로 붙인 초안 검토(hermes 미설정/장애 시 null).
   // 수치 검증은 생성 시점 digest_audit 과 중복이라 여기서는 하지 않는다.
   agentComment?: {
@@ -289,7 +297,7 @@ export interface GeneratedTopic {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   unverifiedHistoryCount?: number;
-  unsupportedClaims?: string[];
+  unsupportedClaims?: UnsupportedClaim[];
 }
 
 export const topicsApi = {
@@ -325,7 +333,7 @@ export interface GeneratedCompetitor {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   droppedCount?: number;
-  unsupportedClaims?: string[];
+  unsupportedClaims?: UnsupportedClaim[];
 }
 
 export interface CompetitorCandidate {
@@ -442,7 +450,7 @@ export interface GeneratedReport {
   // 환각 방어(서버 부여): 총평·하위 산출물 수치 근거 검증 + 독립 검증 agent 의 서술 주장 검증
   overviewGrounded?: boolean;
   overviewUngroundedNumbers?: string[];
-  overviewUnsupportedClaims?: string[];
+  overviewUnsupportedClaims?: UnsupportedClaim[];
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
 }
@@ -613,6 +621,8 @@ export interface QualityFlaggedItem {
   createdAt: string;
   ungroundedCount: number;
   unsupportedCount: number;
+  ungroundedNumbers: string[];
+  unsupportedClaims: UnsupportedClaim[];
 }
 export interface QualitySummary {
   byKind: Record<string, QualityKindStats>;

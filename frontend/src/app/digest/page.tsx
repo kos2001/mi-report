@@ -6,7 +6,7 @@ import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-strea
 import { startJob } from "@/lib/generation-jobs";
 import { useJob } from "@/lib/use-job";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
-import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
+import { Card, ImpactBadge, PageHeader, Tag, UnsupportedClaimsNotice } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
@@ -461,11 +461,7 @@ export default function DigestPage() {
                 source={displayedComment(visibleLatest)!.source}
               />
             )}
-            {visibleLatest.unsupportedClaims && visibleLatest.unsupportedClaims.length > 0 && (
-              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {visibleLatest.unsupportedClaims.join(" / ")}
-              </p>
-            )}
+            <UnsupportedClaimsNotice claims={visibleLatest.unsupportedClaims} />
             {visibleLatest.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">생성된 항목이 없습니다.</p>
@@ -573,11 +569,7 @@ export default function DigestPage() {
                 source={displayedComment(generated)!.source}
               />
             )}
-            {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (
-              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {generated.unsupportedClaims.join(" / ")}
-              </p>
-            )}
+            <UnsupportedClaimsNotice claims={generated.unsupportedClaims} />
             {generated.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">생성된 항목이 없습니다.</p>

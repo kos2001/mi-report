@@ -1,4 +1,5 @@
 import type { ImpactLevel } from "@/lib/data";
+import type { UnsupportedClaim } from "@/lib/api";
 
 const PAGE_META: Record<string, { group: string; icon: string; tone: string; iconTone: string }> = {
   "대시보드": { group: "OVERVIEW", icon: "◧", tone: "text-zinc-500", iconTone: "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" },
@@ -94,6 +95,27 @@ export function Tag({ children }: { children: React.ReactNode }) {
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${tagStyles[index]}`}>
       {children}
     </span>
+  );
+}
+
+// 독립 검증 agent(audit_overview)가 잡아낸 "근거 없는 서술" 목록을 이유(why)와
+// 함께 보여준다. 예전엔 claim 텍스트만 나열해 "왜 근거가 없는지"가 안 보였다 —
+// 자기개선 loop이 실제로 이유·근거를 보고 판단할 수 있어야 하므로 각 항목에
+// why 를 함께 표시한다(why 가 비어 있으면 claim 만).
+export function UnsupportedClaimsNotice({ claims }: { claims: UnsupportedClaim[] | undefined }) {
+  if (!claims || claims.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+      <p className="font-medium">⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다</p>
+      <ul className="mt-1.5 flex flex-col gap-1 pl-4">
+        {claims.map((c, i) => (
+          <li key={i} className="list-disc leading-relaxed">
+            <span>{c.claim}</span>
+            {c.why && <span className="text-amber-600/80 dark:text-amber-400/80"> — {c.why}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
