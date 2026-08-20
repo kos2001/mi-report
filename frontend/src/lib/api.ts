@@ -39,9 +39,17 @@ export interface CollectedDoc {
   createdAt: string;
 }
 
+// 설정 page 에서 저장한 사용자 토큰 — 있으면 모든 요청에 실어 보낸다(쓰기는
+// admin 만 허용되므로, 관리자로 로그인하지 않으면 생성/삭제류가 401/403).
+function authHeader(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("userToken");
+  return token ? { "X-User-Token": token } : {};
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeader(), ...(init?.headers ?? {}) },
     ...init,
   });
   if (!res.ok) {
@@ -548,6 +556,32 @@ export const feedbackApi = {
       body: JSON.stringify(body),
     }),
 };
+
+// ── 사용자 인증/권한(admin/viewer) ─────────────────────────────────────────
+export interface CurrentUser {
+  name: string;
+  role: "admin" | "viewer";
+}
+export interface AuthUser extends CurrentUser {
+  token: string;
+}
+
+export const authApi = {
+  me: () => req<{ user: CurrentUser | null; authEnabled: boolean }>("/auth/me"),
+  listUsers: () => req<{ users: AuthUser[] }>("/auth/users").then((d) => d.users),
+  createUser: (body: { name: string; role: "admin" | "viewer" }) =>
+    req<AuthUser>("/auth/users", { method: "POST", body: JSON.stringify(body) }),
+  deleteUser: (name: string) => req<void>(`/auth/users/${encodeURIComponent(name)}`, { method: "DELETE" }),
+};
+
+export function getStoredToken(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("userToken") ?? "";
+}
+export function setStoredToken(token: string): void {
+  if (token) window.localStorage.setItem("userToken", token);
+  else window.localStorage.removeItem("userToken");
+}
 
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   edm: "EDM",
