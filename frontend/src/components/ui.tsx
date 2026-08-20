@@ -33,10 +33,12 @@ export function Card({
   );
 }
 
+// high/medium/low 를 신호등 톤(빨강/호박/초록)으로 또렷하게 구분한다 — low 를
+// 중립 회색으로 두면 상/중만 눈에 띄고 하는 "색이 없다"로 읽혀 구분이 흐려졌다.
 const impactStyle: Record<ImpactLevel, string> = {
-  high: "bg-red-50/60 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-100/60 dark:border-red-900/60",
-  medium: "bg-amber-50/60 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-100/60 dark:border-amber-900/60",
-  low: "bg-zinc-200/80 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-400 border-zinc-300/60 dark:border-zinc-700/60",
+  high: "bg-red-100/80 dark:bg-red-950/60 text-red-700 dark:text-red-400 border-red-300/70 dark:border-red-900/60",
+  medium: "bg-amber-100/80 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-300/70 dark:border-amber-900/60",
+  low: "bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-300/70 dark:border-emerald-900/60",
 };
 
 const impactLabel: Record<ImpactLevel, string> = {
