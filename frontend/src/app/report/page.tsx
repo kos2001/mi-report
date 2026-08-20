@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { reportApi, type GeneratedReport } from "@/lib/api";
-import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
+import { startJob } from "@/lib/generation-jobs";
+import { useJob } from "@/lib/use-job";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 import { Markdown } from "@/components/markdown";
@@ -39,39 +40,36 @@ function downloadMarkdown(filename: string, markdown: string) {
 }
 
 export default function ReportPage() {
-  const [report, setReport] = useState<GeneratedReport | null>(null);
-  const [loading, setLoading] = useState(false);
+  const job = useJob<GeneratedReport>("report");
+  // historyPick(이력 선택) > docReport(문서 미리보기로 생성한 결과) > job.result(이번
+  // 세션 작업 결과 — page 이동해도 유지) 순으로 우선한다.
+  const [historyPick, setHistoryPick] = useState<GeneratedReport | null>(null);
+  const [docReport, setDocReport] = useState<GeneratedReport | null>(null);
+  const report = historyPick ?? docReport ?? job.result;
+  const loading = job.status === "running";
   const [docBusy, setDocBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const error = job.status === "error" ? job.error : null;
+  const [docError, setDocError] = useState<string | null>(null);
   const [showTemplate, setShowTemplate] = useState(false);
   const [template, setTemplate] = useState("");
   const [docPreview, setDocPreview] = useState<{ filename: string; markdown: string } | null>(null);
-  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
+  const genSteps = job.steps;
 
-  async function generate() {
-    setLoading(true);
-    setError(null);
-    setGenSteps([]);
-    try {
-      const result = await streamAgent<GeneratedReport>("/report/generate/stream", {
-        period: "최근 수집 문서",
-        maxTopics: 3,
-      }, {
-        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
-      });
-      setReport(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "리포트 생성 실패");
-    } finally {
-      setLoading(false);
-    }
+  function generate() {
+    setHistoryPick(null);
+    setDocReport(null);
+    void startJob<GeneratedReport>("report", "주간 리포트 생성 중…", "/report/generate/stream", {
+      period: "최근 수집 문서",
+      maxTopics: 3,
+    });
   }
 
   // 리포트를 생성하고 (선택) 템플릿을 적용한 Markdown 문서를 미리보기로 띄운다.
-  // 다운로드는 미리보기에서 확인 후 별도 버튼으로.
+  // 다운로드는 미리보기에서 확인 후 별도 버튼으로. (이 흐름은 문서 내보내기 전용이라
+  // 단발성 fetch 로 유지 — 여러 단계로 나뉜 AI 리포트 "생성" 과는 별개 동작이다.)
   async function generateDocument() {
     setDocBusy(true);
-    setError(null);
+    setDocError(null);
     try {
       const r = await reportApi.document({
         period: "최근 수집 문서",
@@ -79,9 +77,10 @@ export default function ReportPage() {
         template: template.trim() || undefined,
       });
       setDocPreview({ filename: r.filename, markdown: r.markdown });
-      setReport(r.report);
+      setHistoryPick(null);
+      setDocReport(r.report);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "문서 생성 실패");
+      setDocError(e instanceof Error ? e.message : "문서 생성 실패");
     } finally {
       setDocBusy(false);
     }
@@ -151,9 +150,9 @@ export default function ReportPage() {
           </div>
         )}
 
-        {error && (
+        {(error || docError) && (
           <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-            {error}
+            {error || docError}
           </p>
         )}
       </Card>
@@ -188,7 +187,7 @@ export default function ReportPage() {
       <div className="mb-8">
         <ArtifactHistoryPanel
           kind="report"
-          onSelect={(a) => setReport(a.payload as unknown as GeneratedReport)}
+          onSelect={(a) => setHistoryPick(a.payload as unknown as GeneratedReport)}
           emptyLabel="아직 생성된 리포트가 없습니다."
         />
       </div>

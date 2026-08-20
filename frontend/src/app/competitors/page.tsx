@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
-import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
+import { startJob } from "@/lib/generation-jobs";
+import { useJob } from "@/lib/use-job";
 import { competitors } from "@/lib/data";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, Delta, PageHeader } from "@/components/ui";
@@ -208,12 +209,15 @@ export default function CompetitorsPage() {
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState("");
   const [topic, setTopic] = useState("");
-  const [generated, setGenerated] = useState<GeneratedCompetitor | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const job = useJob<GeneratedCompetitor>("competitor");
+  const [historyPick, setHistoryPick] = useState<GeneratedCompetitor | null>(null);
+  const generated = historyPick ?? job.result;
+  const loading = job.status === "running";
+  const [formError, setFormError] = useState<string | null>(null);
+  const error = formError ?? (job.status === "error" ? job.error : null);
   const [showHelp, setShowHelp] = useState(true);
   const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
-  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
+  const genSteps = job.steps;
 
   // 수집된 데이터로 결정되는 분석 가능 경쟁사 후보(동적). 마운트 + 창 포커스 시 재조회.
   const loadCandidates = useCallback(() => {
@@ -237,31 +241,20 @@ export default function CompetitorsPage() {
     setName(c.name);
     setTicker(c.ticker);
     setTopic("");
-    setError(null);
+    setFormError(null);
   }
 
-  async function handleAnalyze() {
+  function handleAnalyze() {
     if (!name.trim()) {
-      setError("경쟁사 이름을 입력하세요.");
+      setFormError("경쟁사 이름을 입력하세요.");
       return;
     }
-    setLoading(true);
-    setError(null);
-    setGenSteps([]);
-    try {
-      const result = await streamAgent<GeneratedCompetitor>("/competitors/analyze/stream", {
-        name: name.trim(),
-        ticker: ticker.trim() || undefined,
-        topic: topic.trim() || undefined,
-      }, {
-        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
-      });
-      setGenerated(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "경쟁사 분석 생성 실패");
-    } finally {
-      setLoading(false);
-    }
+    setFormError(null);
+    setHistoryPick(null);
+    void startJob<GeneratedCompetitor>(
+      "competitor", `${name.trim()} 분석 생성 중…`, "/competitors/analyze/stream",
+      { name: name.trim(), ticker: ticker.trim() || undefined, topic: topic.trim() || undefined },
+    );
   }
 
   return (
@@ -412,7 +405,7 @@ export default function CompetitorsPage() {
       <div className="mb-8">
         <ArtifactHistoryPanel
           kind="competitor"
-          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedCompetitor)}
+          onSelect={(a) => setHistoryPick(a.payload as unknown as GeneratedCompetitor)}
           emptyLabel="아직 생성된 경쟁사 분석이 없습니다."
         />
       </div>

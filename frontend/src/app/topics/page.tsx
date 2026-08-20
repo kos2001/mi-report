@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { topicsApi, type GeneratedTopic, type TopicListItem } from "@/lib/api";
-import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
+import { startJob } from "@/lib/generation-jobs";
+import { useJob } from "@/lib/use-job";
 import { topics } from "@/lib/data";
 import { Card, PageHeader } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
@@ -127,10 +128,12 @@ function TopicCard({ topic, generated }: { topic: TopicLike; generated?: boolean
 export default function TopicsPage() {
   const [available, setAvailable] = useState<TopicListItem[]>([]);
   const [selected, setSelected] = useState<string>("");
-  const [generated, setGenerated] = useState<GeneratedTopic | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
+  const job = useJob<GeneratedTopic>("topic");
+  const [historyPick, setHistoryPick] = useState<GeneratedTopic | null>(null);
+  const generated = historyPick ?? job.result;
+  const loading = job.status === "running";
+  const error = job.status === "error" ? job.error : null;
+  const genSteps = job.steps;
 
   useEffect(() => {
     let alive = true;
@@ -149,21 +152,12 @@ export default function TopicsPage() {
     };
   }, []);
 
-  async function handleGenerate() {
+  function handleGenerate() {
     if (!selected) return;
-    setLoading(true);
-    setError(null);
-    setGenSteps([]);
-    try {
-      const result = await streamAgent<GeneratedTopic>("/topics/summarize/stream", { topic: selected }, {
-        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
-      });
-      setGenerated(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "주제 요약 생성 실패");
-    } finally {
-      setLoading(false);
-    }
+    setHistoryPick(null);
+    void startJob<GeneratedTopic>("topic", `주제 요약 생성 중… (${selected})`, "/topics/summarize/stream", {
+      topic: selected,
+    });
   }
 
   return (
@@ -223,7 +217,7 @@ export default function TopicsPage() {
       <div className="mb-8">
         <ArtifactHistoryPanel
           kind="topic"
-          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedTopic)}
+          onSelect={(a) => setHistoryPick(a.payload as unknown as GeneratedTopic)}
           emptyLabel="아직 생성된 주제 요약이 없습니다."
         />
       </div>
