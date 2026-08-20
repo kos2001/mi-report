@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import grounding, report_agents
+from . import grounding, progress, report_agents
 from .llm_json import extract_json
 from .schemas import TopicSummaryOut
 
@@ -86,11 +86,15 @@ async def generate_topic_summary(
     *,
     updated_at: str,
     temperature: float = 0.2,
+    on_progress: progress.ProgressFn | None = None,
 ) -> dict[str, Any]:
     """주제 누적 문서로 이력·인사이트를 생성한다(id/메타데이터는 서버가 부여)."""
     if not docs:
         raise ValueError("요약할 본문 있는 문서가 없습니다.")
-    completion = await client.chat(build_messages(topic_title, docs), temperature=temperature)
+    completion = await progress.track(
+        client.chat(build_messages(topic_title, docs), temperature=temperature),
+        on_progress, tool=f"topic_generate:{topic_title}", emoji="📚", label=f"주제 요약 — {topic_title}",
+    )
     out = parse_summary(extract_content(completion))
 
     # 환각 방어(MI 서비스): 요약·인사이트·이력의 수치가 근거 문서에 실재하는지 검증.
@@ -116,7 +120,10 @@ async def generate_topic_summary(
 
     # 독립 검증 agent(V3-style): 요약·인사이트의 수치 아닌 서술 주장(추세·인과) 중
     # 근거 없는 것을 별도로 잡는다. grounding.check 는 수치만 검증한다.
-    unsupported = await report_agents.audit_overview(client, f"{out.summary} {out.insight}".strip(), src)
+    unsupported = await progress.track(
+        report_agents.audit_overview(client, f"{out.summary} {out.insight}".strip(), src),
+        on_progress, tool=f"topic_audit:{topic_title}", emoji="🔍", label=f"근거 검증 — {topic_title}",
+    )
 
     return {
         "id": slugify(topic_title),

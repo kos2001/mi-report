@@ -141,6 +141,17 @@ def test_competitors_analyze_endpoint(client, monkeypatch):
     assert body["consensus"][0]["direction"] == "up"
 
 
+def test_competitors_analyze_stream_endpoint(client, monkeypatch):
+    _upload(client, "qcom_ir.txt", "FY26 Q2 매출 11.7B 달러, 영업이익률 29.1%.", "QCOM")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+    r = client.post("/competitors/analyze/stream", json={"name": "경쟁사 Q", "ticker": "QCOM", "topic": "QCOM"})
+    assert r.status_code == 200
+    events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    tools = [e["tool"] for e in events if e["type"] == "progress"]
+    assert tools == ["competitor_generate", "competitor_generate", "competitor_audit", "competitor_audit"]
+    assert events[-1]["type"] == "done" and events[-1]["name"] == "경쟁사 Q"
+
+
 def test_competitors_analyze_no_documents_422(client, monkeypatch):
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
     r = client.post("/competitors/analyze", json={"name": "없는경쟁사", "topic": "없음"})

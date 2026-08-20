@@ -18,7 +18,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, oidc, pipeline, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, oidc, pipeline, progress, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -679,6 +679,49 @@ def _sse_response(gen):
     )
 
 
+def _stream_with_progress(work):
+    """work: async def work(on_progress) -> dict (최종 결과).
+
+    다이제스트/주제/경쟁사/리포트 생성처럼 '한 번 호출해 결과를 기다리는' 함수를,
+    내부 단계별 progress 이벤트를 실시간 SSE 로 흘려보내는 스트림으로 감싼다.
+    agentchat.py 의 도구 진행사항과 같은 이벤트 모양이라 프론트가 같은
+    AgentProgressView 로 그린다. work 자체는 스트리밍을 모른다(on_progress 콜백만
+    받는다) — 기존 비스트리밍 엔드포인트와 로직을 공유하기 위함."""
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def on_progress(ev: dict) -> None:
+        await queue.put(ev)
+
+    async def runner() -> None:
+        try:
+            result = await work(on_progress)
+            await queue.put({"type": "done", **result})
+        except HTTPException as e:
+            await queue.put({"type": "error", "status": e.status_code, "detail": e.detail})
+        except LLMError as e:
+            await queue.put({"type": "error", "status": e.status, "detail": str(e.detail)})
+        except httpx.HTTPError as e:
+            await queue.put({"type": "error", "status": 502, "detail": f"게이트웨이 연결 실패: {e}"})
+        except ValueError as e:
+            await queue.put({"type": "error", "status": 502, "detail": str(e)})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(runner())
+
+    async def gen():
+        try:
+            while True:
+                ev = await queue.get()
+                if ev is None:
+                    break
+                yield ev
+        finally:
+            await task
+
+    return _sse_response(gen())
+
+
 @app.post("/agent/chat/stream")
 async def agent_chat_stream(req: AgentChatRequest):
     """/agent/chat 의 SSE 버전 — 도구 진행사항(progress)·답변 델타(delta)를
@@ -716,7 +759,9 @@ async def agent_session_delete(session_id: str, userId: str):
 
 
 # ── 주간 MI 리포트 통합 생성 (AI agent 오케스트레이션) ─────────────────────
-async def _generate_report_result(req: ReportGenerateRequest) -> dict:
+async def _generate_report_result(
+    req: ReportGenerateRequest, on_progress: progress.ProgressFn | None = None,
+) -> dict:
     """리포트 생성 공통 로직(문서 수집 → 생성 → 자산 저장). 엔드포인트들이 공유."""
     def _gather_docs() -> tuple[list, dict[str, list]]:
         digest_docs = collection.documents_for_digest(limit=req.digestLimit)
@@ -743,6 +788,7 @@ async def _generate_report_result(req: ReportGenerateRequest) -> dict:
             issue_no=req.issueNo,
             period=req.period,
             generated_at=collection.today(),
+            on_progress=on_progress,
         )
         assets.save_artifact_safe("report", f"제{req.issueNo}호 리포트", str(req.issueNo), result)
         return result
@@ -760,6 +806,12 @@ async def report_generate(req: ReportGenerateRequest):
     return await _generate_report_result(req)
 
 
+@app.post("/report/generate/stream")
+async def report_generate_stream(req: ReportGenerateRequest):
+    """/report/generate 의 SSE 버전 — 병렬 분석·총평·검증 단계별 진행사항을 실시간 중계."""
+    return _stream_with_progress(lambda on_progress: _generate_report_result(req, on_progress))
+
+
 @app.post("/report/document")
 async def report_document(req: ReportGenerateRequest):
     """리포트를 생성하고 (선택) 템플릿을 적용해 Markdown 문서로 반환한다."""
@@ -773,9 +825,10 @@ async def report_document(req: ReportGenerateRequest):
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
-@app.post("/digest/generate")
-async def digest_generate(req: DigestGenerateRequest):
-    """수집 문서를 게이트웨이(LLM)로 요약·평가해 다이제스트 초안을 생성한다."""
+async def _digest_generate_result(
+    req: DigestGenerateRequest, on_progress: progress.ProgressFn | None = None,
+) -> dict:
+    """다이제스트 생성 공통 로직. 비스트리밍/스트리밍 엔드포인트가 공유."""
     docs = await asyncio.to_thread(
         collection.documents_for_digest,
         limit=req.limit, source_id=req.source, topic=req.topic,
@@ -788,7 +841,7 @@ async def digest_generate(req: DigestGenerateRequest):
     client = _client(req.profile)
     try:
         result = await digest.generate_digest(
-            client, docs, issue_no=req.issueNo, period=req.period
+            client, docs, issue_no=req.issueNo, period=req.period, on_progress=on_progress,
         )
         assets.save_artifact_safe("digest", f"제{req.issueNo}호", str(req.issueNo), result)
         return result
@@ -799,6 +852,18 @@ async def digest_generate(req: DigestGenerateRequest):
     except ValueError as e:
         # 게이트웨이가 올바른 다이제스트 JSON 을 반환하지 않은 경우
         raise HTTPException(status_code=502, detail=f"다이제스트 생성 실패: {e}") from e
+
+
+@app.post("/digest/generate")
+async def digest_generate(req: DigestGenerateRequest):
+    """수집 문서를 게이트웨이(LLM)로 요약·평가해 다이제스트 초안을 생성한다."""
+    return await _digest_generate_result(req)
+
+
+@app.post("/digest/generate/stream")
+async def digest_generate_stream(req: DigestGenerateRequest):
+    """/digest/generate 의 SSE 버전 — 생성·근거 검증 단계별 진행사항을 실시간 중계."""
+    return _stream_with_progress(lambda on_progress: _digest_generate_result(req, on_progress))
 
 
 @app.post("/digest/agent-comment")
@@ -882,9 +947,10 @@ def topics_list():
     return {"topics": collection.list_topics()}
 
 
-@app.post("/topics/summarize")
-async def topics_summarize(req: TopicSummarizeRequest):
-    """한 주제의 누적 문서를 게이트웨이(LLM)로 요약·이력화한다."""
+async def _topics_summarize_result(
+    req: TopicSummarizeRequest, on_progress: progress.ProgressFn | None = None,
+) -> dict:
+    """주제 요약 생성 공통 로직. 비스트리밍/스트리밍 엔드포인트가 공유."""
     docs = await asyncio.to_thread(
         collection.documents_for_digest, limit=req.limit, topic=req.topic
     )
@@ -896,7 +962,7 @@ async def topics_summarize(req: TopicSummarizeRequest):
     client = _client(req.profile)
     try:
         result = await topics.generate_topic_summary(
-            client, req.topic, docs, updated_at=collection.today()
+            client, req.topic, docs, updated_at=collection.today(), on_progress=on_progress,
         )
         assets.save_artifact_safe("topic", req.topic, req.topic, result)
         return result
@@ -908,6 +974,18 @@ async def topics_summarize(req: TopicSummarizeRequest):
         raise HTTPException(status_code=502, detail=f"주제 요약 생성 실패: {e}") from e
 
 
+@app.post("/topics/summarize")
+async def topics_summarize(req: TopicSummarizeRequest):
+    """한 주제의 누적 문서를 게이트웨이(LLM)로 요약·이력화한다."""
+    return await _topics_summarize_result(req)
+
+
+@app.post("/topics/summarize/stream")
+async def topics_summarize_stream(req: TopicSummarizeRequest):
+    """/topics/summarize 의 SSE 버전 — 생성·근거 검증 단계별 진행사항을 실시간 중계."""
+    return _stream_with_progress(lambda on_progress: _topics_summarize_result(req, on_progress))
+
+
 # ── 경쟁사 IR (AI agent 생성) ─────────────────────────────────────────────
 @app.get("/competitors/candidates")
 def competitors_candidates():
@@ -915,9 +993,10 @@ def competitors_candidates():
     return {"candidates": collection.competitor_candidates()}
 
 
-@app.post("/competitors/analyze")
-async def competitors_analyze(req: CompetitorAnalyzeRequest):
-    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다.
+async def _competitors_analyze_result(
+    req: CompetitorAnalyzeRequest, on_progress: progress.ProgressFn | None = None,
+) -> dict:
+    """경쟁사 분석 생성 공통 로직. 비스트리밍/스트리밍 엔드포인트가 공유.
 
     topic/q 가 없으면 회사명·티커를 하이브리드 검색해 그 기업의 한경 컨센서스·IR 문서를
     끌어온다(실데이터 근거). topic/q 지정 시 해당 스코프로 한정한다.
@@ -937,7 +1016,9 @@ async def competitors_analyze(req: CompetitorAnalyzeRequest):
         )
     client = _client(req.profile)
     try:
-        result = await competitors.analyze_competitor(client, req.name, req.ticker, docs)
+        result = await competitors.analyze_competitor(
+            client, req.name, req.ticker, docs, on_progress=on_progress,
+        )
         assets.save_artifact_safe("competitor", req.name, req.ticker or req.name, result)
         return result
     except LLMError as e:
@@ -946,3 +1027,15 @@ async def competitors_analyze(req: CompetitorAnalyzeRequest):
         raise HTTPException(status_code=502, detail=f"게이트웨이 연결 실패: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=502, detail=f"경쟁사 분석 생성 실패: {e}") from e
+
+
+@app.post("/competitors/analyze")
+async def competitors_analyze(req: CompetitorAnalyzeRequest):
+    """경쟁사 IR·실적 문서를 게이트웨이(LLM)로 분기 분석화한다."""
+    return await _competitors_analyze_result(req)
+
+
+@app.post("/competitors/analyze/stream")
+async def competitors_analyze_stream(req: CompetitorAnalyzeRequest):
+    """/competitors/analyze 의 SSE 버전 — 생성·근거 검증 단계별 진행사항을 실시간 중계."""
+    return _stream_with_progress(lambda on_progress: _competitors_analyze_result(req, on_progress))

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { competitors } from "@/lib/data";
-import { AgentChatCard } from "@/components/agent-chat";
+import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, Delta, PageHeader } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
@@ -212,6 +213,7 @@ export default function CompetitorsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
+  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
 
   // 수집된 데이터로 결정되는 분석 가능 경쟁사 후보(동적). 마운트 + 창 포커스 시 재조회.
   const loadCandidates = useCallback(() => {
@@ -245,14 +247,16 @@ export default function CompetitorsPage() {
     }
     setLoading(true);
     setError(null);
+    setGenSteps([]);
     try {
-      setGenerated(
-        await competitorsApi.analyze({
-          name: name.trim(),
-          ticker: ticker.trim() || undefined,
-          topic: topic.trim() || undefined,
-        }),
-      );
+      const result = await streamAgent<GeneratedCompetitor>("/competitors/analyze/stream", {
+        name: name.trim(),
+        ticker: ticker.trim() || undefined,
+        topic: topic.trim() || undefined,
+      }, {
+        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
+      });
+      setGenerated(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "경쟁사 분석 생성 실패");
     } finally {
@@ -393,6 +397,11 @@ export default function CompetitorsPage() {
             {loading ? "분석 중…" : "AI 분석 생성"}
           </button>
         </div>
+        {loading && genSteps.length > 0 && (
+          <div className="mt-3">
+            <AgentProgressView steps={genSteps} partial="" title="경쟁사 분석 생성 중…" />
+          </div>
+        )}
         {error && (
           <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
             {error}

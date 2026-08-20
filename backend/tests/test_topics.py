@@ -172,6 +172,16 @@ def test_topics_summarize_endpoint(client, monkeypatch):
     assert len(body["history"]) == 2
 
 
+def test_topics_summarize_stream_endpoint(client, monkeypatch):
+    _upload(client, "hbm.txt", "HBM4 채택 공식화. AI 가속기 수요 강세.", "HBM")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+    r = client.post("/topics/summarize/stream", json={"topic": "HBM"})
+    assert r.status_code == 200
+    events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    assert events[0]["type"] == "progress" and events[0]["tool"] == "topic_generate:HBM"
+    assert events[-1] == {**events[-1], "type": "done", "title": "HBM"}
+
+
 def test_topics_summarize_no_documents_422(client, monkeypatch):
     monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
     r = client.post("/topics/summarize", json={"topic": "없는주제"})

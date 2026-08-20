@@ -100,6 +100,23 @@ def test_generate_digest_assigns_ids_and_metadata():
     assert len(client.calls) == 2  # 다이제스트 생성 + 총평 검증(audit)
 
 
+def test_generate_digest_emits_progress_events():
+    client = FakeClient(_VALID_RESPONSE)
+    docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문"}]
+    events = []
+
+    async def on_progress(ev):
+        events.append((ev["tool"], ev["status"]))
+
+    asyncio.run(digest.generate_digest(
+        client, docs, issue_no=47, period="", on_progress=on_progress,
+    ))
+    assert events == [
+        ("digest_generate", "running"), ("digest_generate", "completed"),
+        ("digest_audit", "running"), ("digest_audit", "completed"),
+    ]
+
+
 def test_generate_digest_flags_unsupported_claims():
     # summary 에 원문이 뒷받침하지 않는 추세 주장 → 독립 검증 agent 가 잡는다.
     class RoutingFakeClient:
@@ -184,6 +201,29 @@ def test_digest_generate_endpoint(client, monkeypatch):
     assert body["sourceDocCount"] == 1
     assert body["items"][0]["id"] == "d1"
     assert body["items"][0]["impact"] == "high"
+
+
+def test_digest_generate_stream_endpoint(client, monkeypatch):
+    _upload(client, "hbm_news.txt", "HBM4 12단 채택 공식화. AI 가속기 수요 강세.", "HBM")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+
+    r = client.post("/digest/generate/stream", json={"issueNo": 47, "period": ""})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    types = [e["type"] for e in events]
+    assert types[0] == "progress" and types[-1] == "done"
+    tools = [e["tool"] for e in events if e["type"] == "progress"]
+    assert tools == ["digest_generate", "digest_generate", "digest_audit", "digest_audit"]
+    assert events[-1]["issueNo"] == 47
+
+
+def test_digest_generate_stream_no_documents_emits_error(client, monkeypatch):
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+    r = client.post("/digest/generate/stream", json={})
+    assert r.status_code == 200  # SSE 자체는 200 — 실패는 이벤트로 전달
+    events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    assert events == [{"type": "error", "status": 422, "detail": "본문이 있는 수집 문서가 없습니다. 먼저 문서를 업로드/수집하세요."}]
 
 
 def test_digest_generate_no_documents_422(client, monkeypatch):

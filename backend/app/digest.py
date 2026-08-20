@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import grounding, report_agents
+from . import grounding, progress, report_agents
 from .llm_json import extract_json
 from .schemas import DigestItemOut
 
@@ -103,11 +103,15 @@ async def generate_digest(
     issue_no: int,
     period: str,
     temperature: float = 0.2,
+    on_progress: progress.ProgressFn | None = None,
 ) -> dict[str, Any]:
     """수집 문서로 다이제스트 초안을 생성한다(id·메타데이터는 서버가 부여)."""
     if not docs:
         raise ValueError("다이제스트로 만들 본문 있는 문서가 없습니다.")
-    completion = await client.chat(build_messages(docs), temperature=temperature)
+    completion = await progress.track(
+        client.chat(build_messages(docs), temperature=temperature),
+        on_progress, tool="digest_generate", emoji="📰", label="뉴스 다이제스트 초안 생성",
+    )
     items = parse_items(extract_content(completion))
 
     # 환각 방어: 항목별 수치 근거 + 출처 귀속 검증(비파괴적 — 플래그 후 사람이 검토).
@@ -136,7 +140,10 @@ async def generate_digest(
     prose = " ".join(
         f"{it['summary']} {it['slsiRelevance']} {it['demandImpact']} {it['risk']}" for it in out_items
     )
-    unsupported = await report_agents.audit_overview(client, prose, src_texts)
+    unsupported = await progress.track(
+        report_agents.audit_overview(client, prose, src_texts),
+        on_progress, tool="digest_audit", emoji="🔍", label="서술 근거 검증",
+    )
 
     return {
         "issueNo": issue_no,

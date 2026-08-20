@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { reportApi, type GeneratedReport } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 import { Markdown } from "@/components/markdown";
+import { AgentProgressView } from "@/components/agent-chat";
 
 // 기본 템플릿(서버와 동일 토큰). 비우면 서버 기본 템플릿이 적용된다.
 const TEMPLATE_PLACEHOLDER = `# 주간 MI 리포트 제{{issue_no}}호
@@ -44,17 +46,20 @@ export default function ReportPage() {
   const [showTemplate, setShowTemplate] = useState(false);
   const [template, setTemplate] = useState("");
   const [docPreview, setDocPreview] = useState<{ filename: string; markdown: string } | null>(null);
+  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
 
   async function generate() {
     setLoading(true);
     setError(null);
+    setGenSteps([]);
     try {
-      setReport(
-        await reportApi.generate({
-          period: "최근 수집 문서",
-          maxTopics: 3,
-        }),
-      );
+      const result = await streamAgent<GeneratedReport>("/report/generate/stream", {
+        period: "최근 수집 문서",
+        maxTopics: 3,
+      }, {
+        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
+      });
+      setReport(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "리포트 생성 실패");
     } finally {
@@ -139,6 +144,12 @@ export default function ReportPage() {
             </div>
           )}
         </div>
+
+        {loading && genSteps.length > 0 && (
+          <div className="mt-3">
+            <AgentProgressView steps={genSteps} partial="" title="주간 리포트 생성 중…" />
+          </div>
+        )}
 
         {error && (
           <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
