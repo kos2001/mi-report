@@ -572,6 +572,14 @@ export const authApi = {
   createUser: (body: { name: string; role: "admin" | "viewer" }) =>
     req<AuthUser>("/auth/users", { method: "POST", body: JSON.stringify(body) }),
   deleteUser: (name: string) => req<void>(`/auth/users/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  updateRole: (name: string, role: "admin" | "viewer") =>
+    req<AuthUser>(`/auth/users/${encodeURIComponent(name)}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+  oidcStatus: () => req<{ configured: boolean }>("/auth/oidc/status"),
+  // 리다이렉트 흐름이라 fetch 가 아니라 브라우저 이동 — 백엔드가 IdP 로 돌려보낸다.
+  oidcLoginUrl: () => `${API_BASE}/auth/oidc/login`,
 };
 
 export function getStoredToken(): string {

@@ -61,6 +61,48 @@ def test_delete_user_missing_raises(isolated):
         auth.delete_user("없는사람")
 
 
+def test_update_user_role(isolated):
+    auth.create_user("뷰어1", "viewer")
+    updated = auth.update_user_role("뷰어1", "admin")
+    assert updated["role"] == "admin"
+    assert auth.authenticate(updated["token"])["role"] == "admin"
+
+
+def test_update_user_role_invalid_raises(isolated):
+    auth.create_user("뷰어1", "viewer")
+    with pytest.raises(ValueError):
+        auth.update_user_role("뷰어1", "superadmin")
+
+
+def test_update_user_role_missing_raises(isolated):
+    with pytest.raises(KeyError):
+        auth.update_user_role("없는사람", "admin")
+
+
+# ── OIDC(SSO) 로그인 연동 ──────────────────────────────────────────────────
+def test_find_or_create_oidc_user_creates_viewer_on_first_login(isolated):
+    user = auth.find_or_create_oidc_user(sub="oidc|abc123", name_hint="kim@example.com")
+    assert user["role"] == "viewer"  # 최초 SSO 로그인은 항상 viewer — 관리자가 승격
+    assert user["token"]
+    assert auth.enabled() is True
+
+
+def test_find_or_create_oidc_user_reuses_existing_on_second_login(isolated):
+    first = auth.find_or_create_oidc_user(sub="oidc|abc123", name_hint="kim@example.com")
+    # 관리자가 승격시켰다고 가정 — 재로그인해도 역할·토큰이 유지되어야 한다(강등 방지).
+    auth.update_user_role(first["name"], "admin")
+    second = auth.find_or_create_oidc_user(sub="oidc|abc123", name_hint="kim@example.com")
+    assert second["name"] == first["name"]
+    assert second["token"] == first["token"]
+    assert second["role"] == "admin"
+
+
+def test_find_or_create_oidc_user_dedupes_name_collision(isolated):
+    auth.create_user("kim@example.com", "viewer")  # 수동으로 같은 이름의 사용자가 이미 있음
+    user = auth.find_or_create_oidc_user(sub="oidc|new-sub", name_hint="kim@example.com")
+    assert user["name"] != "kim@example.com"  # 충돌 없이 구분되는 이름을 받는다
+
+
 # ── 엔드포인트(게이트 미들웨어) ────────────────────────────────────────────
 def test_write_endpoint_open_when_auth_disabled(client):
     # 아직 아무도 안 만들었으면(테스트 tmp DB 는 항상 이 상태) 인증 없이도 통과 —
@@ -126,6 +168,43 @@ def test_auth_users_list_requires_admin(client):
     r = client.get("/auth/users", headers={"X-User-Token": admin["token"]})
     assert r.status_code == 200
     assert {u["name"] for u in r.json()["users"]} == {"김오석", "뷰어1"}
+
+
+def test_auth_users_update_role_endpoint(client):
+    admin = client.post("/auth/users", json={"name": "김오석", "role": "admin"}).json()
+    viewer = client.post(
+        "/auth/users", json={"name": "뷰어1", "role": "viewer"},
+        headers={"X-User-Token": admin["token"]},
+    ).json()
+
+    # viewer 토큰으로는 승격 불가(쓰기=admin 게이트)
+    r = client.patch(
+        "/auth/users/뷰어1/role", json={"role": "admin"},
+        headers={"X-User-Token": viewer["token"]},
+    )
+    assert r.status_code == 403
+
+    r = client.patch(
+        "/auth/users/뷰어1/role", json={"role": "admin"},
+        headers={"X-User-Token": admin["token"]},
+    )
+    assert r.status_code == 200 and r.json()["role"] == "admin"
+
+    r = client.patch(
+        "/auth/users/없는사람/role", json={"role": "admin"},
+        headers={"X-User-Token": admin["token"]},
+    )
+    assert r.status_code == 404
+
+
+def test_auth_oidc_status_unconfigured_by_default(client):
+    r = client.get("/auth/oidc/status")
+    assert r.json() == {"configured": False}
+
+
+def test_auth_oidc_login_501_when_unconfigured(client):
+    r = client.get("/auth/oidc/login", follow_redirects=False)
+    assert r.status_code == 501
 
 
 def test_auth_me(client):

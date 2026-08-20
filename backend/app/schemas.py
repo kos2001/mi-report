@@ -266,6 +266,10 @@ class UserCreate(BaseModel):
     role: Literal["admin", "viewer"] = "viewer"
 
 
+class UserRoleUpdate(BaseModel):
+    role: Literal["admin", "viewer"]
+
+
 # ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
 class RagQueryRequest(BaseModel):
     """수집 문서 근거 자연어 질문."""
