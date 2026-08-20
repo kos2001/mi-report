@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -14,9 +15,10 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 
-from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, oidc, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -37,6 +39,7 @@ from .schemas import (
     QaGoldenCreate,
     TopicSummarizeRequest,
     UserCreate,
+    UserRoleUpdate,
     VocCreate,
     VocStatusUpdate,
 )
@@ -108,6 +111,12 @@ app.add_middleware(
 # 문서 목록·다이제스트 등 큰 JSON 응답 압축(전송량·체감 지연 감소)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+# SSO(OIDC) 로그인↔콜백 왕복 동안만 쓰는 state/nonce 저장용(authlib 요구사항).
+# 앱의 실제 인증은 계속 X-User-Token 이며, 이 세션 쿠키는 로그인 절차 밖에서는
+# 쓰이지 않는다. SESSION_SECRET 미설정 시 프로세스별 임시 키(재시작하면 그 사이
+# 진행 중이던 로그인만 깨짐 — 앱 인증 자체엔 영향 없음).
+app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET") or secrets.token_hex(32))
+
 # 읽기(GET)=viewer 이상, 쓰기(그 외 메서드)=admin 전용. users.yaml 이 비어 있으면
 # (아무도 아직 만들지 않았으면) 인증이 꺼져 있다고 보고 통과시킨다 — 그래야 최초
 # 관리자를 POST /auth/users 로 만들 수 있다(부트스트랩).
@@ -176,6 +185,47 @@ def auth_users_delete(name: str):
         auth.delete_user(name)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"사용자 없음: {name}") from e
+
+
+@app.patch("/auth/users/{name}/role")
+def auth_users_update_role(name: str, req: UserRoleUpdate):
+    """SSO 로 처음 로그인하면 항상 viewer 로 생성되므로, admin 승격은 이 경로로만 한다."""
+    try:
+        return auth.update_user_role(name, req.role)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"사용자 없음: {name}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ── SSO(OIDC) 로그인 ───────────────────────────────────────────────────────
+@app.get("/auth/oidc/status")
+def auth_oidc_status():
+    return {"configured": oidc.configured()}
+
+
+@app.get("/auth/oidc/login")
+async def auth_oidc_login(request: Request):
+    if not oidc.configured():
+        raise HTTPException(
+            status_code=501,
+            detail="OIDC 미설정 — OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET 환경변수가 필요합니다.",
+        )
+    return await oidc.login_redirect(request)
+
+
+@app.get("/auth/oidc/callback")
+async def auth_oidc_callback(request: Request):
+    if not oidc.configured():
+        raise HTTPException(status_code=501, detail="OIDC 미설정")
+    try:
+        claims = await oidc.handle_callback(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"SSO 로그인 실패: {e}") from e
+    user = auth.find_or_create_oidc_user(sub=claims["sub"], name_hint=claims["name_hint"])
+    return RedirectResponse(f"{oidc.frontend_return_url()}?token={user['token']}")
 
 
 # ── 지식 자산 (생성물 누적) + 자기 개선 (피드백) ──────────────────────────

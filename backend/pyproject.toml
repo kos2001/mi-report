@@ -13,6 +13,8 @@ dependencies = [
     "agno>=2.6",          # LLM 엔진(OpenRouter 모델 래핑)
     "openai>=1.0",        # agno OpenRouter 백엔드 의존
     "pypdf>=4.0",         # 한경 컨센서스 리포트 PDF 본문 추출
+    "authlib>=1.3",       # SSO(OIDC) — discovery·PKCE·JWKS 서명 검증
+    "itsdangerous>=2.2",  # OIDC 로그인↔콜백 왕복 동안만 쓰는 세션 쿠키 서명
 ]
 
 [project.optional-dependencies]

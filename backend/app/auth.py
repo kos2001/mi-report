@@ -67,6 +67,21 @@ def list_users() -> list[dict[str, Any]]:
     return [{"name": u["name"], "role": u["role"], "token": u["token"]} for u in _load()]
 
 
+def _find(users: list[dict[str, Any]], *, oidc_sub: str) -> dict[str, Any] | None:
+    return next((u for u in users if u.get("oidcSub") == oidc_sub), None)
+
+
+def _unique_name(users: list[dict[str, Any]], base: str) -> str:
+    """이름 충돌 시 뒤에 번호를 붙여 구분되는 이름을 만든다."""
+    existing = {u["name"] for u in users}
+    if base not in existing:
+        return base
+    i = 2
+    while f"{base} ({i})" in existing:
+        i += 1
+    return f"{base} ({i})"
+
+
 def create_user(name: str, role: str) -> dict[str, Any]:
     if role not in ROLES:
         raise ValueError(f"잘못된 역할: {role} (허용: {', '.join(ROLES)})")
@@ -90,3 +105,34 @@ def delete_user(name: str) -> None:
         if len(remaining) == len(users):
             raise KeyError(name)
         _save(remaining)
+
+
+def update_user_role(name: str, role: str) -> dict[str, Any]:
+    """관리자가 설정 page 에서 사용자를 승격/강등할 때 쓴다(SSO 최초 로그인은 항상
+    viewer 로 만들어지므로, admin 권한을 주려면 이 경로를 거쳐야 한다)."""
+    if role not in ROLES:
+        raise ValueError(f"잘못된 역할: {role} (허용: {', '.join(ROLES)})")
+    with _lock:
+        users = _load()
+        for u in users:
+            if u["name"] == name:
+                u["role"] = role
+                _save(users)
+                return {"name": u["name"], "role": u["role"], "token": u["token"]}
+        raise KeyError(name)
+
+
+def find_or_create_oidc_user(*, sub: str, name_hint: str) -> dict[str, Any]:
+    """OIDC(SSO) 로그인 콜백에서 호출 — sub(고유 식별자) 로 기존 계정을 찾고,
+    없으면 viewer 로 새로 만든다. 이미 admin 으로 승격된 계정이 재로그인해도
+    역할·토큰은 그대로 유지한다(재로그인이 강등/토큰 회전을 일으키면 안 됨)."""
+    with _lock:
+        users = _load()
+        existing = _find(users, oidc_sub=sub)
+        if existing:
+            return {"name": existing["name"], "role": existing["role"], "token": existing["token"]}
+        name = _unique_name(users, name_hint.strip() or sub)
+        token = secrets.token_urlsafe(24)
+        users.append({"name": name, "role": "viewer", "token": token, "oidcSub": sub})
+        _save(users)
+        return {"name": name, "role": "viewer", "token": token}

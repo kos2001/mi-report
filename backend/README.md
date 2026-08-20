@@ -88,8 +88,30 @@ pytest -q
 격리된 임시 SQLite/업로드 디렉토리에서 수집·프로파일·LLM 클라이언트·COM 추출을 검증한다
 (실제 DB·네트워크·COM 미사용).
 
+## 인증/권한(admin/viewer) — SSO(OIDC)
+
+기본은 앱 안에서 발급하는 사용자별 토큰(`/settings` page). `config.DATA_DIR/users.yaml`
+에 사용자가 하나도 없으면 인증이 꺼진 것으로 보고 모든 요청을 admin 으로 취급한다
+(옵트인 — 기존 배포를 깨지 않음).
+
+사내 IdP(Okta/Azure AD/Keycloak 등 표준 OIDC discovery 를 지원하는 곳)와 SSO 로
+연동하려면 아래 환경변수를 프로파일 `.env` 에 채운다:
+
+```bash
+OIDC_ISSUER=https://your-idp.example.com/       # 뒤에 /.well-known/openid-configuration 를 붙여 discovery
+OIDC_CLIENT_ID=...
+OIDC_CLIENT_SECRET=...
+OIDC_REDIRECT_URI=http://localhost:8000/auth/oidc/callback   # IdP 에도 동일하게 등록
+OIDC_FRONTEND_URL=http://localhost:3000/settings             # 로그인 완료 후 돌아올 프론트엔드 주소
+```
+
+세 개(ISSUER/CLIENT_ID/CLIENT_SECRET)가 모두 있어야 `/settings` 에 "SSO로 로그인"
+버튼이 나타난다. 최초 SSO 로그인은 항상 `viewer` 로 생성되며, admin 권한은 기존
+관리자가 `/settings` 사용자 관리에서 승격해야 한다(자동 승격 없음).
+
 ## 보안
 
 - LLM API 키(OPENROUTER_API_KEY)는 프로파일 `.env` 에만 둔다. `.env` 와 `profiles/*/.env` 는 `.gitignore` 처리됨.
 - 코드에는 키를 넣지 않는다 (`config.yaml` 은 `key_env` 로 환경변수 이름만 가리킴).
 - COM 인제스트는 인가된 사용자의 정식 열람을 자동화하는 것이며, 추출 평문의 보관은 사내 정책을 따른다.
+- OIDC 토큰 검증(서명·발급자·audience·nonce)은 authlib 가 처리한다 — 직접 구현하지 않음.

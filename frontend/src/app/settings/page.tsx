@@ -23,6 +23,11 @@ function Account({
   // 값으로 바뀌는 이 한 input 만 suppressHydrationWarning 으로 그 불일치를 허용한다.
   const [tokenInput, setTokenInput] = useState(() => getStoredToken());
   const [saving, setSaving] = useState(false);
+  const [oidcConfigured, setOidcConfigured] = useState(false);
+
+  useEffect(() => {
+    authApi.oidcStatus().then((d) => setOidcConfigured(d.configured)).catch(() => setOidcConfigured(false));
+  }, []);
 
   async function save() {
     setSaving(true);
@@ -60,6 +65,18 @@ function Account({
           저장
         </button>
       </div>
+      {oidcConfigured ? (
+        <a
+          href={authApi.oidcLoginUrl()}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-200 transition-colors hover:bg-zinc-200 dark:hover:bg-zinc-700"
+        >
+          SSO로 로그인
+        </a>
+      ) : (
+        <p className="mt-3 text-[11px] text-zinc-500">
+          SSO(OIDC) 미설정 — OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET 환경변수를 설정하면 여기에 로그인 버튼이 나타납니다.
+        </p>
+      )}
       <div className="mt-3 flex items-center gap-2 text-sm">
         <span className="text-zinc-500">현재 사용자:</span>
         {me ? (
@@ -126,6 +143,19 @@ function UserManagement({ isAdmin, onUserChange }: { isAdmin: boolean; onUserCha
     }
   }
 
+  async function promote(n: string, role: "admin" | "viewer") {
+    setBusyName(n);
+    try {
+      await authApi.updateRole(n, role);
+      load();
+      onUserChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "역할 변경 실패");
+    } finally {
+      setBusyName(null);
+    }
+  }
+
   if (!isAdmin) {
     return (
       <Card>
@@ -185,7 +215,18 @@ function UserManagement({ isAdmin, onUserChange }: { isAdmin: boolean; onUserCha
           {users.map((u) => (
             <tr key={u.name} className="border-b border-zinc-100 dark:border-zinc-900 last:border-0">
               <td className="py-2 text-zinc-900 dark:text-zinc-100">{u.name}</td>
-              <td className="py-2"><Tag>{u.role}</Tag></td>
+              <td className="py-2">
+                <select
+                  value={u.role}
+                  onChange={(e) => promote(u.name, e.target.value as "admin" | "viewer")}
+                  disabled={busyName === u.name}
+                  title="역할 변경"
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-1.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 disabled:opacity-40"
+                >
+                  <option value="viewer">viewer</option>
+                  <option value="admin">admin</option>
+                </select>
+              </td>
               <td className="py-2 font-mono text-zinc-500">{u.token.slice(0, 8)}…</td>
               <td className="py-2 text-right">
                 <button
@@ -226,6 +267,14 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
+    // SSO 콜백이 /settings?token=... 으로 돌려보낸다 — 있으면 저장하고 URL 에서 지운다.
+    const url = new URL(window.location.href);
+    const oidcToken = url.searchParams.get("token");
+    if (oidcToken) {
+      setStoredToken(oidcToken);
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.toString());
+    }
     refresh();
   }, []);
 
