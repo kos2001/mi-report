@@ -117,7 +117,7 @@ async def generate_report(
         all_docs.extend(docs)
     digest_task = (
         digest.generate_digest(
-            client, digest_docs, issue_no=issue_no, period=period, on_progress=on_progress,
+            client, digest_docs, period=period, on_progress=on_progress,
             feedback_notes=feedback_notes.get("digest"),
         )
         if digest_docs

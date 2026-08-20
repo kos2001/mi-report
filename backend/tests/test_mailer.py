@@ -8,7 +8,7 @@ from __future__ import annotations
 from app import mailer, profiles
 
 _DIGEST = {
-    "issueNo": 47,
+    "week": "2026년 24주차",
     "period": "2026.06.08 – 06.11",
     "items": [
         {
@@ -27,7 +27,7 @@ _DIGEST = {
 # ── 렌더링 ─────────────────────────────────────────────────────────────────
 def test_render_digest_email():
     subject, text, html = mailer.render_digest_email(_DIGEST)
-    assert "제47호" in subject
+    assert "2026년 24주차" in subject
     assert "HBM4 채택 공식화" in text
     assert "[상]" in text  # impact high → 상
     assert "교차검증" in text
@@ -84,7 +84,7 @@ def test_digest_send_sent_when_configured(client, monkeypatch):
     body = r.json()
     assert body["status"] == "sent"
     assert sent["to"] == ["team@example.com"]
-    assert "제47호" in sent["subject"]
+    assert "2026년 24주차" in sent["subject"]
 
 
 def test_digest_send_error_returns_preview(client, monkeypatch):

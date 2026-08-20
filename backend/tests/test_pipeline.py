@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app import collection, confluence, config, fetcher, pipeline
+from app import collection, confluence, config, digest, fetcher, pipeline
 
 
 async def _no_confluence(*args, **kwargs):
@@ -91,15 +91,15 @@ def test_run_digest_saves_and_latest_loads(client, monkeypatch, isolated):
     )
     monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
 
-    result = asyncio.run(pipeline.run_digest(issue_no=7, period="테스트"))
-    assert result["issueNo"] == 7
+    result = asyncio.run(pipeline.run_digest(period="테스트"))
+    assert result["week"] == digest.current_week_label()
     assert result["items"][0]["id"] == "d1"
     # 파일로 저장됨
     assert (config.DIGESTS_DIR / "latest.json").exists()
     # load_latest_digest 로 읽힘
     latest = pipeline.load_latest_digest()
     assert latest is not None
-    assert latest["issueNo"] == 7
+    assert latest["week"] == digest.current_week_label()
     assert "generatedAt" in latest
 
 
@@ -112,7 +112,7 @@ def test_run_pipeline_end_to_end(client, monkeypatch):
     monkeypatch.setattr(confluence, "fetch_pages", _no_confluence)  # confluence 시드 오프라인
     monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
 
-    result = asyncio.run(pipeline.run_pipeline(issue_no=1, period="자동"))
+    result = asyncio.run(pipeline.run_pipeline(period="자동"))
     # 추가한 URL뉴스 + 시드 broker 가 수집된다.
     assert result["collected"]["ingested"] >= 1
     assert "URL뉴스" in [s["source"] for s in result["collected"]["sources"]]

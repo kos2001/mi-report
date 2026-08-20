@@ -13,7 +13,7 @@ import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 // hermes 에이전트가 초안을 검토한 코멘트(수치 검증·관련 문서 포함)
 interface AgentComment {
-  issueNo: number;
+  week: string;
   answer: string;
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
@@ -24,7 +24,7 @@ function digestContext(d: GeneratedDigest): string {
   const items = d.items
     .map((it) => `- [영향도 ${it.impact}] ${it.title}: ${it.summary}`)
     .join("\n");
-  return `다음은 뉴스 다이제스트 제${d.issueNo}호(${d.period}) 초안이다. 이 초안과 수집 문서·웹 근거를 참고해 질문에 답하라.\n${items}`;
+  return `다음은 뉴스 다이제스트 ${d.week}(${d.period}) 초안이다. 이 초안과 수집 문서·웹 근거를 참고해 질문에 답하라.\n${items}`;
 }
 
 function AgentCommentCard({ comment }: { comment: AgentComment }) {
@@ -61,9 +61,6 @@ function AgentCommentCard({ comment }: { comment: AgentComment }) {
     </Card>
   );
 }
-
-// 다음 호수: 목업 최신호 + 1 (백엔드가 호수를 관리하기 전 임시 규칙)
-const NEXT_ISSUE_NO = Math.max(...digests.map((d) => d.issueNo)) + 1;
 
 type DigestItemLike = {
   id: string;
@@ -157,11 +154,11 @@ export default function DigestPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [commentSteps, setCommentSteps] = useState<ProgressStep[]>([]);
   const [commentPartial, setCommentPartial] = useState("");
-  const [commentFor, setCommentFor] = useState<number | null>(null);
+  const [commentFor, setCommentFor] = useState<string | null>(null);
 
   async function handleAgentComment(d: GeneratedDigest) {
     if (commentLoading || d.items.length === 0) return;
-    setCommentFor(d.issueNo);
+    setCommentFor(d.week);
     setCommentLoading(true);
     setCommentError(null);
     setCommentSteps([]);
@@ -171,7 +168,7 @@ export default function DigestPage() {
       const r = await streamAgent(
         "/digest/agent-comment/stream",
         {
-          issueNo: d.issueNo,
+          week: d.week,
           period: d.period,
           items: d.items.map((it) => ({
             title: it.title, summary: it.summary, impact: it.impact,
@@ -182,7 +179,7 @@ export default function DigestPage() {
           delta: (t) => setCommentPartial((prev) => prev + t),
         },
       );
-      setComment({ issueNo: d.issueNo, ...r });
+      setComment({ week: d.week, ...r });
     } catch (e) {
       setCommentError(e instanceof Error ? e.message : "에이전트 코멘트 실패");
     } finally {
@@ -195,7 +192,7 @@ export default function DigestPage() {
   async function handleFeedback(d: GeneratedDigest, rating: "up" | "down") {
     setFb(rating);
     try {
-      await feedbackApi.send({ kind: "digest", ref: String(d.issueNo), rating });
+      await feedbackApi.send({ kind: "digest", ref: d.week, rating });
     } catch {
       /* 피드백 실패는 조용히 무시 */
     }
@@ -205,7 +202,7 @@ export default function DigestPage() {
     setSending(true);
     setSendMsg(null);
     try {
-      const r = await digestApi.send({ issueNo: d.issueNo, period: d.period, items: d.items });
+      const r = await digestApi.send({ week: d.week, period: d.period, items: d.items });
       if (r.status === "sent") {
         setSendMsg({ ok: true, text: `발송 완료 → ${(r.to ?? []).join(", ")}` });
       } else if (r.status === "not_sent") {
@@ -241,7 +238,6 @@ export default function DigestPage() {
     // await 하지 않는다 — 컴포넌트 생명주기와 분리된 전역 작업으로 던지고,
     // 페이지를 이동해도 계속 진행되며 useJob 이 어디서든 그 상태를 따라간다.
     void startJob<GeneratedDigest>("digest", "다이제스트 생성 중…", "/digest/generate/stream", {
-      issueNo: NEXT_ISSUE_NO,
       period: "최근 수집 문서",
       limit: 20,
     });
@@ -260,7 +256,7 @@ export default function DigestPage() {
           <div>
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI 다이제스트 초안 생성</h2>
             <p className="mt-1 text-xs text-zinc-500">
-              수집된 문서를 분석해 제{NEXT_ISSUE_NO}호 초안을 생성합니다. (게이트웨이 연동)
+              수집된 문서를 분석해 이번 주차 초안을 생성합니다. (게이트웨이 연동)
             </p>
           </div>
           <button
@@ -297,7 +293,7 @@ export default function DigestPage() {
           title="💬 다이제스트에 질문하기"
           description={
             (generated ?? latest)
-              ? `제${(generated ?? latest)!.issueNo}호 초안을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
+              ? `${(generated ?? latest)!.week} 초안을 컨텍스트로 에이전트가 답합니다 — 이어지는 질문은 맥락 유지`
               : "에이전트가 수집 문서·웹 근거로 답합니다 — 이어지는 질문은 맥락 유지"
           }
           context={(generated ?? latest) ? digestContext((generated ?? latest)!) : null}
@@ -311,7 +307,7 @@ export default function DigestPage() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                제{latest.issueNo}호{" "}
+                {latest.week}{" "}
                 <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">{latest.period}</span>
               </h2>
               <div className="flex items-center gap-2">
@@ -329,12 +325,12 @@ export default function DigestPage() {
                 </button>
               </div>
             </div>
-            {commentLoading && commentFor === latest.issueNo && (
+            {commentLoading && commentFor === latest.week && (
               <div className="mb-4">
                 <AgentProgressView steps={commentSteps} partial={commentPartial} />
               </div>
             )}
-            {comment && comment.issueNo === latest.issueNo && (
+            {comment && comment.week === latest.week && (
               <AgentCommentCard comment={comment} />
             )}
             {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
@@ -361,7 +357,7 @@ export default function DigestPage() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                제{generated.issueNo}호{" "}
+                {generated.week}{" "}
                 <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">
                   {generated.period}
                 </span>
@@ -430,12 +426,12 @@ export default function DigestPage() {
                 {commentError}
               </p>
             )}
-            {commentLoading && commentFor === generated.issueNo && (
+            {commentLoading && commentFor === generated.week && (
               <div className="mb-4">
                 <AgentProgressView steps={commentSteps} partial={commentPartial} />
               </div>
             )}
-            {comment && comment.issueNo === generated.issueNo && (
+            {comment && comment.week === generated.week && (
               <AgentCommentCard comment={comment} />
             )}
             {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (

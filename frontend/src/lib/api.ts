@@ -171,7 +171,7 @@ export interface GeneratedDigestItem {
 }
 
 export interface GeneratedDigest {
-  issueNo: number;
+  week: string;
   period: string;
   mailedAt: string | null;
   generated: boolean;
@@ -187,7 +187,6 @@ export interface GeneratedDigest {
 
 export const digestApi = {
   generate: (body?: {
-    issueNo?: number;
     period?: string;
     limit?: number;
     source?: string;
@@ -204,7 +203,7 @@ export const digestApi = {
 
   // 다이제스트 메일 발송(SMTP 미설정 시 미리보기만 반환)
   send: (body: {
-    issueNo: number;
+    week: string;
     period: string;
     items: GeneratedDigestItem[];
     to?: string[];
@@ -221,7 +220,7 @@ export const digestApi = {
 
   // hermes 에이전트 코멘트 — 초안 타당성 검토·근거 보강·수정 제안
   agentComment: (body: {
-    issueNo: number;
+    week: string;
     period: string;
     items: { title: string; summary?: string; impact?: string }[];
   }) =>

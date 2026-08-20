@@ -66,7 +66,7 @@ async def main():
     print(f"[corpus] 다이제스트 입력 문서 {len(docs)}\n")
 
     client = get_client()
-    res = await digest.generate_digest(client, docs, issue_no=1, period="eval")
+    res = await digest.generate_digest(client, docs, period="eval")
     items = res["items"]
 
     print(f"{'item title':<46}{'grounded':>10}{'srcOK':>7}")

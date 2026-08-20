@@ -197,14 +197,12 @@ def _save_digest(digest_obj: dict[str, Any], generated_at: str) -> str:
     return str(path)
 
 
-async def run_digest(*, issue_no: int, period: str, limit: int = 20) -> dict[str, Any]:
+async def run_digest(*, period: str, limit: int = 20) -> dict[str, Any]:
     """수집 문서로 다이제스트를 생성하고 저장한다."""
     docs = await asyncio.to_thread(collection.documents_for_digest, limit=limit)
     if not docs:
         raise ValueError("다이제스트로 만들 본문 있는 문서가 없습니다.")
-    digest_obj = await digest.generate_digest(
-        get_client(), docs, issue_no=issue_no, period=period
-    )
+    digest_obj = await digest.generate_digest(get_client(), docs, period=period)
     generated_at = collection.now()
     saved_path = _save_digest(digest_obj, generated_at)
     return {**digest_obj, "generatedAt": generated_at, "savedPath": saved_path}
@@ -221,12 +219,12 @@ def load_latest_digest() -> dict[str, Any] | None:
         return None
 
 
-async def run_pipeline(*, issue_no: int = 1, period: str = "자동 수집분", limit: int = 20) -> dict[str, Any]:
+async def run_pipeline(*, period: str = "자동 수집분", limit: int = 20) -> dict[str, Any]:
     """전체 파이프라인: 수집 → 다이제스트 생성·저장."""
     collected = await run_collection()
     result: dict[str, Any] = {"collected": collected}
     try:
-        result["digest"] = await run_digest(issue_no=issue_no, period=period, limit=limit)
+        result["digest"] = await run_digest(period=period, limit=limit)
     except ValueError as e:
         result["digest"] = None
         result["digestError"] = str(e)

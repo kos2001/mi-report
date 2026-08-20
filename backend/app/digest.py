@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 from typing import Any, Protocol
 
@@ -39,6 +40,13 @@ class ChatClient(Protocol):
     """generate_digest 가 필요로 하는 게이트웨이 인터페이스(테스트용 페이크 주입 가능)."""
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
+
+
+def current_week_label(dt: datetime.date | None = None) -> str:
+    """다이제스트 식별자 — ISO 주차 기준 "YYYY년 W주차". 증가형 호수 대신 사용한다."""
+    d = dt or datetime.date.today()
+    year, week, _ = d.isocalendar()
+    return f"{year}년 {week}주차"
 
 
 def build_messages(
@@ -102,7 +110,6 @@ async def generate_digest(
     client: ChatClient,
     docs: list[dict[str, Any]],
     *,
-    issue_no: int,
     period: str,
     temperature: float = 0.2,
     on_progress: progress.ProgressFn | None = None,
@@ -149,7 +156,7 @@ async def generate_digest(
     )
 
     return {
-        "issueNo": issue_no,
+        "week": current_week_label(),
         "period": period,
         "mailedAt": None,  # 생성 직후는 발송 전 초안
         "generated": True,
