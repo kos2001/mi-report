@@ -65,7 +65,9 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[embeddings]'
 # profiles/mi-report/.env 에 OPENROUTER_API_KEY 입력 (모델 기본값: minimax/minimax-m3)
-uvicorn app.main:app --reload --port 8000              # http://localhost:8000/docs
+# MI_SCHEDULER=1 없으면 /schedule 에서 설정한 주기(매일/매주)가 자동 실행되지 않는다
+# (설정 자체는 되지만, 앱 내 스케줄러가 꺼져 있으면 아무 일도 일어나지 않는다).
+MI_SCHEDULER=1 uvicorn app.main:app --reload --port 8000  # http://localhost:8000/docs
 ```
 
 ## 현황

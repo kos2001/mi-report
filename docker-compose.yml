@@ -8,6 +8,9 @@ services:
     environment:
       - MI_EMBEDDINGS=1
       - MI_EMBED_MODEL=intfloat/multilingual-e5-large
+      # 스케줄 페이지에서 설정한 주기(매일/매주)가 실제로 자동 실행되게 함(꺼져 있으면
+      # UI에서 주기를 설정해도 앱 안에서는 아무 일도 일어나지 않고 crontab 라인만 안내됨).
+      - MI_SCHEDULER=1
     env_file:
       - ./backend/profiles/mi-report/.env   # OPENROUTER_API_KEY / CONFLUENCE_* 등
     volumes:
