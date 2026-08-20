@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from . import grounding, report_agents
+from . import grounding, progress, report_agents
 from .llm_json import extract_json
 from .schemas import CompetitorAnalysisOut
 from .topics import slugify
@@ -78,11 +78,15 @@ async def analyze_competitor(
     docs: list[dict[str, Any]],
     *,
     temperature: float = 0.2,
+    on_progress: progress.ProgressFn | None = None,
 ) -> dict[str, Any]:
     """경쟁사 문서로 분기 분석을 생성한다(id/name/ticker 는 서버가 부여)."""
     if not docs:
         raise ValueError("분석할 본문 있는 문서가 없습니다.")
-    completion = await client.chat(build_messages(name, ticker, docs), temperature=temperature)
+    completion = await progress.track(
+        client.chat(build_messages(name, ticker, docs), temperature=temperature),
+        on_progress, tool="competitor_generate", emoji="🏢", label=f"{name} 분기 분석 생성",
+    )
     out = parse_analysis(extract_content(completion))
 
     # 환각 방어(재무 서비스): 수치가 근거 문서에 실재하지 않으면 그 항목을 버린다.
@@ -105,8 +109,9 @@ async def analyze_competitor(
 
     # 독립 검증 agent(V3-style): 콜요약·변화 서술의 수치 아닌 주장(추세·인과) 중
     # 근거 없는 것을 별도로 잡는다. 위 grounding 검증은 수치만 본다.
-    unsupported = await report_agents.audit_overview(
-        client, " ".join([*out.callSummary, *out.qoqChanges]), src
+    unsupported = await progress.track(
+        report_agents.audit_overview(client, " ".join([*out.callSummary, *out.qoqChanges]), src),
+        on_progress, tool="competitor_audit", emoji="🔍", label=f"{name} 서술 근거 검증",
     )
 
     return {

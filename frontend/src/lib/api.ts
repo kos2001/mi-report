@@ -41,7 +41,7 @@ export interface CollectedDoc {
 
 // 설정 page 에서 저장한 사용자 토큰 — 있으면 모든 요청에 실어 보낸다(쓰기는
 // admin 만 허용되므로, 관리자로 로그인하지 않으면 생성/삭제류가 401/403).
-function authHeader(): Record<string, string> {
+export function authHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const token = window.localStorage.getItem("userToken");
   return token ? { "X-User-Token": token } : {};

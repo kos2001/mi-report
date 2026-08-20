@@ -21,10 +21,18 @@ interface ChatMessage {
 }
 
 // 에이전트 작업 중 진행사항(도구 실행 단계 + 스트리밍 답변) 표시.
-export function AgentProgressView({ steps, partial }: { steps: ProgressStep[]; partial: string }) {
+export function AgentProgressView({
+  steps,
+  partial,
+  title = "에이전트가 조사 중…",
+}: {
+  steps: ProgressStep[];
+  partial: string;
+  title?: string;
+}) {
   return (
     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 px-3 py-2">
-      <p className="text-sm text-zinc-500">에이전트가 조사 중…</p>
+      <p className="text-sm text-zinc-500">{title}</p>
       {steps.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1">
           {steps.map((s) => (

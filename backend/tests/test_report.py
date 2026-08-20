@@ -112,6 +112,30 @@ def test_generate_report_orchestrates_all_parts():
     assert client.kinds.count("critical_point") == 1
     assert client.kinds.count("topic") == 1
     assert client.kinds.count("audit") == 3  # 다이제스트 감사 + 주제 요약 감사 + 총평 감사
+
+
+def test_generate_report_emits_progress_for_every_stage():
+    client = RoutingFakeClient()
+    digest_docs = [{"title": "d", "source": "뉴스", "publishedAt": "2026-06-10", "content": "본문"}]
+    topic_docs = {"HBM 수요": [{"title": "t", "source": "뉴스", "publishedAt": "2026-06-10", "content": "본문"}]}
+    events = []
+
+    async def on_progress(ev):
+        events.append(ev["tool"])
+
+    asyncio.run(report.generate_report(
+        client, digest_docs=digest_docs, topic_docs=topic_docs,
+        issue_no=1, period="", generated_at="2026-06-13", on_progress=on_progress,
+    ))
+    seen = set(events)
+    for stage in (
+        "digest_generate", "digest_audit", "priority_risk", "critical_point",
+        "topic_generate:HBM 수요", "topic_audit:HBM 수요",
+        "report_overview", "report_overview_audit",
+    ):
+        assert stage in seen, f"{stage} 단계 progress 이벤트 누락"
+    # 총평은 병렬 분석이 다 끝난 뒤에만 시작된다(그 자료를 총평 프롬프트에 넣으므로).
+    assert events.index("report_overview") > events.index("priority_risk")
     assert client.kinds[-2:] == ["overview", "audit"]
 
 
@@ -179,6 +203,17 @@ def test_report_generate_endpoint(client, monkeypatch):
     assert body["overview"] == _OVERVIEW
     assert body["digest"] is not None
     assert len(body["topics"]) >= 1
+
+
+def test_report_generate_stream_endpoint(client, monkeypatch):
+    _upload(client, "hbm.txt", "HBM4 채택 공식화. 수요 강세.", "HBM 수요")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: RoutingFakeClient())
+    r = client.post("/report/generate/stream", json={"issueNo": 48, "period": "이번 주"})
+    assert r.status_code == 200
+    events = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    tools = {e["tool"] for e in events if e["type"] == "progress"}
+    assert "report_overview" in tools and "report_overview_audit" in tools
+    assert events[-1]["type"] == "done" and events[-1]["issueNo"] == 48
 
 
 def test_report_generate_no_documents_422(client, monkeypatch):

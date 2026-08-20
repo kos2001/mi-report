@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from . import digest, grounding, report_agents, topics
+from . import digest, grounding, progress, report_agents, topics
 
 REPORT_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
 이번 주 다이제스트 항목·주제 요약·Top Priority/Risk·치명적 관리포인트를 종합해
@@ -71,10 +71,14 @@ async def generate_overview(
     critical_points: dict[str, Any] | None = None,
     *,
     temperature: float = 0.3,
+    on_progress: progress.ProgressFn | None = None,
 ) -> str:
-    completion = await client.chat(
-        build_overview_messages(digest_obj, topic_summaries, priority_risk, critical_points),
-        temperature=temperature,
+    completion = await progress.track(
+        client.chat(
+            build_overview_messages(digest_obj, topic_summaries, priority_risk, critical_points),
+            temperature=temperature,
+        ),
+        on_progress, tool="report_overview", emoji="✍️", label="총평 작성",
     )
     return extract_content(completion).strip()
 
@@ -87,6 +91,7 @@ async def generate_report(
     issue_no: int,
     period: str,
     generated_at: str,
+    on_progress: progress.ProgressFn | None = None,
 ) -> dict[str, Any]:
     """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트를 생성한다."""
     if not digest_docs and not topic_docs:
@@ -94,23 +99,36 @@ async def generate_report(
 
     # 심층분석 agent(Priority/Risk·Critical Point)를 포함해 서로 독립인 LLM 호출은
     # 모두 동시 수행한다(weekly-report-harness 의 A1~A5 병렬 패턴). 총평·총평 검증만
-    # 그 결과에 의존하므로 이후 순차 수행.
+    # 그 결과에 의존하므로 이후 순차 수행. 각 태스크가 스스로 시작·완료 이벤트를
+    # 내므로(progress.track) 동시 실행 순서와 무관하게 실제 완료 순서가 그대로 보인다.
     named_topics = [(name, docs) for name, docs in topic_docs.items() if docs]
     all_docs = list(digest_docs)
     for docs in topic_docs.values():
         all_docs.extend(docs)
     digest_task = (
-        digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period)
+        digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period, on_progress=on_progress)
         if digest_docs
         else None
     )
-    priority_risk_task = report_agents.generate_priority_risk(client, all_docs) if all_docs else None
-    critical_point_task = report_agents.generate_critical_points(client, all_docs) if all_docs else None
+    priority_risk_task = (
+        progress.track(
+            report_agents.generate_priority_risk(client, all_docs),
+            on_progress, tool="priority_risk", emoji="🎯", label="Top Priority/Risk 분석",
+        )
+        if all_docs else None
+    )
+    critical_point_task = (
+        progress.track(
+            report_agents.generate_critical_points(client, all_docs),
+            on_progress, tool="critical_point", emoji="⚠️", label="치명적 관리포인트 분석",
+        )
+        if all_docs else None
+    )
     parallel_tasks = [
         t for t in (digest_task, priority_risk_task, critical_point_task) if t is not None
     ]
     topic_tasks = [
-        topics.generate_topic_summary(client, name, docs, updated_at=generated_at)
+        topics.generate_topic_summary(client, name, docs, updated_at=generated_at, on_progress=on_progress)
         for name, docs in named_topics
     ]
     results = await asyncio.gather(*parallel_tasks, *topic_tasks)
@@ -121,7 +139,9 @@ async def generate_report(
     priority_risk = parallel_results.pop(0) if priority_risk_task else None
     critical_points = parallel_results.pop(0) if critical_point_task else None
 
-    overview = await generate_overview(client, digest_obj, topic_summaries, priority_risk, critical_points)
+    overview = await generate_overview(
+        client, digest_obj, topic_summaries, priority_risk, critical_points, on_progress=on_progress,
+    )
 
     # 환각 방어(MI 서비스): 총평의 수치를 실제 근거 문서(다이제스트·주제 원문)와 대조하고,
     # 하위 산출물(다이제스트·주제 요약)의 미근거 수치를 리포트 수준으로 롤업한다.
@@ -130,7 +150,10 @@ async def generate_report(
         src_texts.extend(d.get("content", "") for d in docs)
     overview_ungrounded = grounding.ungrounded_numbers(overview, src_texts)
     # 독립 검증 agent(V3-style): 수치가 아닌 서술 주장 중 근거 없는 것을 별도로 잡는다.
-    overview_unsupported = await report_agents.audit_overview(client, overview, src_texts)
+    overview_unsupported = await progress.track(
+        report_agents.audit_overview(client, overview, src_texts),
+        on_progress, tool="report_overview_audit", emoji="🔍", label="총평 근거 검증",
+    )
 
     rolled = list(overview_ungrounded)
     if digest_obj:

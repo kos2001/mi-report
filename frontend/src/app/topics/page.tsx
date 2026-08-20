@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { topicsApi, type GeneratedTopic, type TopicListItem } from "@/lib/api";
+import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { topics } from "@/lib/data";
 import { Card, PageHeader } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
+import { AgentProgressView } from "@/components/agent-chat";
 
 type TopicLike = {
   id: string;
@@ -128,6 +130,7 @@ export default function TopicsPage() {
   const [generated, setGenerated] = useState<GeneratedTopic | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -150,8 +153,12 @@ export default function TopicsPage() {
     if (!selected) return;
     setLoading(true);
     setError(null);
+    setGenSteps([]);
     try {
-      setGenerated(await topicsApi.summarize({ topic: selected }));
+      const result = await streamAgent<GeneratedTopic>("/topics/summarize/stream", { topic: selected }, {
+        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
+      });
+      setGenerated(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "주제 요약 생성 실패");
     } finally {
@@ -201,6 +208,11 @@ export default function TopicsPage() {
             </button>
           </div>
         </div>
+        {loading && genSteps.length > 0 && (
+          <div className="mt-3">
+            <AgentProgressView steps={genSteps} partial="" title="주제 요약 생성 중…" />
+          </div>
+        )}
         {error && (
           <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
             {error}
