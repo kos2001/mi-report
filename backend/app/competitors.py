@@ -25,7 +25,10 @@ COMPETITOR_SYSTEM_PROMPT = """당신은 반도체/IT 기업 IR·실적을 분석
 - callSummary: 컨퍼런스콜·경영진 코멘트의 핵심을 항목화한다.
 - qoqChanges: 전분기 대비 달라진 점(톤/내러티브/수치 변화). 문서에 근거가 있을 때만 적는다.
 - consensus: 증권사 컨센서스 갱신(metric/current/previous/revisedAt/broker/direction=up|down|flat).
-- 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다.
+- callSummary/qoqChanges 의 각 항목은 완결된 문장이 아니라 개조식으로 작성한다.
+- 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다."""
+
+COMPETITOR_SYSTEM_PROMPT += report_agents.OUTLINE_STYLE_DIRECTIVE + """
 
 출력 형식(값은 반드시 제공 문서에서 가져오고, 아래 꺾쇠 자리표시자를 그대로 베끼지 말 것):
 {"fiscalQuarter":"<문서의 분기 표기>","reportedAt":"<YYYY-MM-DD 또는 미상>",

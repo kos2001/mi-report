@@ -19,13 +19,25 @@ _JSON_ONLY = (
     "evidence 의 quote 는 반드시 제공된 문서에 있는 문장을 글자 그대로 복사하라(요약·의역 금지)."
 )
 
+# 모든 생성 agent(digest/topics/competitors/report/rag)가 공통으로 덧붙이는 문체 지침.
+# evidence.quote 처럼 원문을 그대로 복사해야 하는 필드는 예외(원문 문장을 그대로 인용).
+OUTLINE_STYLE_DIRECTIVE = """
+
+문체 규칙(개조식): summary/insight/rationale/callSummary 등 서술형 답변은 완결된
+문장(~습니다/~한다/~했다)이 아니라 개조식으로 작성한다. 핵심 정보만 명사형으로
+끝내고(예: '~달성', '~진행', '~필요', '~식별'), 불필요한 조사·연결어·수식어를 줄인다.
+서로 다른 요점은 '·'로 구분해 나열한다.
+예: "ISOCELLIPS 진행률 72% · 8월 양산 수율 93% 달성 · 인력·장비 리소스 이슈 식별 ·
+고객 대응 3건 완료"
+(단, 원문을 그대로 인용해야 하는 quote/evidence 필드는 이 규칙에서 제외 — 원문 문장 그대로 복사)"""
+
 PRIORITY_RISK_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 참모다.
 제공된 수집 문서를 종합해 S.LSI(시스템 LSI) 관점에서 Top Priority(기회)와 Top Risk(리스크)를 각각 최대 5개 선정하는 agent다.
 
 규칙:
 - 제공된 문서 내용에만 근거한다. 문서에 없는 사실을 지어내지 않는다.
 - 각 항목에 순위(rank), 제목, 근거 서술(rationale), 그리고 근거가 된 원문 인용(evidence)을 붙인다.
-- evidence 의 source 는 그 문장이 나온 문서의 출처 표기를 그대로 사용한다.""" + _JSON_ONLY + """
+- evidence 의 source 는 그 문장이 나온 문서의 출처 표기를 그대로 사용한다.""" + OUTLINE_STYLE_DIRECTIVE + _JSON_ONLY + """
 {"priorities": [{"rank": 1, "title": "제목", "rationale": "근거 서술",
   "evidence": [{"source": "출처", "quote": "원문 문장 그대로"}]}],
  "risks": [{"rank": 1, "title": "제목", "rationale": "근거 서술",
@@ -37,7 +49,7 @@ CRITICAL_POINT_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(
 규칙:
 - 제공된 문서 내용에만 근거한다. 문서에 없는 사실을 지어내지 않는다.
 - 각 항목에 제목, 근본원인(rootCause), 연쇄효과(chainEffect), 필요한 결정(decisionNeeded),
-  근거가 된 원문 인용(evidence)을 붙인다.""" + _JSON_ONLY + """
+  근거가 된 원문 인용(evidence)을 붙인다.""" + OUTLINE_STYLE_DIRECTIVE + _JSON_ONLY + """
 {"criticalPoints": [{"title": "제목", "rootCause": "근본원인", "chainEffect": "연쇄효과",
   "decisionNeeded": "필요한 결정", "evidence": [{"source": "출처", "quote": "원문 문장 그대로"}]}]}"""
 

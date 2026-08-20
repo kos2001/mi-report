@@ -481,7 +481,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                               <button onClick={() => api.updateSource(s.id, { enabled: !s.enabled }).then(onChange)} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">
                                 {s.enabled ? "소스 비활성화" : "소스 활성화"}
                               </button>
-                              <button onClick={() => deleteSourceWithConfirm(s, onChange)} className="rounded-md px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40">
+                              <button onClick={() => deleteSourceWithConfirm(s, onChange)} className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40">
                                 소스 삭제
                               </button>
                             </div>

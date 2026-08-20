@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import grounding, reranker
+from . import grounding, reranker, report_agents
 
 RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널리스트다.
 아래에 번호가 매겨진 수집 문서들만 근거로 사용자 질문에 답한다.
@@ -21,7 +21,7 @@ RAG_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애널�
   특정 수치·비율·고유명사가 문서에 없으면 지어내지 말고 없다고 밝힌다.
 - 근거가 된 관련 문서를 [문서 N] 형태로 인용한다. 여러 문서에 걸친 질문은 관련 문서를 모두 인용한다.
 - 수치·비율·금액은 문서에 적힌 값을 그대로(반올림·변형 없이) 인용한다.
-- 한국어로 간결하고 분석적으로 답한다."""
+- 한국어로 간결하고 분석적으로 답한다.""" + report_agents.OUTLINE_STYLE_DIRECTIVE
 
 RERANK_SYSTEM_PROMPT = """질문과 번호가 매겨진 후보 문서 목록이 주어진다.
 질문에 답하는 데 실제로 관련 있는 문서만 관련도 높은 순으로 골라, 그 번호만 반환한다.
