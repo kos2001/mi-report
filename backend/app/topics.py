@@ -24,6 +24,10 @@ TOPIC_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애�
 - insight: S.LSI(시스템 LSI)/SET 시황과의 연계 시사점을 1~3개 포인트로 제시한다(개조식).
 - history: 주요 사건을 시간 역순으로 정리한다(date=YYYY-MM-DD, event, source).
   event 도 개조식으로 작성한다. 문서의 발행일·출처를 활용하고, 근거가 약한 항목은 넣지 않는다.
+- source 는 반드시 사용자 메시지의 "[문서 N] 출처: ..." 에 적힌 값 중 하나를 정확히 그대로
+  옮겨 적는다. 제공되지 않은 새 매체·기관명(예: "가상 증권사 B", "OO리서치")을 지어내지
+  마라 — 문서가 하나뿐이면 모든 history 항목의 source 는 그 하나의 출처만 써야 한다.
+  같은 문서 안의 서로 다른 사실을 여러 history 항목으로 나누더라도 source 는 바뀌지 않는다.
 - 출력은 오직 JSON 객체 하나. 코드펜스/주석/설명 문장을 붙이지 않는다."""
 
 TOPIC_SYSTEM_PROMPT += report_agents.OUTLINE_STYLE_DIRECTIVE + """

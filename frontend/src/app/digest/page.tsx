@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
+import { digestApi, feedbackApi, topicsApi, type GeneratedDigest, type TopicListItem } from "@/lib/api";
 import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { startJob } from "@/lib/generation-jobs";
 import { useJob } from "@/lib/use-job";
@@ -209,6 +209,14 @@ export default function DigestPage() {
   const [commentPartial, setCommentPartial] = useState("");
   const [commentFor, setCommentFor] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [topics, setTopics] = useState<TopicListItem[]>([]);
+  const [topicFilter, setTopicFilter] = useState("");
+
+  useEffect(() => {
+    topicsApi.list().then(setTopics).catch(() => {
+      /* 주제 목록 실패는 조용히 무시 — 필터 없이도 전체 다이제스트 생성 가능 */
+    });
+  }, []);
 
   async function handleAgentComment(d: GeneratedDigest) {
     if (commentLoading || d.items.length === 0) return;
@@ -303,8 +311,9 @@ export default function DigestPage() {
     // await 하지 않는다 — 컴포넌트 생명주기와 분리된 전역 작업으로 던지고,
     // 페이지를 이동해도 계속 진행되며 useJob 이 어디서든 그 상태를 따라간다.
     void startJob<GeneratedDigest>("digest", "다이제스트 생성 중…", "/digest/generate/stream", {
-      period: "최근 수집 문서",
+      period: topicFilter ? `최근 수집 문서 · ${topicFilter}` : "최근 수집 문서",
       limit: 20,
+      topic: topicFilter || undefined,
     });
   }
 
@@ -371,21 +380,42 @@ export default function DigestPage() {
 
       {/* AI 초안 생성 패널 */}
       <Card className="mb-8">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI 다이제스트 초안 생성</h2>
             <p className="mt-1 text-xs text-zinc-500">
               수집된 문서를 분석해 이번 주차 초안을 생성합니다. (게이트웨이 연동)
             </p>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? "생성 중…" : "AI 초안 생성"}
-          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={topicFilter}
+              onChange={(e) => setTopicFilter(e.target.value)}
+              title="특정 주제(예: SOC·LSI·센서 사업팀별로 분류해둔 주제)로 좁혀서 생성 — 비워두면 전체 최근 문서 기준"
+              className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
+            >
+              <option value="">전체 주제</option>
+              {topics.map((t) => (
+                <option key={t.topic} value={t.topic}>
+                  {t.topic} ({t.count})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleGenerate}
+              disabled={loading}
+              className="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "생성 중…" : "AI 초안 생성"}
+            </button>
+          </div>
         </div>
+        {topicFilter && (
+          <p className="mt-2 text-[11px] text-sky-600 dark:text-sky-400">
+            '{topicFilter}' 주제로 분류된 문서만 사용해 생성합니다 — 팀별(SOC/LSI/센서 등) 다이제스트를 만들려면
+            먼저 <a href="/collection/documents" className="underline">수집 문서</a>에서 해당 팀 범위로 주제를 태깅해두세요.
+          </p>
+        )}
         {loading && genSteps.length > 0 && (
           <div className="mt-3">
             <AgentProgressView steps={genSteps} partial="" title="다이제스트 생성 중…" />

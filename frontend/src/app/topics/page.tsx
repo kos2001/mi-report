@@ -17,7 +17,7 @@ type TopicLike = {
   insight: string;
   sourceCount: number;
   updatedAt: string;
-  history: { date: string; event: string; source: string }[];
+  history: { date: string; event: string; source: string; sourceVerified?: boolean }[];
   unsupportedClaims?: UnsupportedClaim[];
 };
 
@@ -112,6 +112,11 @@ function TopicCard({ topic, generated }: { topic: TopicLike; generated?: boolean
                   </span>
                   <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
                     {h.event} <span className="text-xs text-zinc-500">({h.source})</span>
+                    {h.sourceVerified === false && (
+                      <span className="ml-1 text-xs text-amber-600 dark:text-amber-400" title="어느 문서가 근거인지 확인되지 않음">
+                        ⚠ 출처 미검증
+                      </span>
+                    )}
                   </p>
                 </li>
               ))}
