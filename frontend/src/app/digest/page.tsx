@@ -5,7 +5,6 @@ import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
 import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { startJob } from "@/lib/generation-jobs";
 import { useJob } from "@/lib/use-job";
-import { digests } from "@/lib/data";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
@@ -452,35 +451,6 @@ export default function DigestPage() {
             )}
           </section>
         )}
-
-        {/* 과거 다이제스트 (예시) */}
-        {digests.map((digest) => (
-          <section key={digest.id}>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                제{digest.issueNo}호{" "}
-                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">
-                  {digest.period}
-                </span>
-              </h2>
-              {digest.mailedAt ? (
-                <span className="rounded-full border border-emerald-100/60 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/40 px-3 py-1 text-xs text-emerald-600 dark:text-emerald-400">
-                  발송 완료 · {digest.mailedAt}
-                </span>
-              ) : (
-                <span className="rounded-full border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-1 text-xs text-amber-600 dark:text-amber-400">
-                  초안 — 발송 전 검토 필요
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-4">
-              {digest.items.map((item) => (
-                <DigestItemCard key={item.id} item={item} />
-              ))}
-            </div>
-          </section>
-        ))}
       </div>
     </>
   );
