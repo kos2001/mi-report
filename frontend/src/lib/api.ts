@@ -183,6 +183,13 @@ export interface GeneratedDigest {
   ungroundedNumbers?: string[];
   unverifiedSourceCount?: number;
   unsupportedClaims?: string[];
+  // hermes 에이전트가 생성 시점에 자동으로 붙인 초안 검토(hermes 미설정/장애 시 null)
+  agentComment?: {
+    answer: string;
+    numbersGrounded?: boolean;
+    ungroundedNumbers?: string[];
+    sources?: { title: string; source: string; publishedAt: string | null }[];
+  } | null;
 }
 
 export const digestApi = {
