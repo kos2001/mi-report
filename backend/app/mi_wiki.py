@@ -241,3 +241,23 @@ def digest_context(*, current_week: str, max_chars: int = 6000, max_weeks: int =
         blocks.append("\n".join(lines))
     text = "\n\n".join(blocks)
     return text[:max_chars]
+
+
+def status() -> dict[str, Any]:
+    """수집 결과 화면용 Wiki 누적 상태. 파일을 만들거나 수정하지 않는다."""
+    root = wiki_path()
+    state = _load_state(root)
+    weeks = sorted(
+        state.get("weeks", {}).values(), key=lambda item: item.get("key", ""), reverse=True
+    )
+    concepts = list((root / "concepts").glob("*.md")) if root.exists() else []
+    latest = weeks[0] if weeks else None
+    return {
+        "enabled": enabled(),
+        "path": str(root),
+        "weekCount": len(weeks),
+        "conceptCount": len(concepts),
+        "latestWeek": latest.get("week") if latest else None,
+        "latestUpdated": latest.get("updated") if latest else None,
+        "contextMaxWeeks": 4,
+    }

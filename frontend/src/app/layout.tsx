@@ -12,6 +12,8 @@ const THEME_INIT_SCRIPT = `
     var stored = localStorage.getItem("theme");
     var dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.classList.toggle("dark", dark);
+    var collapsed = localStorage.getItem("sidebar-collapsed") === "true";
+    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
   } catch (e) {}
 })();
 `;
@@ -51,13 +53,15 @@ export default function RootLayout({
       {/* 셸을 뷰포트 높이에 고정(h-screen + overflow-hidden)해야 main 의
           overflow-y-auto 가 바운드된 높이를 갖고 내부 스크롤이 동작한다.
           min-h-screen 으로 두면 main 이 콘텐츠만큼 늘어나 스크롤이 안 됐다. */}
-      <body className="flex h-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200">
+      <body className="flex h-screen flex-col overflow-hidden bg-white text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 md:flex-row">
         <Script id="theme-init" strategy="beforeInteractive">
           {THEME_INIT_SCRIPT}
         </Script>
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
-          <div className="mx-auto max-w-5xl">{children}</div>
+        {/* 사이드바 폭에 맞춰 화면 크기 전체를 활용 — 초광폭 모니터에서는 가독성을
+            위해 max-w 로 상한만 둔다(고정 1024px 캡을 없애 화면 크기에 맞게 늘어남). */}
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-8">
+          <div className="mx-auto w-full max-w-[1920px]">{children}</div>
         </main>
       </body>
     </html>

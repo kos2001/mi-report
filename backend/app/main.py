@@ -33,6 +33,7 @@ from .schemas import (
     RagQueryRequest,
     RagSearchRequest,
     ReportGenerateRequest,
+    ReportRenderRequest,
     ScheduleConfig,
     SourceCreate,
     SourceUpdate,
@@ -397,6 +398,12 @@ def collection_sources():
     return {"sources": collection.list_sources(), "documentCount": collection.count_documents()}
 
 
+@app.get("/collection/search-infrastructure")
+def collection_search_infrastructure():
+    """BM25·임베딩 DB·LLM Wiki의 실제 적재 상태를 반환한다."""
+    return {**collection.search_infrastructure_status(), "wiki": mi_wiki.status()}
+
+
 @app.post("/collection/sources", status_code=201)
 def collection_create_source(req: SourceCreate):
     try:
@@ -425,8 +432,7 @@ def collection_delete_source(source_id: str):
 
 @app.post("/collection/sources/{source_id}/collect")
 async def collection_collect(source_id: str):
-    """수집 트리거. 소스에 URL 이 있으면 실제로 fetch→본문 추출→문서 저장하고,
-    URL 이 없으면 기존 스텁(실행 기록만 갱신)으로 동작한다."""
+    """수집 트리거. 설정이 없는 소스를 정상으로 위장하지 않고 명확히 거부한다."""
     try:
         source = collection.get_source(source_id)
     except KeyError as e:
@@ -434,11 +440,10 @@ async def collection_collect(source_id: str):
 
     is_api_sync = source["type"] in ("confluence", "sec", "dart", "hankyung")
     if not is_api_sync and not collection.source_urls(source):
-        # URL 없는 비-API동기화 커넥터 → 기존 스텁 동작(검증 포함)
-        try:
-            return collection.collect_source(source_id)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(
+            status_code=400,
+            detail="수집 URL 설정이 필요합니다. 실행 기록만 갱신하는 스텁은 지원하지 않습니다.",
+        )
 
     # 실제 수집(URL 또는 confluence). 커넥터/활성 검증.
     if source["type"] not in collection.CONNECTOR_TYPES:
@@ -837,6 +842,14 @@ async def report_document(req: ReportGenerateRequest):
         "markdown": markdown,
         "report": result,
     }
+
+
+@app.post("/report/render")
+def report_render(req: ReportRenderRequest):
+    """기존 리포트를 재생성하지 않고 Markdown 미리보기로 변환한다."""
+    markdown = report.render_report_markdown(req.report, template=req.template)
+    issue_no = req.report.get("issueNo") or 1
+    return {"filename": f"MI리포트_제{issue_no}호.md", "markdown": markdown}
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────

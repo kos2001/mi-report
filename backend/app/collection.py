@@ -151,17 +151,88 @@ def init_db() -> None:
     schedule.init_schedule()
 
 
+def _source_configuration(type_: str, cfg: dict[str, Any]) -> tuple[bool, str]:
+    """비밀값은 노출하지 않고 실행에 필요한 설정이 있는지만 판정한다."""
+    if type_ == "upload":
+        return True, "수동 업로드는 별도 연결 설정이 필요하지 않습니다."
+    if type_ == "edm":
+        raw = str(cfg.get("path") or "").strip()
+        valid = bool(raw and raw != "EDM 루트 경로" and Path(raw).expanduser().exists())
+        return valid, "EDM 경로 확인됨" if valid else "유효한 EDM 경로가 필요합니다."
+    if type_ == "confluence":
+        base = bool(str(cfg.get("base_url") or "").strip())
+        creds = bool(os.getenv("CONFLUENCE_EMAIL") and os.getenv("CONFLUENCE_API_TOKEN"))
+        valid = base and creds
+        return valid, "URL·인증정보 확인됨" if valid else "Confluence URL·이메일·API 토큰을 확인하세요."
+    if type_ == "sec":
+        valid = bool(str(cfg.get("cik") or "").strip())
+        return valid, "SEC CIK 확인됨" if valid else "SEC CIK가 필요합니다."
+    if type_ == "dart":
+        valid = bool(str(cfg.get("corp_code") or "").strip() and os.getenv("DART_API_KEY"))
+        return valid, "corp_code·API 키 확인됨" if valid else "DART corp_code·API 키를 확인하세요."
+    if type_ == "hankyung":
+        return True, "한경 컨센서스 기본 연결 사용"
+    urls = cfg.get("urls") if isinstance(cfg.get("urls"), list) else []
+    valid = bool(str(cfg.get("url") or "").strip() or urls)
+    return valid, "수집 URL 확인됨" if valid else "수집 URL이 필요합니다."
+
+
+def _operational_result(state: str, label: str, reason: str, *, active: bool,
+                        configured: bool, configuration: str) -> dict[str, Any]:
+    return {"state": state, "label": label, "reason": reason,
+            "effectiveActive": active, "configured": configured,
+            "configuration": configuration}
+
+
+def _source_operational(row: sqlite3.Row, cfg: dict[str, Any]) -> dict[str, Any]:
+    configured, config_reason = _source_configuration(row["type"], cfg)
+    if not bool(row["enabled"]):
+        return _operational_result("disabled", "비활성", "사용자 설정으로 수집 중지",
+                                   active=False, configured=configured, configuration=config_reason)
+    if not configured:
+        return _operational_result("setup", "설정 필요", config_reason,
+                                   active=False, configured=False, configuration=config_reason)
+    if row["status"] == "오류":
+        return _operational_result("error", "활성·오류", "마지막 수집 실행이 실패했습니다.",
+                                   active=True, configured=True, configuration=config_reason)
+    if row["type"] == "upload":
+        return _operational_result("manual", "수동 활성", "파일 업로드 요청 시 동작",
+                                   active=True, configured=True, configuration=config_reason)
+    if not row["last_run"]:
+        return _operational_result("waiting", "활성·대기", "아직 실행 기록이 없습니다.",
+                                   active=True, configured=True, configuration=config_reason)
+    try:
+        last = datetime.strptime(row["last_run"], "%Y-%m-%d %H:%M")
+        now = datetime.now(timezone.utc).astimezone().replace(tzinfo=None)
+        age_hours = max(0, int((now - last).total_seconds() // 3600))
+    except (TypeError, ValueError):
+        age_hours = None
+    if row["status"] == "지연" or (age_hours is not None and age_hours > 48):
+        age = f"{age_hours}시간 전" if age_hours is not None else "시각 확인 불가"
+        return _operational_result("stale", "활성·점검 필요", f"마지막 실행이 {age}입니다.",
+                                   active=True, configured=True, configuration=config_reason)
+    if row["count"] == 0:
+        return _operational_result("warning", "활성·결과 없음",
+                                   "최근 실행 기록은 있으나 수집 문서가 없습니다.",
+                                   active=True, configured=True, configuration=config_reason)
+    return _operational_result("healthy", "활성·정상",
+                               "설정 확인·최근 실행 성공·수집 문서 존재",
+                               active=True, configured=True, configuration=config_reason)
+
+
 def _row_to_source(row: sqlite3.Row) -> dict[str, Any]:
+    cfg = json.loads(row["config"] or "{}")
     return {
         "id": row["id"],
         "name": row["name"],
         "type": row["type"],
-        "config": json.loads(row["config"] or "{}"),
+        "config": cfg,
         "enabled": bool(row["enabled"]),
         "status": row["status"],
         "lastRun": row["last_run"],
         "count": row["count"],
         "createdAt": row["created_at"],
+        "operational": _source_operational(row, cfg),
     }
 
 
@@ -912,6 +983,35 @@ def list_documents(source_id: str | None = None, q: str | None = None,
 def count_documents() -> int:
     with _conn() as conn:
         return conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
+
+
+def search_infrastructure_status() -> dict[str, Any]:
+    """수집 결과 화면용 BM25·임베딩 저장 상태(실제 DB 기준)."""
+    with _conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
+        fts = conn.execute(
+            "SELECT COUNT(DISTINCT doc_id) AS n FROM documents_content_fts"
+        ).fetchone()["n"]
+        vector_rows = conn.execute(
+            "SELECT model, COUNT(*) AS n, LENGTH(MIN(vec)) AS bytes "
+            "FROM documents_embeddings GROUP BY model ORDER BY n DESC"
+        ).fetchall()
+    vectors = sum(row["n"] for row in vector_rows)
+    stored_models = [
+        {"model": row["model"], "count": row["n"], "dimensions": (row["bytes"] or 0) // 4}
+        for row in vector_rows
+    ]
+    return {
+        "totalDocuments": total,
+        "bm25": {"engine": "SQLite FTS5 / BM25", "indexedDocuments": fts},
+        "embeddings": {
+            "configured": embeddings.enabled(),
+            "backend": embeddings.backend(),
+            "model": embeddings.model_name(),
+            "vectors": vectors,
+            "storedModels": stored_models,
+        },
+    }
 
 
 def today() -> str:

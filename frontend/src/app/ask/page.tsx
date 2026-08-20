@@ -184,7 +184,7 @@ export default function AskPage() {
         )}
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[280px,1fr]">
+      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         {/* 세션 목록(사용자별) */}
         <Card className="h-fit overflow-hidden p-0">
           <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">

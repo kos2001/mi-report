@@ -4,19 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Source } from "@/lib/api";
 import { Card } from "@/components/ui";
-
-function statusColor(status: string) {
-  if (status === "정상") return "text-emerald-600 dark:text-emerald-400";
-  if (status === "지연") return "text-amber-600 dark:text-amber-400";
-  if (status === "오류") return "text-red-600 dark:text-red-400";
-  return "text-zinc-600 dark:text-zinc-400";
-}
+import { SourceOperationalStatus } from "@/components/source-operational-status";
 
 export function PipelineStatus() {
   const [sources, setSources] = useState<Source[]>([]);
   const [docCount, setDocCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const activeCount = sources.filter((source) => source.operational.effectiveActive).length;
+  const attentionCount = sources.filter((source) =>
+    ["setup", "error", "stale", "warning"].includes(source.operational.state),
+  ).length;
 
   useEffect(() => {
     let alive = true;
@@ -52,7 +50,7 @@ export function PipelineStatus() {
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
                 <th className="px-5 py-3 font-medium">소스</th>
-                <th className="px-5 py-3 font-medium">상태</th>
+                <th className="px-5 py-3 font-medium">실제 운영 상태</th>
                 <th className="px-5 py-3 font-medium">최근 실행</th>
                 <th className="px-5 py-3 text-right font-medium">누적 문서</th>
               </tr>
@@ -62,7 +60,7 @@ export function PipelineStatus() {
                 <tr key={s.id} className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
                   <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">{s.name}</td>
                   <td className="px-5 py-3">
-                    <span className={statusColor(s.status)}>● {s.status}</span>
+                    <SourceOperationalStatus source={s} showReason />
                   </td>
                   <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                     {s.lastRun ?? "—"}
@@ -76,7 +74,7 @@ export function PipelineStatus() {
           </table>
           <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-5 py-2.5 text-[11px] text-zinc-500">
             <span>
-              소스 {sources.length}개 · 수집 문서 {docCount ?? "—"}건 (실시간)
+              소스 {sources.length}개 · 실제 활성 {activeCount}개 · 점검 필요 {attentionCount}개 · 수집 문서 {docCount ?? "—"}건
             </span>
             <Link href="/collection" className="text-sky-600 dark:text-sky-400 hover:underline">
               데이터 수집 관리 →

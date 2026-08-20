@@ -1,50 +1,21 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   api,
-  type CollectedDoc,
   type Source,
   type SourceType,
   SOURCE_TYPE_LABEL,
 } from "@/lib/api";
-import { Card, PageHeader, Tag } from "@/components/ui";
+import { Card, PageHeader } from "@/components/ui";
+import { SourceOperationalStatus } from "@/components/source-operational-status";
 
-type Tab = "sources" | "status" | "upload" | "documents";
+type Tab = "manage" | "upload";
 
-// 4개 탭을 두 엔티티 그룹으로 묶어 시각적으로 구분한다.
-// 소스(어디서) = 소스 정의 + 상태·수집 / 문서(무엇을) = 업로드 + 조회.
-const TAB_GROUPS: {
-  group: string;
-  hint: string;
-  tabs: { key: Tab; label: string }[];
-}[] = [
-  {
-    group: "소스",
-    hint: "어디서 들어오나",
-    tabs: [
-      { key: "sources", label: "소스" },
-      { key: "status", label: "상태·수집" },
-    ],
-  },
-  {
-    group: "문서",
-    hint: "무엇이 들어왔나",
-    tabs: [
-      { key: "upload", label: "업로드" },
-      { key: "documents", label: "문서" },
-    ],
-  },
+const CONNECTOR_TYPES: SourceType[] = [
+  "confluence", "sec", "dart", "hankyung", "news", "broker", "consensus",
 ];
-
-const CONNECTOR_TYPES: SourceType[] = ["edm", "confluence", "news", "broker", "consensus"];
-
-function statusColor(status: string) {
-  if (status === "정상") return "text-emerald-600 dark:text-emerald-400";
-  if (status === "지연") return "text-amber-600 dark:text-amber-400";
-  if (status === "오류") return "text-red-600 dark:text-red-400";
-  return "text-zinc-600 dark:text-zinc-400";
-}
 
 // 소스 삭제(확인창 포함). 소스와 그 소스로 수집된 문서까지 함께 제거된다.
 async function deleteSourceWithConfirm(s: Source, onChange: () => void) {
@@ -61,9 +32,8 @@ async function deleteSourceWithConfirm(s: Source, onChange: () => void) {
 }
 
 export default function CollectionPage() {
-  const [tab, setTab] = useState<Tab>("sources");
+  const [tab, setTab] = useState<Tab>("manage");
   const [sources, setSources] = useState<Source[]>([]);
-  const [docs, setDocs] = useState<CollectedDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,10 +44,9 @@ export default function CollectionPage() {
     let alive = true;
     (async () => {
       try {
-        const [s, d] = await Promise.all([api.listSources(), api.listDocuments()]);
+        const s = await api.listSources();
         if (!alive) return;
         setSources(s);
-        setDocs(d);
         setError(null);
       } catch (e) {
         if (alive)
@@ -106,55 +75,38 @@ export default function CollectionPage() {
         </div>
       )}
 
-      <div className="mb-6">
-        <div className="flex flex-wrap items-end gap-3">
-          {TAB_GROUPS.map((g, gi) => (
-            <Fragment key={g.group}>
-              {gi > 0 && (
-                <span className="mb-2 select-none px-1 text-lg text-zinc-400 dark:text-zinc-600" aria-hidden>
-                  →
-                </span>
-              )}
-              <div>
-                <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                  {g.group} <span className="text-zinc-400 dark:text-zinc-600">· {g.hint}</span>
-                </p>
-                <div className="flex gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/40 dark:bg-zinc-900/40 p-1">
-                  {g.tabs.map((t) => (
-                    <button
-                      key={t.key}
-                      onClick={() => setTab(t.key)}
-                      className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${
-                        tab === t.key
-                          ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50"
-                          : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </Fragment>
-          ))}
-        </div>
-        <p className="mt-2 text-[11px] text-zinc-500">
-          <span className="text-zinc-600 dark:text-zinc-400">소스</span>(어디서) →{" "}
-          <span className="text-zinc-600 dark:text-zinc-400">문서</span>(무엇을). ‘상태·수집’의 ‘지금 수집’(자동)과
-          ‘업로드’(수동)가 각각 문서를 만들고, 모든 문서는 소스에 귀속됩니다.
-        </p>
+      <div className="mb-6 grid gap-2 sm:grid-cols-4">
+        <button onClick={() => setTab("manage")} className={`rounded-xl border px-4 py-3 text-left transition ${tab === "manage" ? "border-sky-300 bg-sky-50 ring-1 ring-sky-200 dark:border-sky-800 dark:bg-sky-950/40 dark:ring-sky-900" : "border-zinc-200 bg-white hover:border-sky-200 dark:border-zinc-800 dark:bg-zinc-950"}`}>
+          <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400">STEP 1</span>
+          <span className="mt-1 block text-sm font-semibold text-zinc-900 dark:text-zinc-100">소스·수집</span>
+          <span className="mt-0.5 block text-[11px] text-zinc-500">연결 설정 · 상태 · 실행</span>
+        </button>
+        <button onClick={() => setTab("upload")} className={`rounded-xl border px-4 py-3 text-left transition ${tab === "upload" ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200 dark:border-violet-800 dark:bg-violet-950/40 dark:ring-violet-900" : "border-zinc-200 bg-white hover:border-violet-200 dark:border-zinc-800 dark:bg-zinc-950"}`}>
+          <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400">STEP 2</span>
+          <span className="mt-1 block text-sm font-semibold text-zinc-900 dark:text-zinc-100">파일 업로드</span>
+          <span className="mt-0.5 block text-[11px] text-zinc-500">로컬 자료 직접 투입</span>
+        </button>
+        <Link href="/collection/documents" className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30">
+          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">STEP 3 ↗</span>
+          <span className="mt-1 block text-sm font-semibold text-zinc-900 dark:text-zinc-100">수집 문서</span>
+          <span className="mt-0.5 block text-[11px] text-zinc-500">검색 · 분류 · 원문 확인</span>
+        </Link>
+        <Link href="/collection/results" className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-amber-800 dark:hover:bg-amber-950/30">
+          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">STEP 4 ↗</span>
+          <span className="mt-1 block text-sm font-semibold text-zinc-900 dark:text-zinc-100">수집 결과</span>
+          <span className="mt-0.5 block text-[11px] text-zinc-500">현황 · 검색 인프라</span>
+        </Link>
       </div>
 
       {loading ? (
         <p className="text-sm text-zinc-500">불러오는 중…</p>
-      ) : tab === "sources" ? (
-        <SourcesTab sources={sources} onChange={refresh} />
-      ) : tab === "status" ? (
-        <StatusTab sources={sources} onChange={refresh} />
-      ) : tab === "upload" ? (
-        <UploadTab onChange={refresh} />
+      ) : tab === "manage" ? (
+        <div className="flex flex-col gap-5">
+          <SourcesTab onChange={refresh} />
+          <StatusTab sources={sources} onChange={refresh} />
+        </div>
       ) : (
-        <DocumentsTab docs={docs} onChange={refresh} />
+        <UploadTab onChange={refresh} />
       )}
     </>
   );
@@ -213,7 +165,7 @@ const TYPE_HINT: Record<SourceType, string> = {
   upload: "",
 };
 
-function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => void }) {
+function SourcesTab({ onChange }: { onChange: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("news");
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -326,44 +278,6 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
           </p>
         )}
       </Card>
-
-      <div className="flex flex-col gap-3">
-        {sources.map((s) => (
-          <Card key={s.id} className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Tag>{SOURCE_TYPE_LABEL[s.type]}</Tag>
-              <div>
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{s.name}</p>
-                <p className="text-xs text-zinc-500">
-                  <span className={statusColor(s.status)}>● {s.status}</span>
-                  {" · "}최근 {s.lastRun ?? "—"} · 누적 {s.count}건
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* 활성 ↔ 비활성 토글: 현재 상태를 보여주고 클릭하면 전환된다 */}
-              <button
-                onClick={() => api.updateSource(s.id, { enabled: !s.enabled }).then(onChange)}
-                title={s.enabled ? "클릭하면 비활성화" : "클릭하면 활성화"}
-                aria-pressed={s.enabled}
-                className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                  s.enabled
-                    ? "border-emerald-200/60 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100/40 dark:hover:bg-emerald-900/40"
-                    : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                }`}
-              >
-                {s.enabled ? "● 활성" : "○ 비활성"}
-              </button>
-              <button
-                onClick={() => deleteSourceWithConfirm(s, onChange)}
-                className="rounded-md px-2.5 py-1 text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
-              >
-                삭제
-              </button>
-            </div>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }
@@ -393,20 +307,6 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
   const [busyId, setBusyId] = useState<string | null>(null);
   const [result, setResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [docsBySource, setDocsBySource] = useState<Record<string, CollectedDoc[]>>({});
-  const [docsLoading, setDocsLoading] = useState<string | null>(null);
-
-  const loadDocs = async (id: string) => {
-    setDocsLoading(id);
-    try {
-      const docs = await api.listDocuments({ source: id });
-      setDocsBySource((prev) => ({ ...prev, [id]: docs }));
-    } catch {
-      setDocsBySource((prev) => ({ ...prev, [id]: [] }));
-    } finally {
-      setDocsLoading(null);
-    }
-  };
 
   const toggleExpand = (id: string) => {
     if (expandedId === id) {
@@ -414,7 +314,6 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
       return;
     }
     setExpandedId(id);
-    if (!docsBySource[id]) loadDocs(id);
   };
 
   const collect = async (s: Source) => {
@@ -425,8 +324,6 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
         ? "URL 미설정 — 실행 기록만 갱신(스텁)"
         : `${r.ingested}건 수집됨${r.errors && r.errors.length ? ` · 실패 ${r.errors.length}` : ""}`;
       setResult((prev) => ({ ...prev, [s.id]: { ok: true, msg } }));
-      // 수집 후 해당 소스의 문서 목록을 갱신(펼쳐져 있으면 즉시 반영)
-      loadDocs(s.id);
       onChange();
     } catch (e) {
       // 수집 실패(예: 본문 추출 실패)를 사용자에게 노출한다.
@@ -439,24 +336,14 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
     }
   };
 
-  // 하위 문서(subitem) 삭제 — 해당 소스의 문서 목록과 누적 카운트를 갱신한다.
-  const deleteDoc = async (sourceId: string, docId: string) => {
-    try {
-      await api.deleteDocument(docId);
-    } finally {
-      loadDocs(sourceId);
-      onChange();
-    }
-  };
-
   return (
     <Card className="p-0">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
             <th className="px-5 py-3 font-medium">소스</th>
-            <th className="px-5 py-3 font-medium">상태</th>
-            <th className="px-5 py-3 font-medium">최근 실행</th>
+            <th className="px-5 py-3 font-medium">실제 운영 상태</th>
+            <th className="px-5 py-3 font-medium">최근 실행 · 마지막 결과</th>
             <th className="px-5 py-3 text-right font-medium">누적</th>
             <th className="px-5 py-3 text-right font-medium">작업</th>
           </tr>
@@ -466,7 +353,6 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
             const connector = CONNECTOR_TYPES.includes(s.type);
             const open = expandedId === s.id;
             const configEntries = Object.entries(s.config ?? {});
-            const docs = docsBySource[s.id];
             return (
               <Fragment key={s.id}>
                 <tr className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
@@ -486,10 +372,11 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                     </button>
                   </td>
                   <td className="px-5 py-3">
-                    <span className={statusColor(s.status)}>● {s.status}</span>
+                    <SourceOperationalStatus source={s} showReason />
                   </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
-                    {s.lastRun ?? "—"}
+                  <td className="px-5 py-3 text-xs text-zinc-600 dark:text-zinc-400">
+                    <p className="font-mono">{s.lastRun ?? "실행 없음"}</p>
+                    <p className="mt-1 text-[11px] text-zinc-500">저장된 실행 결과: {s.status}</p>
                   </td>
                   <td className="px-5 py-3 text-right font-mono text-xs text-zinc-700 dark:text-zinc-300">
                     {s.count}
@@ -497,14 +384,22 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                   <td className="px-5 py-3 text-right">
                     {connector ? (
                       <div className="flex flex-col items-end gap-1">
-                        <button
-                          onClick={() => collect(s)}
-                          disabled={!s.enabled || busyId === s.id}
-                          title={!s.enabled ? "비활성 소스" : "URL 이 있으면 실제 수집, 없으면 스텁"}
-                          className="rounded-md bg-zinc-200 dark:bg-zinc-800 px-2.5 py-1 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
-                        >
-                          {busyId === s.id ? "수집 중…" : "지금 수집"}
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => collect(s)}
+                            disabled={!s.operational.effectiveActive || busyId === s.id}
+                            title={!s.operational.effectiveActive ? s.operational.reason : "실제 커넥터 수집 실행"}
+                            className="rounded-md bg-zinc-200 dark:bg-zinc-800 px-2.5 py-1 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
+                          >
+                            {busyId === s.id ? "수집 중…" : "지금 수집"}
+                          </button>
+                          <button
+                            onClick={() => api.updateSource(s.id, { enabled: !s.enabled }).then(onChange)}
+                            className={`rounded-md border px-2 py-1 text-[11px] ${s.enabled ? "border-emerald-200 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
+                          >
+                            {s.enabled ? "활성" : "비활성"}
+                          </button>
+                        </div>
                         {result[s.id] && (
                           <span
                             className={`text-[11px] ${result[s.id].ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
@@ -514,7 +409,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                         )}
                       </div>
                     ) : (
-                      <span className="text-xs text-zinc-400 dark:text-zinc-600">업로드 전용</span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-600">{s.type === "edm" ? "외부 인제스트 워커" : "업로드 전용"}</span>
                     )}
                   </td>
                 </tr>
@@ -535,6 +430,14 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-zinc-500">활성</dt>
                               <dd className="text-zinc-700 dark:text-zinc-300">{s.enabled ? "예" : "아니오"}</dd>
+                            </div>
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-zinc-500">운영 판정</dt>
+                              <dd className="text-zinc-700 dark:text-zinc-300">{s.operational.label} — {s.operational.reason}</dd>
+                            </div>
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-zinc-500">설정 확인</dt>
+                              <dd className="text-zinc-700 dark:text-zinc-300">{s.operational.configuration}</dd>
                             </div>
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-zinc-500">생성일</dt>
@@ -567,35 +470,22 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                             )}
                           </dl>
                         </div>
-                        {/* 수집된 문서 */}
                         <div>
-                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                            수집된 문서 {docs ? `(${docs.length})` : ""}
-                          </p>
-                          {docsLoading === s.id ? (
-                            <p className="text-xs text-zinc-500">불러오는 중…</p>
-                          ) : !docs || docs.length === 0 ? (
-                            <p className="text-xs text-zinc-400 dark:text-zinc-600">이 소스로 수집된 문서가 없습니다.</p>
-                          ) : (
-                            <ul className="flex flex-col gap-1.5">
-                              {docs.map((d) => (
-                                <li key={d.id} className="flex items-center gap-2 text-xs">
-                                  <span className="truncate text-zinc-700 dark:text-zinc-300">{d.title}</span>
-                                  {d.topic && <Tag>{d.topic}</Tag>}
-                                  <span className="ml-auto shrink-0 font-mono text-zinc-500">
-                                    {d.createdAt}
-                                  </span>
-                                  <button
-                                    onClick={() => deleteDoc(s.id, d.id)}
-                                    title="이 문서 삭제"
-                                    className="shrink-0 rounded px-1.5 py-0.5 text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
-                                  >
-                                    삭제
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">관리 작업</p>
+                          <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                            <p className="text-xs text-zinc-600 dark:text-zinc-400">이 소스에서 누적된 문서 <strong className="text-zinc-900 dark:text-zinc-100">{s.count}건</strong></p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Link href={`/collection/documents?source=${encodeURIComponent(s.id)}`} className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500">
+                                수집 문서 보기 ↗
+                              </Link>
+                              <button onClick={() => api.updateSource(s.id, { enabled: !s.enabled }).then(onChange)} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">
+                                {s.enabled ? "소스 비활성화" : "소스 활성화"}
+                              </button>
+                              <button onClick={() => deleteSourceWithConfirm(s, onChange)} className="rounded-md px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40">
+                                소스 삭제
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -606,8 +496,8 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
           })}
         </tbody>
       </table>
-      <p className="border-t border-zinc-200 dark:border-zinc-800 px-5 py-2.5 text-[11px] text-amber-600/70 dark:text-amber-400/70">
-        ⚠️ URL 이 설정된 소스는 실제로 페이지를 가져옵니다. URL 이 없는 소스는 스텁(실행 기록만 갱신)입니다.
+      <p className="border-t border-zinc-200 px-5 py-2.5 text-[11px] text-zinc-500 dark:border-zinc-800">
+        ‘지금 수집’은 설정이 확인된 실제 커넥터에서만 활성화됩니다. EDM은 Windows 인제스트 워커가 담당합니다.
       </p>
     </Card>
   );
@@ -709,119 +599,6 @@ function UploadTab({ onChange }: { onChange: () => void }) {
           </ul>
         </Card>
       )}
-    </div>
-  );
-}
-
-// ── 문서 탭 ──────────────────────────────────────────────────────────
-function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () => void }) {
-  const [q, setQ] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [batchBusy, setBatchBusy] = useState(false);
-  const filtered = q
-    ? docs.filter(
-        (d) =>
-          d.title.toLowerCase().includes(q.toLowerCase()) ||
-          (d.topic ?? "").toLowerCase().includes(q.toLowerCase()),
-      )
-    : docs;
-
-  const untaggedCount = docs.filter((d) => !d.topic).length;
-
-  const classifyOne = async (id: string) => {
-    setBusyId(id);
-    try {
-      await api.classifyDocument(id);
-      onChange();
-    } catch {
-      /* 상위 새로고침 */
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const classifyAll = async () => {
-    setBatchBusy(true);
-    try {
-      await api.classifyUntagged();
-      onChange();
-    } catch {
-      /* 상위 새로고침 */
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="제목·주제로 검색"
-          className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
-        />
-        <button
-          onClick={classifyAll}
-          disabled={batchBusy || untaggedCount === 0}
-          title="주제가 비어 있는 문서를 AI 로 일괄 분류"
-          className="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {batchBusy ? "분류 중…" : `미분류 자동 분류${untaggedCount ? ` (${untaggedCount})` : ""}`}
-        </button>
-      </div>
-      <Card className="p-0">
-        {filtered.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-zinc-500">
-            수집된 문서가 없습니다. 업로드 탭에서 파일을 추가하세요.
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
-                <th className="px-5 py-3 font-medium">제목</th>
-                <th className="px-5 py-3 font-medium">출처</th>
-                <th className="px-5 py-3 font-medium">주제</th>
-                <th className="px-5 py-3 font-medium">수집일</th>
-                <th className="px-5 py-3 text-right font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((d) => (
-                <tr key={d.id} className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
-                  <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">{d.title}</td>
-                  <td className="px-5 py-3 text-xs text-zinc-600 dark:text-zinc-400">{d.sourceName}</td>
-                  <td className="px-5 py-3">
-                    {d.topic ? <Tag>{d.topic}</Tag> : <span className="text-xs text-zinc-400 dark:text-zinc-600">—</span>}
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
-                    {d.createdAt}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      {!d.topic && (
-                        <button
-                          onClick={() => classifyOne(d.id)}
-                          disabled={busyId === d.id}
-                          className="text-xs text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 disabled:opacity-50"
-                        >
-                          {busyId === d.id ? "분류 중…" : "분류"}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => api.deleteDocument(d.id).then(onChange)}
-                        className="text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
     </div>
   );
 }

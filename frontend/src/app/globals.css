@@ -27,3 +27,39 @@ body {
   font-family: var(--font-geist-sans), "Apple SD Gothic Neo", "Pretendard",
     sans-serif;
 }
+
+/* 전 페이지 공통 상호작용 신호 — 마우스 hover뿐 아니라 키보드 포커스도 명확하게. */
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(186 230 253 / 0.75);
+  color: #0c4a6e;
+}
+
+.dark ::selection {
+  background: rgb(3 105 161 / 0.65);
+  color: #e0f2fe;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 767px) {
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
