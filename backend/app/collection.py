@@ -717,8 +717,15 @@ def hybrid_search_multi(queries: list[str], *, limit: int = 8, topic: str | None
             sims = unit @ (qv / (float(np.linalg.norm(qv)) + 1e-9))
             if mask is not None:
                 sims = np.where(mask, sims, -np.inf)
-            fused = _rrf([[d["id"] for d in bm25], _top_ids(ids, sims, pool)])
-            fused_ids.append([k for k, _ in sorted(fused.items(), key=lambda x: -x[1])[:limit]])
+            lexical_ids = [d["id"] for d in bm25]
+            fused = _rrf([lexical_ids, _top_ids(ids, sims, pool)])
+            ranked = [k for k, _ in sorted(fused.items(), key=lambda x: -x[1])]
+            # lexical 1위는 정밀도 앵커로 유지하고, 나머지는 dense와 균형 결합한다.
+            # 전체 lexical 가중치를 키우면 어휘가 전혀 안 겹치는 패러프레이즈를 dense가
+            # 상위권으로 구제하지 못하므로 첫 문서만 보호한다.
+            if lexical_ids:
+                ranked = [lexical_ids[0], *(doc_id for doc_id in ranked if doc_id != lexical_ids[0])]
+            fused_ids.append(ranked[:limit])
         docs = {d["id"]: d for bm25 in bm25_lists for d in bm25}
         missing = list({i for lst in fused_ids for i in lst if i not in docs})
         if missing:  # dense 로만 올라온 문서의 메타데이터를 한 번의 쿼리로 채운다
@@ -734,14 +741,9 @@ def hybrid_search_multi(queries: list[str], *, limit: int = 8, topic: str | None
         return fallback  # 폴백 3: dense 단계 예외 → 어휘 검색으로 안전 복귀
 
 
-def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
-                     source_id: str | None = None) -> list[dict[str, Any]]:
-    """본문 BM25 검색. 질문과 관련도 높은 순으로 문서를 반환(매칭 없으면 빈 리스트).
-
-    RAG 회수율을 위해 OR 매칭(한 토큰이라도 포함)을 쓰고 BM25 로 관련도 정렬한다.
-    도메인 동의어로 질의를 확장해 동의어/약어 격차를 메운다.
-    """
-    match = _fts_match(synonyms.expand_query(query), op="OR") if query else None
+def _search_documents_match(match: str | None, *, limit: int, topic: str | None,
+                            source_id: str | None) -> list[dict[str, Any]]:
+    """이미 안전하게 구성된 FTS MATCH 식을 실행한다."""
     if not match:
         return []
     params: list[Any] = [match]
@@ -757,11 +759,41 @@ def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
     if topic:
         sql += " AND d.topic=?"
         params.append(topic)
-    sql += " ORDER BY rank LIMIT ?"  # bm25: 값이 작을수록 관련도 높음
+    sql += " ORDER BY rank LIMIT ?"
     params.append(limit)
     with _conn() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [_row_to_document(r) for r in rows]
+
+
+def search_documents(query: str, *, limit: int = 8, topic: str | None = None,
+                     source_id: str | None = None) -> list[dict[str, Any]]:
+    """정밀 BM25와 동의어 확장 BM25를 결합한 lexical 검색.
+
+    원문 토큰을 모두 포함하는 strict(AND) 결과를 두 번 가중하고, 동의어를 확장한
+    broad(OR) 결과를 RRF로 합친다. 정확한 질의 일치는 상단에 유지하면서도 약어·동의어와
+    일부 토큰만 겹치는 문서를 놓치지 않는다.
+    """
+    if not query or not query.strip():
+        return []
+    pool = max(limit * 4, 20)
+    strict = _search_documents_match(
+        _fts_match(query, op="AND"), limit=pool, topic=topic, source_id=source_id
+    )
+    broad = _search_documents_match(
+        _fts_match(synonyms.expand_query(query), op="OR"),
+        limit=pool, topic=topic, source_id=source_id,
+    )
+    if not strict:
+        return broad[:limit]
+    scores = _rrf([
+        [d["id"] for d in strict],
+        [d["id"] for d in strict],
+        [d["id"] for d in broad],
+    ])
+    docs = {d["id"]: d for d in [*strict, *broad]}
+    ranked_ids = [doc_id for doc_id, _ in sorted(scores.items(), key=lambda pair: -pair[1])]
+    return [docs[doc_id] for doc_id in ranked_ids[:limit]]
 
 
 def _contents_for_ids(ids: list[str], *, max_chars: int = 4000) -> dict[str, str]:
@@ -785,20 +817,31 @@ def _contents_for_ids(ids: list[str], *, max_chars: int = 4000) -> dict[str, str
     return out
 
 
-def _docs_with_content(hits: list[dict[str, Any]], *, max_chars: int = 4000) -> list[dict[str, Any]]:
-    """문서 메타 목록에 본문을 붙여 LLM 입력 형태로 반환(본문 없는 문서는 제외)."""
+def _docs_with_content(hits: list[dict[str, Any]], *, max_chars: int = 4000,
+                       dedupe: bool = False, limit: int | None = None) -> list[dict[str, Any]]:
+    """문서 메타 목록에 본문을 붙인다. RAG 경로는 동일 본문을 한 번만 반환한다."""
     texts = _contents_for_ids([d["id"] for d in hits], max_chars=max_chars)
-    return [
-        {
+    out: list[dict[str, Any]] = []
+    seen_content: set[str] = set()
+    for d in hits:
+        if d["id"] not in texts:
+            continue
+        content = texts[d["id"]]
+        if dedupe:
+            fingerprint = re.sub(r"\s+", " ", content).strip().casefold()
+            if fingerprint in seen_content:
+                continue
+            seen_content.add(fingerprint)
+        out.append({
             "id": d["id"],
             "title": d["title"],
             "source": d["sourceName"],
             "publishedAt": d["publishedAt"],
-            "content": texts[d["id"]],
-        }
-        for d in hits
-        if d["id"] in texts
-    ]
+            "content": content,
+        })
+        if limit is not None and len(out) >= limit:
+            break
+    return out
 
 
 def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
@@ -808,10 +851,11 @@ def documents_for_rag(query: str, *, limit: int = 8, topic: str | None = None,
     본문 매칭이 없으면 최근 문서로 폴백한다(질문이 색인 토큰과 안 겹칠 때).
     임베딩이 활성화되면 BM25+의미(dense) 하이브리드로 회수한다.
     """
-    hits = hybrid_search(query, limit=limit, topic=topic, source_id=source_id)
+    candidate_limit = max(limit * 3, limit)
+    hits = hybrid_search(query, limit=candidate_limit, topic=topic, source_id=source_id)
     if not hits:
-        hits = list_documents(source_id=source_id, topic=topic, limit=limit)
-    return _docs_with_content(hits, max_chars=max_chars)
+        hits = list_documents(source_id=source_id, topic=topic, limit=candidate_limit)
+    return _docs_with_content(hits, max_chars=max_chars, dedupe=True, limit=limit)
 
 
 def documents_for_rag_multi(queries: list[str], *, limit: int = 8, topic: str | None = None,
@@ -825,13 +869,16 @@ def documents_for_rag_multi(queries: list[str], *, limit: int = 8, topic: str | 
     if not queries:
         return []
     seen: dict[str, dict[str, Any]] = {}
-    for hits in hybrid_search_multi(queries, limit=limit, topic=topic, source_id=source_id):
+    candidate_limit = max(limit * 2, limit)
+    for hits in hybrid_search_multi(
+        queries, limit=candidate_limit, topic=topic, source_id=source_id
+    ):
         for d in hits:
             seen.setdefault(d["id"], d)
     if not seen:  # 매칭 없음 → 최근 문서 폴백(documents_for_rag 와 동일)
         for d in list_documents(source_id=source_id, topic=topic, limit=limit):
             seen.setdefault(d["id"], d)
-    return _docs_with_content(list(seen.values()), max_chars=max_chars)
+    return _docs_with_content(list(seen.values()), max_chars=max_chars, dedupe=True)
 
 
 def list_documents(source_id: str | None = None, q: str | None = None,

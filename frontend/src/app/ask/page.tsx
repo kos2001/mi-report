@@ -5,8 +5,8 @@ import { agentApi, type AgentSessionInfo, type AgentSource } from "@/lib/api";
 import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
 import { loadUserId } from "@/lib/user";
 import { AgentProgressView } from "@/components/agent-chat";
-import { Card, PageHeader, Tag } from "@/components/ui";
-import { Markdown } from "@/components/markdown";
+import { QaAnswerCard } from "@/components/qa-answer-card";
+import { Card, PageHeader } from "@/components/ui";
 
 interface AgentMessage {
   role: "user" | "assistant";
@@ -15,6 +15,16 @@ interface AgentMessage {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   sources?: AgentSource[];
+  createdAt?: string;
+}
+
+function displayTime(value?: string): string {
+  if (!value) return "";
+  const parsed = new Date(value.replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(parsed);
 }
 
 export default function AskPage() {
@@ -47,7 +57,7 @@ export default function AskPage() {
   async function send() {
     const msg = input.trim();
     if (!msg || loading || !userId) return;
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setMessages((prev) => [...prev, { role: "user", content: msg, createdAt: new Date().toISOString() }]);
     setInput("");
     setLoading(true);
     setError(null);
@@ -71,6 +81,7 @@ export default function AskPage() {
           numbersGrounded: res.numbersGrounded,
           ungroundedNumbers: res.ungroundedNumbers,
           sources: res.sources,
+          createdAt: new Date().toISOString(),
         },
       ]);
       refreshSessions(userId);
@@ -102,6 +113,7 @@ export default function AskPage() {
           numbersGrounded: m.numbersGrounded,
           ungroundedNumbers: m.ungroundedNumbers,
           sources: m.sources,
+          createdAt: m.createdAt,
         })),
       );
     } catch (e) {
@@ -172,44 +184,73 @@ export default function AskPage() {
         )}
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[240px,1fr]">
+      <div className="grid gap-4 lg:grid-cols-[280px,1fr]">
         {/* 세션 목록(사용자별) */}
-        <Card className="h-fit">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">내 대화</p>
-            <button onClick={newChat} className="text-xs text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300">
+        <Card className="h-fit overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <div>
+              <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">Q&A 이력</p>
+              <p className="mt-0.5 text-[10px] text-zinc-500">저장된 대화 {sessions.length}건</p>
+            </div>
+            <button onClick={newChat} className="rounded-md bg-sky-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-sky-500">
               + 새 대화
             </button>
           </div>
-          <ul className="mt-2 flex flex-col gap-1">
+          <div className="max-h-[62vh] overflow-y-auto px-4 py-4">
             {sessions.length === 0 && (
-              <li className="text-xs text-zinc-500">저장된 대화가 없습니다.</li>
+              <p className="py-6 text-center text-xs text-zinc-500">저장된 대화가 없습니다.</p>
             )}
-            {sessions.map((s) => (
-              <li key={s.id} className="group flex items-center gap-1">
-                <button
-                  onClick={() => openSession(s.id)}
-                  className={`min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-xs transition-colors ${
-                    s.id === sessionId
-                      ? "bg-sky-50/60 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200"
-                      : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
-                  }`}
-                  title={s.title}
-                >
-                  {s.title}
-                </button>
-                <button
-                  onClick={() => removeSession(s.id)}
-                  className="hidden shrink-0 px-1 text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400 group-hover:block"
-                  title="삭제"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
+            {sessions.length > 0 && (
+              <ol className="ml-1.5 flex flex-col gap-4 border-l-2 border-sky-200 pl-4 dark:border-sky-900">
+                {sessions.map((s) => {
+                  const active = s.id === sessionId;
+                  return (
+                    <li key={s.id} className="group relative">
+                      <span
+                        className={`absolute -left-[22px] top-2 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-zinc-950 ${
+                          active ? "bg-sky-500" : "bg-zinc-300 dark:bg-zinc-700"
+                        }`}
+                      />
+                      <button
+                        onClick={() => openSession(s.id)}
+                        className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                          active
+                            ? "bg-sky-50 ring-1 ring-sky-200 dark:bg-sky-950/50 dark:ring-sky-900"
+                            : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                        }`}
+                        title={s.title}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span className={`inline-block rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                            active
+                              ? "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300"
+                              : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                          }`}>
+                            {displayTime(s.updatedAt)}
+                          </span>
+                          <span className="text-[10px] text-zinc-500">{s.messageCount}개 메시지</span>
+                        </span>
+                        <span className={`mt-1.5 block line-clamp-2 text-xs font-medium leading-5 ${
+                          active ? "text-sky-900 dark:text-sky-100" : "text-zinc-800 dark:text-zinc-200"
+                        }`}>
+                          {s.title}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => removeSession(s.id)}
+                        className="absolute right-1 top-1 hidden rounded px-1.5 py-1 text-[10px] text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400 group-hover:block"
+                        title="삭제"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
           {userId && (
-            <p className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2 text-[10px] text-zinc-400 dark:text-zinc-600">
+            <p className="border-t border-zinc-200 px-4 py-2 text-[10px] text-zinc-400 dark:border-zinc-800 dark:text-zinc-600">
               사용자: <span className="font-mono">{userId}</span>
             </p>
           )}
@@ -231,35 +272,21 @@ export default function AskPage() {
             )}
             {messages.map((m, i) =>
               m.role === "user" ? (
-                <div key={i} className="self-end rounded-lg bg-sky-50/60 dark:bg-sky-950/60 px-3 py-2 text-sm text-sky-900 dark:text-sky-100">
-                  {m.content}
+                <div key={i} className="ml-auto max-w-[85%] rounded-xl rounded-br-sm bg-sky-600 px-4 py-3 text-sm text-white shadow-sm">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-sky-100">질문</p>
+                  <p className="leading-relaxed">{m.content}</p>
+                  {m.createdAt && <p className="mt-1.5 text-right text-[10px] text-sky-100">{displayTime(m.createdAt)}</p>}
                 </div>
               ) : (
-                <div key={i} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 px-3 py-2">
-                  {m.numbersGrounded === false && m.ungroundedNumbers && m.ungroundedNumbers.length > 0 && (
-                    <p className="mb-2 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                      ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
-                      <span className="font-mono">{m.ungroundedNumbers.join(", ")}</span>
-                    </p>
-                  )}
-                  <Markdown text={m.content} className="text-sm text-zinc-800 dark:text-zinc-200" />
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2">
-                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                        관련 수집 문서
-                      </p>
-                      <ul className="flex flex-col gap-1">
-                        {m.sources.map((s, j) => (
-                          <li key={j} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
-                            <Tag>{s.source}</Tag>
-                            <span>{s.title}</span>
-                            {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+                <QaAnswerCard
+                  key={i}
+                  content={m.content}
+                  numbersGrounded={m.numbersGrounded}
+                  ungroundedNumbers={m.ungroundedNumbers}
+                  sources={m.sources}
+                  createdAt={displayTime(m.createdAt)}
+                  turn={messages.slice(0, i + 1).filter((message) => message.role === "assistant").length}
+                />
               ),
             )}
             {loading && <AgentProgressView steps={steps} partial={partial} />}

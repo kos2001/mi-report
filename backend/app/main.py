@@ -18,7 +18,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, oidc, pipeline, progress, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, mi_wiki, oidc, pipeline, progress, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
         pass
     collection.init_db()
     agentchat.init_db()
+    mi_wiki.init_wiki_safe()
     task = None
     if os.getenv("MI_SCHEDULER", "").strip().lower() in ("1", "true", "yes", "on"):
         task = asyncio.create_task(_scheduler_loop())  # 앱 내 스케줄러(옵트인)
@@ -883,6 +884,7 @@ async def _digest_generate_result(
         )
         result["agentComment"] = await _digest_agent_comment_best_effort(result, on_progress)
         assets.save_artifact_safe("digest", result["week"], result["week"], result)
+        mi_wiki.update_digest_safe(result)
         return result
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e

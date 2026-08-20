@@ -105,7 +105,7 @@ def test_ground_answer_checks_numbers_and_returns_sources(monkeypatch):
     ok = asyncio.run(agentchat.ground_answer("질문", "양산은 2027년, 수요 35% 증가 전망."))
     assert ok["numbersGrounded"] is True
     assert ok["sources"] == [
-        {"title": "HBM4 메모", "source": "Confluence", "publishedAt": "2026-06-14"}
+        {"id": "d1", "title": "HBM4 메모", "source": "Confluence", "publishedAt": "2026-06-14"}
     ]
 
     bad = asyncio.run(agentchat.ground_answer("질문", "수요는 87% 증가 전망."))

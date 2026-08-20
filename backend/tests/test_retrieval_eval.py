@@ -18,6 +18,7 @@ K_VALUES = (1, 3, 5)
 # 현재 구현(제목+주제 색인 + OR 매칭)에서 달성되는 수준을 회귀 가드로 고정.
 RECALL5_FLOOR = 0.90
 MRR_FLOOR = 0.80
+PARAPHRASE_LEXICAL_FLOOR = 0.80
 
 
 def _load_corpus() -> dict[str, str]:
@@ -100,6 +101,13 @@ def _recall_at_5(queries, id_map, search_fn) -> tuple[float, list[str]]:
         hit += int(ok)
         rows.append(f"  {'hit ' if ok else 'miss'}  {question}  ({note})")
     return hit / len(queries), rows
+
+
+def test_lexical_paraphrase_coverage(isolated):
+    """업무 약어·표현 확장으로 의미 임베딩 없이도 대부분의 패러프레이즈를 회수한다."""
+    id_map = _load_corpus()
+    recall, _ = _recall_at_5(PARAPHRASE_QUERIES, id_map, collection.search_documents)
+    assert recall >= PARAPHRASE_LEXICAL_FLOOR, recall
 
 
 def test_hybrid_beats_bm25_on_paraphrase(isolated, monkeypatch, capsys):

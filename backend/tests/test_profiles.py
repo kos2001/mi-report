@@ -17,7 +17,7 @@ def test_load_mi_report_profile():
     """동봉된 mi-report 프로파일(OpenRouter)이 정상 로드되는지."""
     p = profiles.load_profile("mi-report")
     assert p.name == "mi-report"
-    assert p.model == "minimax/minimax-m3"
+    assert p.model == "deepseek/deepseek-v4-flash-0731"
     assert p.provider_name == "openrouter"
     assert p.base_url.endswith("/v1")
 

@@ -91,6 +91,25 @@ def test_search_documents_empty_query_returns_empty(client):
     assert collection.search_documents("", limit=5) == []
 
 
+def test_search_documents_boosts_strict_match_over_noisy_partial_match(client):
+    _upload(client, "exact.txt", "HBM 캐파 증설 전망")
+    _upload(client, "noisy.txt", "HBM " * 80 + "기타 시장 뉴스")
+
+    hits = collection.search_documents("HBM 캐파 증설", limit=2)
+
+    assert hits[0]["title"] == "exact.txt"
+
+
+def test_documents_for_rag_deduplicates_identical_bodies(client):
+    _upload(client, "copy-a.txt", "HBM4 공급 병목과 패키징 캐파")
+    _upload(client, "copy-b.txt", "HBM4 공급 병목과 패키징 캐파")
+
+    hits = collection.documents_for_rag("HBM4 공급 병목", limit=5)
+
+    copies = [h for h in hits if h["title"].startswith("copy-")]
+    assert len(copies) == 1
+
+
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────
 def _upload(client, name, body, topic=None):
     return client.post(

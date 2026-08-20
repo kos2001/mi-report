@@ -1,4 +1,4 @@
-"""지식 자산(생성물 누적) + 자기 개선(피드백) 테스트."""
+"""지식 자산(주차별 생성물) + 자기 개선(피드백) 테스트."""
 
 from __future__ import annotations
 
@@ -35,11 +35,36 @@ def test_delete_artifact_missing_raises(isolated):
         assets.delete_artifact("nope")
 
 
-def test_artifact_versions_accumulate(client):
+def test_artifact_same_week_replaces_previous(client, monkeypatch):
+    timestamps = iter(("2026-08-17 09:00", "2026-08-20 18:00"))
+    monkeypatch.setattr(assets, "_now", lambda: next(timestamps))
+
+    old = assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 1})
+    new = assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 2})
+    hist = assets.list_artifacts(kind="topic", ref="HBM 수요")
+    assert len(hist) == 1
+    assert hist[0]["id"] == new["id"]
+    assert assets.get_artifact(new["id"])["payload"] == {"v": 2}
+    with pytest.raises(KeyError):
+        assets.get_artifact(old["id"])
+
+
+def test_artifact_different_weeks_accumulate(client, monkeypatch):
+    timestamps = iter(("2026-08-16 09:00", "2026-08-17 09:00"))
+    monkeypatch.setattr(assets, "_now", lambda: next(timestamps))
+
     assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 1})
     assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 2})
     hist = assets.list_artifacts(kind="topic", ref="HBM 수요")
-    assert len(hist) == 2  # 같은 ref 라도 버전으로 누적
+    assert len(hist) == 2
+
+
+def test_artifact_same_week_keeps_other_refs(client, monkeypatch):
+    monkeypatch.setattr(assets, "_now", lambda: "2026-08-20 18:00")
+
+    assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 1})
+    assets.save_artifact("topic", "파운드리", "파운드리", {"v": 1})
+    assert len(assets.list_artifacts(kind="topic")) == 2
 
 
 def test_feedback_add_and_summary(client):

@@ -12,6 +12,7 @@ export function ArtifactHistoryPanel({
   refFilter,
   onSelect,
   onDeleted,
+  resultAnchorId = "selected-artifact-content",
   emptyLabel = "아직 생성 이력이 없습니다.",
 }: {
   kind: string;
@@ -20,11 +21,13 @@ export function ArtifactHistoryPanel({
   // 삭제 성공 후 호출된다 — 이 패널 밖에서 같은 생성물을 별도로 캐싱해 보여주는
   // 화면(예: 다이제스트 page 의 "최신 자동 생성" 섹션)이 있다면 갱신할 수 있게.
   onDeleted?: (id: string) => void;
+  resultAnchorId?: string;
   emptyLabel?: string;
 }) {
   const [items, setItems] = useState<ArtifactMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -45,6 +48,11 @@ export function ArtifactHistoryPanel({
   async function open(id: string) {
     try {
       onSelect(await artifactsApi.get(id));
+      setSelectedId(id);
+      window.history.replaceState(null, "", `#${resultAnchorId}`);
+      requestAnimationFrame(() => {
+        document.getElementById(resultAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch {
       setError("불러오기 실패");
     }
@@ -57,6 +65,7 @@ export function ArtifactHistoryPanel({
     try {
       await artifactsApi.remove(id);
       setItems((prev) => prev.filter((a) => a.id !== id));
+      if (selectedId === id) setSelectedId(null);
       onDeleted?.(id);
     } catch {
       setError("삭제 실패");
@@ -78,15 +87,29 @@ export function ArtifactHistoryPanel({
         <p className="mt-3 text-xs text-zinc-500">{emptyLabel}</p>
       ) : (
         <ul className="mt-2 flex flex-col divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
-          {items.map((a) => (
-            <li key={a.id} className="flex items-center gap-2 py-2">
-              <button
-                onClick={() => open(a.id)}
-                className="min-w-0 flex-1 truncate text-left text-sm text-zinc-700 dark:text-zinc-300 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+          {items.map((a) => {
+            const selected = selectedId === a.id;
+            return (
+            <li key={a.id} className={`flex items-center gap-2 rounded-lg px-2 py-2 ${selected ? "bg-sky-50 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:ring-sky-900" : ""}`}>
+              <a
+                href={`#${resultAnchorId}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  open(a.id);
+                }}
+                aria-current={selected ? "true" : undefined}
+                className="group min-w-0 flex-1 text-left"
               >
-                {a.title}
-                <span className="ml-2 font-mono text-[11px] text-zinc-500">{a.createdAt}</span>
-              </button>
+                <span className={`block truncate text-sm font-medium transition-colors ${selected ? "text-sky-900 dark:text-sky-100" : "text-zinc-700 group-hover:text-sky-700 dark:text-zinc-300 dark:group-hover:text-sky-300"}`}>
+                  {a.title}
+                </span>
+                <span className="mt-1 flex items-center gap-2 text-[11px]">
+                  <span className="font-mono text-zinc-500">{a.createdAt}</span>
+                  <span className={`font-medium ${selected ? "text-sky-700 dark:text-sky-300" : "text-sky-600 dark:text-sky-400"}`}>
+                    {selected ? "선택됨 · 내용 보기 ↓" : "내용 보기 →"}
+                  </span>
+                </span>
+              </a>
               <button
                 onClick={(e) => remove(a.id, e)}
                 disabled={busyId === a.id}
@@ -96,7 +119,8 @@ export function ArtifactHistoryPanel({
                 {busyId === a.id ? "…" : "삭제"}
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </Card>

@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app import collection, confluence, digest, fetcher, pipeline
+from app import collection, confluence, digest, fetcher, mi_wiki, pipeline
 
 
 async def _no_confluence(*args, **kwargs):
@@ -100,6 +100,28 @@ def test_run_digest_saves_and_latest_loads(client, monkeypatch, isolated):
     assert latest is not None
     assert latest["week"] == digest.current_week_label()
     assert "generatedAt" in latest
+    wiki_file = mi_wiki.wiki_path() / "weekly" / f"{mi_wiki._week_key(result['week'])}.md"
+    assert wiki_file.exists()
+    assert "수집 기반 항목" in wiki_file.read_text()
+
+
+def test_run_digest_replaces_existing_digest_in_same_week(client, monkeypatch, isolated):
+    import io
+
+    client.post(
+        "/collection/upload",
+        files={"file": ("d.txt", io.BytesIO("HBM 본문".encode()), "text/plain")},
+    )
+    monkeypatch.setattr(pipeline, "get_client", lambda: FakeGateway(_DIGEST_JSON))
+
+    asyncio.run(pipeline.run_digest(period="첫 생성"))
+    asyncio.run(pipeline.run_digest(period="재생성"))
+
+    artifacts = client.get("/artifacts", params={"kind": "digest"}).json()["artifacts"]
+    assert len(artifacts) == 1
+    latest = pipeline.load_latest_digest()
+    assert latest is not None
+    assert latest["period"] == "재생성"
 
 
 def test_run_digest_appears_in_history_and_is_deletable(client, monkeypatch, isolated):

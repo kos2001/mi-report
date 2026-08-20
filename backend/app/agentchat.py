@@ -138,7 +138,7 @@ async def ground_answer(
         max_chars=_GROUND_MAX_CHARS,
     )
     sources = [
-        {"title": d.get("title", ""), "source": d.get("source", ""),
+        {"id": d.get("id"), "title": d.get("title", ""), "source": d.get("source", ""),
          "publishedAt": d.get("publishedAt")}
         for d in docs[:_SOURCES_MAX]
     ]

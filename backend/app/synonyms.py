@@ -22,6 +22,12 @@ SYNONYM_GROUPS: list[frozenset[str]] = [
     frozenset({"온디바이스", "온디바이스 AI", "단말 AI", "on-device"}),
     frozenset({"팹리스", "fabless"}),
     frozenset({"컨센서스", "시장기대치", "consensus"}),
+    frozenset({"AP", "애플리케이션프로세서", "애플리케이션 프로세서", "두뇌칩", "두뇌 칩"}),
+    frozenset({"ASP", "평균판매가격", "평균 판매가격", "average selling price"}),
+    frozenset({"DRAM", "D램", "디램"}),
+    frozenset({"캐파", "생산능력", "생산 능력", "capacity"}),
+    frozenset({"선단패키징", "선단 패키징", "첨단패키징", "후공정", "적층결합"}),
+    frozenset({"목표주가", "적정가", "target price"}),
 ]
 
 

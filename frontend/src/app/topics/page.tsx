@@ -223,7 +223,11 @@ export default function TopicsPage() {
       </div>
 
       <div className="flex flex-col gap-5">
-        {generated && <TopicCard topic={generated} generated />}
+        {generated && (
+          <div id="selected-artifact-content" className="scroll-mt-6">
+            <TopicCard topic={generated} generated />
+          </div>
+        )}
         {topics.map((topic) => (
           <TopicCard key={topic.id} topic={topic} />
         ))}

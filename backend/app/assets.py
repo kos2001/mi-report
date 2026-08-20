@@ -1,7 +1,7 @@
 """지식 자산 + 자기 개선 저장소.
 
 생성물 영속화(지식 자산화): AI 가 생성한 다이제스트·주제 요약·경쟁사 분석·리포트를
-시점별로 누적 저장해, 휘발성 출력이 아니라 '쌓이는 자산'이 되게 한다.
+주차별로 저장한다. 같은 종류·대상의 동일 ISO 주차 생성물은 최신 결과로 교체한다.
 피드백(자기 개선): 생성물에 대한 👍/👎·메모를 저장해 이후 품질 개선의 신호로 쓴다.
 
 수집과 동일한 SQLite 파일(config.COLLECTION_DB)을 쓰되 모듈은 분리한다.
@@ -90,15 +90,39 @@ def _quality_counts(payload: dict[str, Any]) -> tuple[int, int]:
     return ungrounded, unsupported
 
 
+def _iso_week(value: str) -> tuple[int, int] | None:
+    """저장 시각 문자열을 ISO (연도, 주차)로 변환한다."""
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+    iso = parsed.date().isocalendar()
+    return iso.year, iso.week
+
+
 def save_artifact(kind: str, title: str, ref: str | None, payload: dict[str, Any]) -> dict[str, Any]:
-    """생성물을 저장한다(시점별 누적). 같은 ref 라도 새 버전으로 쌓인다."""
+    """생성물을 저장한다.
+
+    같은 종류·ref의 동일 ISO 주차 생성물은 한 건만 유지한다. 새 생성이 성공한 뒤
+    한 트랜잭션에서 기존 건을 제거하고 새 결과를 넣으므로, 생성 실패 시 이전 결과는
+    보존된다. 다른 주차의 결과는 이력으로 계속 누적된다.
+    """
     aid = uuid.uuid4().hex
     ungrounded, unsupported = _quality_counts(payload)
+    created_at = _now()
+    current_week = _iso_week(created_at)
     with _conn() as conn:
+        previous = conn.execute(
+            "SELECT id, created_at FROM artifacts WHERE kind=? AND ref IS ?",
+            (kind, ref),
+        ).fetchall()
+        replace_ids = [r["id"] for r in previous if _iso_week(r["created_at"]) == current_week]
+        if replace_ids:
+            conn.executemany("DELETE FROM artifacts WHERE id=?", [(old_id,) for old_id in replace_ids])
         conn.execute(
             "INSERT INTO artifacts (id, kind, title, ref, payload, created_at, ungrounded_count, unsupported_count) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (aid, kind, title, ref, json.dumps(payload, ensure_ascii=False), _now(), ungrounded, unsupported),
+            (aid, kind, title, ref, json.dumps(payload, ensure_ascii=False), created_at, ungrounded, unsupported),
         )
         row = conn.execute("SELECT * FROM artifacts WHERE id=?", (aid,)).fetchone()
     return _row_to_artifact(row, with_payload=False)
