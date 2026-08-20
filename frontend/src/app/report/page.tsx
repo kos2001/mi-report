@@ -314,14 +314,23 @@ export default function ReportPage() {
                     </div>
                     {((t.ungroundedNumbers && t.ungroundedNumbers.length > 0) ||
                       (t.unverifiedHistoryCount ?? 0) > 0) && (
-                      <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                      <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                         {t.ungroundedNumbers && t.ungroundedNumbers.length > 0 && (
-                          <>⚠ 미근거 수치: <span className="font-mono">{t.ungroundedNumbers.join(", ")}</span></>
+                          <p>⚠ 미근거 수치: <span className="font-mono">{t.ungroundedNumbers.join(", ")}</span></p>
                         )}
                         {(t.unverifiedHistoryCount ?? 0) > 0 && (
-                          <span className="block">⚠ 출처 미검증 이력 {t.unverifiedHistoryCount}건 — 귀속 확인 필요</span>
+                          <div className="mt-1">
+                            <p className="font-medium">⚠ 출처 미검증 이력 {t.unverifiedHistoryCount}건 — 어느 문서가 근거인지 확인되지 않음</p>
+                            <ul className="mt-1 flex flex-col gap-0.5 pl-4">
+                              {t.history.filter((h) => h.sourceVerified === false).map((h, i) => (
+                                <li key={i} className="list-disc leading-relaxed">
+                                  <span className="font-mono">[{h.source || "출처 없음"}]</span> {h.event}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
-                      </p>
+                      </div>
                     )}
                     <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{t.summary}</p>
                     <p className="mt-2 rounded-lg border border-sky-100/40 dark:border-sky-900/40 bg-sky-50/30 dark:bg-sky-950/30 px-3 py-2 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
