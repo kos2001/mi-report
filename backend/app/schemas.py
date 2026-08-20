@@ -39,6 +39,8 @@ class ScheduleConfig(BaseModel):
     minute: int = Field(default=0, ge=0, le=59)
     weekday: int = Field(default=0, ge=0, le=6, description="0=월 … 6=일 (weekly 일 때).")
     digestLimit: int = Field(default=20, ge=1, le=100)
+    retryEnabled: bool = Field(default=False, description="자동 실행 실패 시 재시도할지.")
+    retryMinutes: int = Field(default=10, ge=1, le=120, description="재시도 간격(분).")
 
 
 class QaGoldenCreate(BaseModel):

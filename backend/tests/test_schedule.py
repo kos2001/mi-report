@@ -9,7 +9,15 @@ from app import schedule
 
 def _s(**kw):
     base = {"enabled": True, "frequency": "daily", "hour": 7, "minute": 0,
-            "weekday": 0, "digestLimit": 20, "lastRunAt": None}
+            "weekday": 0, "digestLimit": 20, "lastRunAt": None,
+            "retryEnabled": True, "retryMinutes": 10}
+    base.update(kw)
+    return base
+
+
+def _run(**kw):
+    base = {"trigger": "auto", "status": "failure", "ranAt": "2026-06-17 07:00:00",
+            "error": "실패", "ingested": None}
     base.update(kw)
     return base
 
@@ -35,6 +43,54 @@ def test_next_run():
     assert nxt == datetime(2026, 6, 18, 7, 0)  # 다음날 07:00
 
 
+def test_retry_due_after_interval_elapsed():
+    now = datetime(2026, 6, 17, 7, 10)  # 실패로부터 10분 경과
+    runs = [_run(ranAt="2026-06-17 07:00:00")]
+    assert schedule.retry_due(now, _s(), runs) is True
+
+
+def test_retry_due_before_interval_not_due():
+    now = datetime(2026, 6, 17, 7, 5)  # 실패로부터 5분(재시도 간격 10분 미만)
+    runs = [_run(ranAt="2026-06-17 07:00:00")]
+    assert schedule.retry_due(now, _s(), runs) is False
+
+
+def test_retry_due_disabled_setting():
+    now = datetime(2026, 6, 17, 7, 10)
+    runs = [_run(ranAt="2026-06-17 07:00:00")]
+    assert schedule.retry_due(now, _s(retryEnabled=False), runs) is False
+
+
+def test_retry_due_last_run_succeeded():
+    now = datetime(2026, 6, 17, 7, 10)
+    runs = [_run(ranAt="2026-06-17 07:00:00", status="success")]
+    assert schedule.retry_due(now, _s(), runs) is False
+
+
+def test_retry_due_no_runs_today():
+    now = datetime(2026, 6, 17, 7, 10)
+    runs = [_run(ranAt="2026-06-16 07:00:00")]  # 어제 실패
+    assert schedule.retry_due(now, _s(), runs) is False
+
+
+def test_retry_due_stops_after_max_retries():
+    now = datetime(2026, 6, 17, 8, 0)
+    # 오늘 이미 3회 연속 실패(자동 재시도 상한) → 더 재시도하지 않음
+    runs = [
+        _run(ranAt="2026-06-17 07:30:00"),
+        _run(ranAt="2026-06-17 07:20:00"),
+        _run(ranAt="2026-06-17 07:10:00"),
+        _run(ranAt="2026-06-17 07:00:00"),
+    ]
+    assert schedule.retry_due(now, _s(), runs) is False
+
+
+def test_retry_due_ignores_manual_runs():
+    now = datetime(2026, 6, 17, 7, 10)
+    runs = [_run(ranAt="2026-06-17 07:05:00", trigger="manual", status="failure")]
+    assert schedule.retry_due(now, _s(), runs) is False
+
+
 def test_crontab_expr():
     assert schedule.crontab_expr(_s(minute=30, hour=8)) == "30 8 * * *"
     # weekly 월요일(weekday=0) → cron dow 1
@@ -46,10 +102,11 @@ def test_schedule_endpoints(client):
     assert "schedule" in got and "crontab" in got and "nextRun" in got
     updated = client.put("/schedule", json={
         "enabled": True, "frequency": "weekly", "hour": 9, "minute": 30,
-        "weekday": 4, "digestLimit": 15,
+        "weekday": 4, "digestLimit": 15, "retryEnabled": True, "retryMinutes": 15,
     }).json()
     assert updated["schedule"]["enabled"] is True
     assert updated["schedule"]["frequency"] == "weekly" and updated["schedule"]["hour"] == 9
+    assert updated["schedule"]["retryEnabled"] is True and updated["schedule"]["retryMinutes"] == 15
     assert updated["crontab"] == "30 9 * * 5"  # 금요일(4) → cron 5
     assert "금" in updated["describe"]
 

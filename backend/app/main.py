@@ -40,8 +40,19 @@ from .schemas import (
 )
 
 
+async def _run_scheduled_pipeline(sched: dict) -> None:
+    """스케줄(최초 실행 또는 재시도)로 파이프라인을 한 번 돌리고 결과를 기록."""
+    schedule.mark_run(datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M"))
+    try:
+        result = await pipeline.run_pipeline(period="자동(스케줄)", limit=sched["digestLimit"])
+        schedule.log_run(trigger="auto", status="success", ingested=result.get("ingested"))
+    except Exception as e:
+        schedule.log_run(trigger="auto", status="failure", error=str(e))  # 실행 실패가 루프를 멈추지 않게
+
+
 async def _scheduler_loop():
-    """MI_SCHEDULER=1 일 때만: 1분마다 스케줄을 확인해 시각이 되면 파이프라인 실행."""
+    """MI_SCHEDULER=1 일 때만: 30초마다 스케줄을 확인해 시각이 되면(또는 재시도 조건이
+    맞으면) 파이프라인을 실행한다."""
     last_run: datetime | None = None
     while True:
         try:
@@ -49,12 +60,10 @@ async def _scheduler_loop():
             sched = schedule.get_schedule()
             if schedule.due_now(now, sched, last_run):
                 last_run = now
-                schedule.mark_run(now.strftime("%Y-%m-%d %H:%M"))
-                try:
-                    result = await pipeline.run_pipeline(period="자동(스케줄)", limit=sched["digestLimit"])
-                    schedule.log_run(trigger="auto", status="success", ingested=result.get("ingested"))
-                except Exception as e:
-                    schedule.log_run(trigger="auto", status="failure", error=str(e))  # 실행 실패가 루프를 멈추지 않게
+                await _run_scheduled_pipeline(sched)
+            elif schedule.retry_due(now, sched, schedule.recent_runs(limit=20)):
+                last_run = now
+                await _run_scheduled_pipeline(sched)
         except Exception:
             pass
         await asyncio.sleep(30)
@@ -248,6 +257,7 @@ def schedule_put(req: ScheduleConfig):
         sched = schedule.set_schedule(
             enabled=req.enabled, frequency=req.frequency, hour=req.hour,
             minute=req.minute, weekday=req.weekday, digest_limit=req.digestLimit,
+            retry_enabled=req.retryEnabled, retry_minutes=req.retryMinutes,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
