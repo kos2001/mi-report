@@ -84,7 +84,34 @@ def test_analyze_competitor_assigns_metadata():
     assert result["sourceDocCount"] == 1
     assert result["generated"] is True
     assert result["financials"][0]["qoq"] == 3.2
-    assert len(client.calls) == 1
+    assert result["unsupportedClaims"] == []
+    assert len(client.calls) == 2  # 분기 분석 생성 + 총평 검증(audit)
+
+
+def test_analyze_competitor_flags_unsupported_claims():
+    # callSummary 에 원문이 뒷받침하지 않는 추세 주장 → 독립 검증 agent 가 잡는다.
+    class RoutingFakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                content = json.dumps({
+                    "fiscalQuarter": "FY26 Q2", "reportedAt": "2026-04-30",
+                    "financials": [], "consensus": [],
+                    "callSummary": ["3분기 연속 마진이 악화되고 있다."],
+                    "qoqChanges": [],
+                }, ensure_ascii=False)
+            else:
+                content = json.dumps({
+                    "unsupported": [{"claim": "3분기 연속 마진이 악화되고 있다", "why": "원문에 추세 언급 없음"}],
+                }, ensure_ascii=False)
+            return {"choices": [{"message": {"content": content}}]}
+
+    docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30", "content": "FY26 Q2 실적 발표."}]
+    result = asyncio.run(competitors.analyze_competitor(RoutingFakeClient(), "경쟁사 Q", "QCOM", docs))
+    assert result["unsupportedClaims"] == ["3분기 연속 마진이 악화되고 있다"]
 
 
 def test_analyze_competitor_empty_docs_raises():

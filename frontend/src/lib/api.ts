@@ -170,10 +170,11 @@ export interface GeneratedDigest {
   sourceDocCount: number;
   items: GeneratedDigestItem[];
   generatedAt?: string; // 스케줄 파이프라인이 저장한 경우에만
-  // 환각 방어 집계(서버 부여)
+  // 환각 방어 집계(서버 부여) — 수치 근거 검증 + 독립 검증 agent 의 서술 주장 검증
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   unverifiedSourceCount?: number;
+  unsupportedClaims?: string[];
 }
 
 export const digestApi = {
@@ -281,6 +282,7 @@ export interface GeneratedCompetitor {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   droppedCount?: number;
+  unsupportedClaims?: string[];
 }
 
 export interface CompetitorCandidate {

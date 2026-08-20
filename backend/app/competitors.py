@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from . import grounding
+from . import grounding, report_agents
 from .llm_json import extract_json
 from .schemas import CompetitorAnalysisOut
 from .topics import slugify
@@ -103,6 +103,12 @@ async def analyze_competitor(
     g = grounding.check(" ".join([*out.callSummary, *out.qoqChanges]), src)
     ungrounded = list(dict.fromkeys([*dropped, *g["ungroundedNumbers"]]))
 
+    # 독립 검증 agent(V3-style): 콜요약·변화 서술의 수치 아닌 주장(추세·인과) 중
+    # 근거 없는 것을 별도로 잡는다. 위 grounding 검증은 수치만 본다.
+    unsupported = await report_agents.audit_overview(
+        client, " ".join([*out.callSummary, *out.qoqChanges]), src
+    )
+
     return {
         "id": slugify(name),
         "name": name,
@@ -118,4 +124,5 @@ async def analyze_competitor(
         "numbersGrounded": not ungrounded,
         "ungroundedNumbers": ungrounded,
         "droppedCount": len(dropped),
+        "unsupportedClaims": unsupported,
     }

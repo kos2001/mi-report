@@ -322,6 +322,11 @@ export default function DigestPage() {
             {comment && comment.issueNo === latest.issueNo && (
               <AgentCommentCard comment={comment} />
             )}
+            {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
+              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {latest.unsupportedClaims.join(" / ")}
+              </p>
+            )}
             {latest.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
@@ -417,6 +422,11 @@ export default function DigestPage() {
             )}
             {comment && comment.issueNo === generated.issueNo && (
               <AgentCommentCard comment={comment} />
+            )}
+            {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (
+              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {generated.unsupportedClaims.join(" / ")}
+              </p>
             )}
             {generated.items.length === 0 ? (
               <Card>
