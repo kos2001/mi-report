@@ -55,6 +55,16 @@ class ChatClient(Protocol):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
 
 
+def feedback_block(notes: list[str] | None) -> str:
+    """자기개선 loop: 이 종류 생성물에 대한 최근 👎 피드백을 시스템 프롬프트에
+    덧붙일 블록으로 변환한다(없으면 빈 문자열 — 기존 프롬프트와 동일하게 동작).
+    digest/topics/competitors/report 의 시스템 프롬프트가 공통으로 쓴다."""
+    if not notes:
+        return ""
+    bullets = "\n".join(f"- {n}" for n in notes)
+    return f"\n\n[과거 피드백 — 이전 생성물에서 지적된 문제. 이번엔 같은 문제를 반복하지 마라]\n{bullets}"
+
+
 def _doc_blocks(docs: list[dict[str, Any]]) -> str:
     blocks: list[str] = []
     for i, d in enumerate(docs, 1):

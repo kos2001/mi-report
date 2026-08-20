@@ -59,6 +59,12 @@ def test_build_messages_includes_doc_content():
     assert "T1" in msgs[1]["content"]
 
 
+def test_build_messages_includes_feedback_notes():
+    docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문A"}]
+    msgs = digest.build_messages(docs, feedback_notes=["과거에 수치를 지어냄"])
+    assert "과거에 수치를 지어냄" in msgs[0]["content"]
+
+
 def test_parse_items_plain_json():
     items = digest.parse_items(_VALID_RESPONSE)
     assert len(items) == 1

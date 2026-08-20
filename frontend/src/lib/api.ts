@@ -557,6 +557,30 @@ export const feedbackApi = {
     }),
 };
 
+// ── 자기개선 loop: 품질 대시보드 ────────────────────────────────────────────
+export interface QualityKindStats {
+  count: number;
+  flaggedCount: number;
+  up: number;
+  down: number;
+}
+export interface QualityFlaggedItem {
+  id: string;
+  kind: string;
+  title: string;
+  createdAt: string;
+  ungroundedCount: number;
+  unsupportedCount: number;
+}
+export interface QualitySummary {
+  byKind: Record<string, QualityKindStats>;
+  recentFlagged: QualityFlaggedItem[];
+}
+
+export const qualityApi = {
+  summary: () => req<QualitySummary>("/quality/summary"),
+};
+
 // ── 사용자 인증/권한(admin/viewer) ─────────────────────────────────────────
 export interface CurrentUser {
   name: string;

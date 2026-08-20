@@ -68,6 +68,17 @@ def test_audit_overview_flags_unsupported_claims():
     assert result == ["3주 연속 악화되고 있다"]
 
 
+def test_feedback_block_empty_when_no_notes():
+    assert report_agents.feedback_block(None) == ""
+    assert report_agents.feedback_block([]) == ""
+
+
+def test_feedback_block_formats_notes_as_bullets():
+    block = report_agents.feedback_block(["수치가 틀림", "출처 누락"])
+    assert "수치가 틀림" in block and "출처 누락" in block
+    assert block.startswith("\n\n[과거 피드백")
+
+
 def test_audit_overview_no_findings_returns_empty():
     src_texts = [d["content"] for d in _DOCS]
     result = asyncio.run(report_agents.audit_overview(

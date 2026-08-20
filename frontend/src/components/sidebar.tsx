@@ -54,6 +54,7 @@ const navGroups: NavGroup[] = [
     headerColor: "text-amber-600 dark:text-amber-500",
     items: [
       { href: "/schedule", label: "스케줄", icon: "⏰" },
+      { href: "/quality", label: "품질", icon: "✓" },
       { href: "/settings", label: "설정", icon: "⚙" },
     ],
   },
