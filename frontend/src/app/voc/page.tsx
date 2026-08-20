@@ -13,6 +13,13 @@ import {
 } from "@/lib/api";
 import { Card, PageHeader, Tag } from "@/components/ui";
 
+// 상태별 통계 카드 색(고정 순서 — 신규→검토중→완료 흐름을 색으로도 보이게).
+const STATUS_CARD: Record<string, string> = {
+  신규: "border-sky-200/70 bg-sky-50/70 dark:border-zinc-800 dark:bg-zinc-900/60",
+  검토중: "border-amber-200/70 bg-amber-50/70 dark:border-zinc-800 dark:bg-zinc-900/60",
+  완료: "border-emerald-200/70 bg-emerald-50/70 dark:border-zinc-800 dark:bg-zinc-900/60",
+};
+
 const SENTIMENT_COLOR: Record<string, string> = {
   긍정: "text-emerald-600 dark:text-emerald-400",
   중립: "text-zinc-600 dark:text-zinc-400",
@@ -107,7 +114,7 @@ export default function VocPage() {
             <p className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{summary.total}</p>
           </Card>
           {VOC_STATUSES.map((s) => (
-            <Card key={s}>
+            <Card key={s} className={STATUS_CARD[s] ?? ""}>
               <p className="text-xs text-zinc-500">{s}</p>
               <p className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{summary.byStatus[s] ?? 0}</p>
             </Card>

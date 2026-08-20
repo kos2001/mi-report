@@ -53,6 +53,22 @@ type CompetitorLike = {
   unsupportedClaims?: string[];
 };
 
+// 회사별 고정 팔레트에서 안정적으로 하나를 골라 카드를 구분한다(같은 회사는
+// 항상 같은 색 — 이름/티커 문자 합을 팔레트 길이로 나눈 나머지).
+const COMPANY_ACCENT = [
+  "border-l-sky-400 dark:border-l-sky-600",
+  "border-l-violet-400 dark:border-l-violet-600",
+  "border-l-amber-400 dark:border-l-amber-600",
+  "border-l-emerald-400 dark:border-l-emerald-600",
+  "border-l-rose-400 dark:border-l-rose-600",
+  "border-l-cyan-400 dark:border-l-cyan-600",
+];
+function companyAccent(key: string): string {
+  let sum = 0;
+  for (let i = 0; i < key.length; i++) sum += key.charCodeAt(i);
+  return COMPANY_ACCENT[sum % COMPANY_ACCENT.length];
+}
+
 // qoq/yoy 가 null(문서에 수치 없음)이면 '—' 로 표기.
 function MaybeDelta({ value }: { value: number | null }) {
   if (value === null || value === undefined)
@@ -62,7 +78,7 @@ function MaybeDelta({ value }: { value: number | null }) {
 
 function CompetitorCard({ c, generated }: { c: CompetitorLike; generated?: boolean }) {
   return (
-    <Card>
+    <Card className={`border-l-4 ${companyAccent(c.ticker || c.name)}`}>
       <div className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           {c.name} <span className="ml-1 font-mono text-xs text-zinc-500">{c.ticker}</span>
