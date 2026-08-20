@@ -12,7 +12,7 @@ import datetime
 import re
 from typing import Any, Protocol
 
-from . import grounding, progress, report_agents
+from . import grounding, mi_wiki, progress, report_agents
 from .llm_json import extract_json
 from .schemas import DigestItemOut
 
@@ -33,7 +33,9 @@ DIGEST_SYSTEM_PROMPT = """당신은 반도체/IT 시장 인텔리전스(MI) 애�
 출력 형식:
 {"items":[{"title":"...","source":"...","publishedAt":"YYYY-MM-DD",
   "summary":"...","slsiRelevance":"...","demandImpact":"...","risk":"...",
-  "impact":"high|medium|low","tags":["..."]}]}"""
+  "impact":"high|medium|low","tags":["..."]}]}
+- 문자열 안의 큰따옴표(")와 역슬래시는 반드시 JSON 규칙에 맞게 이스케이프한다.
+- 마지막 항목을 포함해 객체와 배열 사이의 쉼표를 빠뜨리지 말고, 출력 전 JSON 문법을 검증한다."""
 
 
 class ChatClient(Protocol):
@@ -51,6 +53,7 @@ def current_week_label(dt: datetime.date | None = None) -> str:
 
 def build_messages(
     docs: list[dict[str, Any]], feedback_notes: list[str] | None = None,
+    wiki_context: str = "",
 ) -> list[dict[str, str]]:
     """수집 문서 목록을 chat 메시지로 구성한다."""
     blocks: list[str] = []
@@ -60,6 +63,13 @@ def build_messages(
             f"| 발행: {d.get('publishedAt', '') or '미상'}\n{d.get('content', '')}"
         )
     user = "다음 수집 문서들을 근거로 다이제스트를 작성하라.\n\n" + "\n\n".join(blocks)
+    if wiki_context:
+        user += (
+            "\n\n[이전 주차 LLM Wiki 맥락]\n"
+            "아래 내용은 변화 비교를 위한 보조 맥락이다. 이번 초안의 사실·수치·출처는 "
+            "반드시 위 원문 문서에 근거해야 하며, Wiki만을 근거로 새 항목을 만들지 마라.\n"
+            + wiki_context
+        )
     return [
         {"role": "system", "content": DIGEST_SYSTEM_PROMPT + report_agents.feedback_block(feedback_notes)},
         {"role": "user", "content": user},
@@ -83,6 +93,20 @@ def parse_items(content: str) -> list[DigestItemOut]:
     return [DigestItemOut.model_validate(it) for it in raw]
 
 
+def _retry_messages(
+    docs: list[dict[str, Any]], feedback_notes: list[str] | None, error: ValueError,
+    wiki_context: str,
+) -> list[dict[str, str]]:
+    """첫 응답의 JSON 문법이 깨졌을 때 사용할 1회 재생성 프롬프트."""
+    messages = build_messages(docs, feedback_notes, wiki_context)
+    messages[1]["content"] += (
+        "\n\n이전 생성 응답이 JSON 문법 검증에 실패했다. 전체 결과를 처음부터 다시 생성하라. "
+        "설명·코드펜스 없이 유효한 JSON 객체 하나만 출력하고, 문자열의 큰따옴표와 "
+        f"역슬래시를 이스케이프하라. 이전 오류: {error}"
+    )
+    return messages
+
+
 def _tokens(text: str) -> set[str]:
     """제목 대조용 토큰(2자 이상). 흔한 조사/일반어는 짧게 걸러진다."""
     return {t for t in re.findall(r"[\w가-힣]{2,}", (text or "").lower())}
@@ -99,10 +123,17 @@ def _verify_item(it: DigestItemOut, src_texts: list[str],
     ungrounded = grounding.ungrounded_numbers(prose, src_texts)
 
     src = (it.source or "").strip().lower()
-    source_verified = bool(src) and any(src in k or k in src for k in known_sources if k)
-    if not source_verified:  # 출처명이 안 맞으면 제목 토큰 겹침으로 추적 인정
+    # 커넥터 문서는 source_name에는 수집기 이름(예: "컨센서스 갱신 감지"),
+    # title에는 실제 발행처(예: "한경 컨센서스")를 둘 수 있다. 둘 다 provenance
+    # 후보로 봐야 정상적인 발행처 표기가 거짓 출처로 오탐되지 않는다.
+    provenance_labels = [*known_sources, *(title.strip().lower() for title in doc_titles)]
+    source_verified = bool(src) and any(
+        src in label or label in src for label in provenance_labels if label
+    )
+    if not source_verified:  # 발행처명이 달라도 입력 제목/본문에서 항목을 추적할 수 있으면 인정
         toks = _tokens(it.title)
-        source_verified = any(len(toks & _tokens(dt)) >= 2 for dt in doc_titles)
+        evidence_texts = [*doc_titles, *src_texts]
+        source_verified = any(len(toks & _tokens(text)) >= 2 for text in evidence_texts)
     return ungrounded, source_verified
 
 
@@ -118,11 +149,30 @@ async def generate_digest(
     """수집 문서로 다이제스트 초안을 생성한다(id·메타데이터는 서버가 부여)."""
     if not docs:
         raise ValueError("다이제스트로 만들 본문 있는 문서가 없습니다.")
+    week = current_week_label()
+    wiki_context = mi_wiki.digest_context(current_week=week)
     completion = await progress.track(
-        client.chat(build_messages(docs, feedback_notes), temperature=temperature),
+        client.chat(build_messages(docs, feedback_notes, wiki_context), temperature=temperature),
         on_progress, tool="digest_generate", emoji="📰", label="뉴스 다이제스트 초안 생성",
     )
-    items = parse_items(extract_content(completion))
+    try:
+        items = parse_items(extract_content(completion))
+    except ValueError as first_error:
+        # 생성형 모델은 간혹 긴 JSON 중간의 따옴표/쉼표를 깨뜨린다. 부분 문자열을
+        # 임의 보정하면 내용이 변질될 수 있으므로, 낮은 temperature로 딱 한 번만
+        # 전체 구조화 출력을 재생성한다.
+        retry = await progress.track(
+            client.chat(
+                _retry_messages(docs, feedback_notes, first_error, wiki_context), temperature=0.0
+            ),
+            on_progress, tool="digest_json_retry", emoji="🔄", label="JSON 오류 자동 재생성",
+        )
+        try:
+            items = parse_items(extract_content(retry))
+        except ValueError as retry_error:
+            raise ValueError(
+                f"JSON 자동 재생성 후에도 파싱 실패: {retry_error}"
+            ) from retry_error
 
     # 환각 방어: 항목별 수치 근거 + 출처 귀속 검증(비파괴적 — 플래그 후 사람이 검토).
     src_texts = [d.get("content", "") for d in docs]
@@ -156,7 +206,7 @@ async def generate_digest(
     )
 
     return {
-        "week": current_week_label(),
+        "week": week,
         "period": period,
         "mailedAt": None,  # 생성 직후는 발송 전 초안
         "generated": True,

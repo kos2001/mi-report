@@ -425,7 +425,11 @@ export default function CompetitorsPage() {
       </div>
 
       <div className="flex flex-col gap-8">
-        {generated && <CompetitorCard c={generated} generated />}
+        {generated && (
+          <div id="selected-artifact-content" className="scroll-mt-6">
+            <CompetitorCard c={generated} generated />
+          </div>
+        )}
         {competitors.map((c) => (
           <CompetitorCard key={c.id} c={c} />
         ))}

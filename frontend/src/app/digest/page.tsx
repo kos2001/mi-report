@@ -480,7 +480,7 @@ export default function DigestPage() {
 
         {/* AI 생성 초안 (있을 때 최상단) */}
         {generated && (
-          <section>
+          <section id="selected-artifact-content" className="scroll-mt-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                 {generated.week}{" "}

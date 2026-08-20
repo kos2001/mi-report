@@ -317,6 +317,7 @@ export const competitorsApi = {
 // ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
 // ── hermes 에이전트 대화 (멀티턴, 도구 사용) ──────────────────────────────
 export interface AgentSource {
+  id?: string | null;
   title: string;
   source: string;
   publishedAt: string | null;

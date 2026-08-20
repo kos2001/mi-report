@@ -66,7 +66,9 @@ export default function CollectionDocumentsPage() {
         const params = new URLSearchParams(window.location.search);
         const initTopic = params.get("topic");
         const initDoc = params.get("doc");
+        const initQuery = params.get("q");
         if (initTopic) setTopic(initTopic);
+        if (initQuery) setQ(initQuery);
         if (initDoc && d.some((x) => x.id === initDoc)) openDoc(initDoc);
       } catch (e) {
         if (alive)

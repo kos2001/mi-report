@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from . import assets, collection, confluence, dart, digest, fetcher, hankyung, sec_edgar
+from . import assets, collection, confluence, dart, digest, fetcher, hankyung, mi_wiki, sec_edgar
 from .gateway import get_client
 
 
@@ -198,6 +198,7 @@ async def run_digest(*, period: str, limit: int = 20) -> dict[str, Any]:
     generated_at = collection.now()
     result = {**digest_obj, "generatedAt": generated_at}
     assets.save_artifact_safe("digest", result["week"], result["week"], result)
+    mi_wiki.update_digest_safe(result)
     return result
 
 

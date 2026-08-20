@@ -67,6 +67,15 @@ def test_build_messages_includes_feedback_notes():
     assert "과거에 수치를 지어냄" in msgs[0]["content"]
 
 
+def test_build_messages_includes_wiki_as_secondary_context():
+    docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문A"}]
+    msgs = digest.build_messages(docs, wiki_context="[2026년 33주차] HBM 수요 강세")
+    prompt = msgs[1]["content"]
+    assert "이전 주차 LLM Wiki 맥락" in prompt
+    assert "HBM 수요 강세" in prompt
+    assert "Wiki만을 근거로 새 항목을 만들지 마라" in prompt
+
+
 def test_parse_items_plain_json():
     items = digest.parse_items(_VALID_RESPONSE)
     assert len(items) == 1
@@ -111,6 +120,41 @@ def test_generate_digest_assigns_ids_and_metadata():
     assert result["items"][0]["impact"] == "high"
     assert result["unsupportedClaims"] == []
     assert len(client.calls) == 2  # 다이제스트 생성 + 총평 검증(audit)
+
+
+def test_generate_digest_retries_once_after_malformed_json():
+    class MalformedThenValidClient:
+        def __init__(self):
+            self.calls = []
+
+        async def chat(self, messages, **kwargs):
+            self.calls.append((messages, kwargs))
+            if len(self.calls) == 1:
+                content = '{"items":[{"title":"깨진 "인용" 제목"}]}'
+            elif len(self.calls) == 2:
+                content = _VALID_RESPONSE
+            else:
+                content = '{"unsupported":[]}'
+            return {"choices": [{"message": {"content": content}}]}
+
+    client = MalformedThenValidClient()
+    docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문"}]
+    result = asyncio.run(digest.generate_digest(client, docs, period="P"))
+
+    assert result["items"][0]["title"] == "차세대 AI 가속기 HBM4 채택"
+    assert len(client.calls) == 3  # 최초 생성 + JSON 재생성 + 서술 검증
+    retry_messages, retry_kwargs = client.calls[1]
+    assert "JSON 문법 검증에 실패" in retry_messages[1]["content"]
+    assert retry_kwargs["temperature"] == 0.0
+
+
+def test_generate_digest_raises_after_second_malformed_json():
+    client = FakeClient('{"items":[{"title":"깨진 "인용" 제목"}]}')
+    docs = [{"title": "T1", "source": "뉴스", "publishedAt": "2026-06-01", "content": "본문"}]
+
+    with pytest.raises(ValueError, match="JSON 자동 재생성 후에도 파싱 실패"):
+        asyncio.run(digest.generate_digest(client, docs, period="P"))
+    assert len(client.calls) == 2
 
 
 def test_generate_digest_emits_progress_events():
@@ -190,6 +234,32 @@ def test_generate_digest_flags_unverified_source():
     res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, period="P"))
     assert res["items"][0]["sourceVerified"] is False
     assert res["unverifiedSourceCount"] == 1
+
+
+def test_generate_digest_verifies_publisher_from_aggregator_title():
+    """수집기 이름과 실제 발행처가 달라도 문서 title/content로 출처를 추적한다."""
+    resp = json.dumps({"items": [{
+        "title": "서진시스템 단기 악재 해소·본격 개선 전망",
+        "source": "한경 컨센서스",
+        "publishedAt": "2026-08-20",
+        "summary": "서진시스템의 실적 개선 전망.",
+        "slsiRelevance": "반도체 장비",
+        "demandImpact": "테스트 장비 수요 변화",
+        "risk": "단일 출처 — 교차검증 필요",
+        "impact": "medium",
+        "tags": ["서진시스템"],
+    }]}, ensure_ascii=False)
+    docs = [{
+        "title": "한경 컨센서스",
+        "source": "컨센서스 갱신 감지",
+        "publishedAt": "2026-08-20",
+        "content": "서진시스템(178320) 단기 악재 해소, 좋아질 일만 남았다.",
+    }]
+
+    res = asyncio.run(digest.generate_digest(FakeClient(resp), docs, period="P"))
+
+    assert res["items"][0]["sourceVerified"] is True
+    assert res["unverifiedSourceCount"] == 0
 
 
 # ── 엔드포인트 (페이크 클라이언트 주입) ────────────────────────────────────
