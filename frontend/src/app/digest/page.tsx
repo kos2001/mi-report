@@ -207,6 +207,7 @@ export default function DigestPage() {
   const [commentSteps, setCommentSteps] = useState<ProgressStep[]>([]);
   const [commentPartial, setCommentPartial] = useState("");
   const [commentFor, setCommentFor] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(true);
 
   async function handleAgentComment(d: GeneratedDigest) {
     if (commentLoading || d.items.length === 0) return;
@@ -312,6 +313,60 @@ export default function DigestPage() {
         title="뉴스 다이제스트"
         description="주 2회 반도체·IT 기술 뉴스 종합 — S.LSI 연관성·수요 변동·리스크 영향도 평가 후 메일링"
       />
+
+      {/* 왜 필요한가 · 사용법 (의도 안내) */}
+      <Card className="mb-6 border-violet-100/40 dark:border-violet-900/40 bg-violet-50/20 dark:bg-violet-950/20">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-violet-800 dark:text-violet-200">
+            ⓘ 왜 필요한가 · 사용법
+          </h2>
+          <button
+            onClick={() => setShowHelp((v) => !v)}
+            className="text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
+          >
+            {showHelp ? "접기" : "펼치기"}
+          </button>
+        </div>
+        {showHelp && (
+          <div className="mt-3 grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                왜 필요한가
+              </p>
+              <p className="mt-1.5 leading-relaxed text-zinc-700 dark:text-zinc-300">
+                매일 쏟아지는 반도체·IT 뉴스를 전부 읽고
+                <strong className="text-zinc-900 dark:text-zinc-100"> S.LSI 관점(연관성·수요영향·리스크)</strong>으로
+                직접 정리하기는 어렵습니다. 수집된 뉴스를 자동으로 평가·요약하고, hermes 에이전트가
+                발송 전 마지막으로 초안을 재검토해 검토 시간을 줄여줍니다.
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                무엇을 산출
+              </p>
+              <ul className="mt-1.5 flex flex-col gap-1 leading-relaxed text-zinc-700 dark:text-zinc-300">
+                <li>· 항목별 S.LSI 연관성 · 수요 변동 · 리스크 평가</li>
+                <li>· 영향도(상/중/하) 및 근거 수치 검증</li>
+                <li>· hermes 에이전트의 초안 검토(타당성·놓친 리스크·수정 제안)</li>
+                <li>· 메일 발송(또는 미리보기)</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                사용법
+              </p>
+              <ol className="mt-1.5 flex flex-col gap-1 leading-relaxed text-zinc-700 dark:text-zinc-300">
+                <li>① 데이터 수집에 뉴스 소스를 등록(주기적 자동 수집)</li>
+                <li>② ‘AI 초안 생성’ 클릭 — 이번 주차 초안이 생성됨</li>
+                <li>③ 에이전트 코멘트·수치 검증을 확인 후 메일 발송</li>
+              </ol>
+              <p className="mt-2 text-[11px] text-zinc-500">
+                문서에 없는 수치는 미근거로 표시됩니다(환각 방지). 단일 출처는 교차검증 필요로 표시됩니다.
+              </p>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* AI 초안 생성 패널 */}
       <Card className="mb-8">
