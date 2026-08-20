@@ -14,21 +14,21 @@ import {
 import { Card, PageHeader, Tag } from "@/components/ui";
 
 const SENTIMENT_COLOR: Record<string, string> = {
-  긍정: "text-emerald-400",
-  중립: "text-zinc-400",
-  부정: "text-red-400",
+  긍정: "text-emerald-600 dark:text-emerald-400",
+  중립: "text-zinc-600 dark:text-zinc-400",
+  부정: "text-red-600 dark:text-red-400",
 };
 const PRIORITY_COLOR: Record<string, string> = {
-  상: "border-red-800/60 bg-red-950/40 text-red-300",
-  중: "border-amber-800/60 bg-amber-950/40 text-amber-300",
-  하: "border-zinc-700 bg-zinc-800 text-zinc-400",
+  상: "border-red-200/60 dark:border-red-800/60 bg-red-50/40 dark:bg-red-950/40 text-red-700 dark:text-red-300",
+  중: "border-amber-200/60 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300",
+  하: "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400",
 };
 const CATEGORY_COLOR: Record<string, string> = {
-  버그: "border-red-800/60 bg-red-950/40 text-red-300",
-  기능요청: "border-sky-800/60 bg-sky-950/40 text-sky-300",
-  개선: "border-violet-800/60 bg-violet-950/40 text-violet-300",
-  문의: "border-zinc-700 bg-zinc-800 text-zinc-300",
-  칭찬: "border-emerald-800/60 bg-emerald-950/40 text-emerald-300",
+  버그: "border-red-200/60 dark:border-red-800/60 bg-red-50/40 dark:bg-red-950/40 text-red-700 dark:text-red-300",
+  기능요청: "border-sky-200/60 dark:border-sky-800/60 bg-sky-50/40 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300",
+  개선: "border-violet-200/60 dark:border-violet-800/60 bg-violet-50/40 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300",
+  문의: "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
+  칭찬: "border-emerald-200/60 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300",
 };
 
 export default function VocPage() {
@@ -94,7 +94,7 @@ export default function VocPage() {
       />
 
       {error && (
-        <div className="mb-5 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+        <div className="mb-5 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -104,12 +104,12 @@ export default function VocPage() {
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Card>
             <p className="text-xs text-zinc-500">전체</p>
-            <p className="mt-1 text-2xl font-semibold text-zinc-50">{summary.total}</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{summary.total}</p>
           </Card>
           {VOC_STATUSES.map((s) => (
             <Card key={s}>
               <p className="text-xs text-zinc-500">{s}</p>
-              <p className="mt-1 text-2xl font-semibold text-zinc-50">{summary.byStatus[s] ?? 0}</p>
+              <p className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{summary.byStatus[s] ?? 0}</p>
             </Card>
           ))}
         </div>
@@ -117,25 +117,25 @@ export default function VocPage() {
 
       {/* 입력 폼 */}
       <Card className="mb-6">
-        <p className="mb-3 text-sm font-medium text-zinc-200">의견 등록</p>
+        <p className="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">의견 등록</p>
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
             <input
               value={reporter}
               onChange={(e) => setReporter(e.target.value)}
               placeholder="작성자 (예: 기획팀 김OO)"
-              className="w-48 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              className="w-48 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
             />
-            <select value={area} onChange={(e) => setArea(e.target.value)} title="기능 영역" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={area} onChange={(e) => setArea(e.target.value)} title="기능 영역" className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500">
               {VOC_AREAS.map((a) => <option key={a} value={a}>{`영역: ${a}`}</option>)}
             </select>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} title="유형" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={category} onChange={(e) => setCategory(e.target.value)} title="유형" className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500">
               {VOC_CATEGORIES.map((c) => <option key={c} value={c}>{`유형: ${c}`}</option>)}
             </select>
-            <select value={sentiment} onChange={(e) => setSentiment(e.target.value)} title="감정" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={sentiment} onChange={(e) => setSentiment(e.target.value)} title="감정" className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500">
               {VOC_SENTIMENTS.map((s) => <option key={s} value={s}>{`감정: ${s}`}</option>)}
             </select>
-            <select value={priority} onChange={(e) => setPriority(e.target.value)} title="우선순위" className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500">
+            <select value={priority} onChange={(e) => setPriority(e.target.value)} title="우선순위" className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500">
               {VOC_PRIORITIES.map((p) => <option key={p} value={p}>{`우선순위: ${p}`}</option>)}
             </select>
           </div>
@@ -144,7 +144,7 @@ export default function VocPage() {
             onChange={(e) => setContent(e.target.value)}
             placeholder="이 서비스에 대한 의견·요청·버그·개선 제안"
             rows={3}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+            className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
           />
           <div className="flex justify-end">
             <button
@@ -159,10 +159,10 @@ export default function VocPage() {
       </Card>
 
       {/* 상태 필터 */}
-      <div className="mb-3 flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1 text-sm">
+      <div className="mb-3 flex gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/40 dark:bg-zinc-900/40 p-1 text-sm">
         <button
           onClick={() => setStatusFilter("")}
-          className={`rounded-md px-3 py-1.5 transition-colors ${statusFilter === "" ? "bg-zinc-800 font-medium text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
+          className={`rounded-md px-3 py-1.5 transition-colors ${statusFilter === "" ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
         >
           전체
         </button>
@@ -170,7 +170,7 @@ export default function VocPage() {
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className={`rounded-md px-3 py-1.5 transition-colors ${statusFilter === s ? "bg-zinc-800 font-medium text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
+            className={`rounded-md px-3 py-1.5 transition-colors ${statusFilter === s ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
           >
             {s}
           </button>
@@ -182,7 +182,7 @@ export default function VocPage() {
         <p className="text-sm text-zinc-500">불러오는 중…</p>
       ) : items.length === 0 ? (
         <Card>
-          <p className="text-sm text-zinc-400">등록된 의견이 없습니다.</p>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">등록된 의견이 없습니다.</p>
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
@@ -191,30 +191,30 @@ export default function VocPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Tag>{v.area}</Tag>
-                  <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${CATEGORY_COLOR[v.category] ?? "border-zinc-700 bg-zinc-800 text-zinc-300"}`}>
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${CATEGORY_COLOR[v.category] ?? "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"}`}>
                     {v.category}
                   </span>
-                  <span className="text-sm font-medium text-zinc-100">{v.reporter}</span>
-                  <span className={`text-xs ${SENTIMENT_COLOR[v.sentiment] ?? "text-zinc-400"}`}>● {v.sentiment}</span>
+                  <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{v.reporter}</span>
+                  <span className={`text-xs ${SENTIMENT_COLOR[v.sentiment] ?? "text-zinc-600 dark:text-zinc-400"}`}>● {v.sentiment}</span>
                   <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${PRIORITY_COLOR[v.priority] ?? ""}`}>
                     {v.priority}
                   </span>
                   <span className="text-[11px] text-zinc-500">{v.createdAt}</span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{v.content}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{v.content}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <select
                   value={v.status}
                   onChange={(e) => vocApi.updateStatus(v.id, e.target.value).then(refresh)}
                   title="처리 상태 변경"
-                  className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-sky-500"
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 outline-none focus:border-sky-500"
                 >
                   {VOC_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <button
                   onClick={() => vocApi.remove(v.id).then(refresh)}
-                  className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-red-400"
+                  className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
                 >
                   삭제
                 </button>

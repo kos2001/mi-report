@@ -23,21 +23,21 @@ interface ChatMessage {
 // 에이전트 작업 중 진행사항(도구 실행 단계 + 스트리밍 답변) 표시.
 export function AgentProgressView({ steps, partial }: { steps: ProgressStep[]; partial: string }) {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 px-3 py-2">
       <p className="text-sm text-zinc-500">에이전트가 조사 중…</p>
       {steps.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1">
           {steps.map((s) => (
-            <li key={s.key} className="flex items-center gap-1.5 text-xs text-zinc-400">
+            <li key={s.key} className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
               <span>{s.done ? "✅" : "⏳"}</span>
-              <span className={s.done ? "text-zinc-500" : "text-zinc-300"}>{s.text}</span>
+              <span className={s.done ? "text-zinc-500" : "text-zinc-700 dark:text-zinc-300"}>{s.text}</span>
             </li>
           ))}
         </ul>
       )}
       {partial && (
-        <div className="mt-2 border-t border-zinc-800 pt-2">
-          <Markdown text={partial} className="text-sm text-zinc-300" />
+        <div className="mt-2 border-t border-zinc-200 dark:border-zinc-800 pt-2">
+          <Markdown text={partial} className="text-sm text-zinc-700 dark:text-zinc-300" />
         </div>
       )}
     </div>
@@ -105,11 +105,11 @@ export function AgentChatCard({
   }
 
   return (
-    <Card className="border-sky-900/40 bg-sky-950/10">
+    <Card className="border-sky-100/40 dark:border-sky-900/40 bg-sky-50/10 dark:bg-sky-950/10">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-sky-200">{title}</h2>
-          <p className="mt-0.5 text-xs text-zinc-400">{description}</p>
+          <h2 className="text-sm font-semibold text-sky-800 dark:text-sky-200">{title}</h2>
+          <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{description}</p>
         </div>
         {messages.length > 0 && (
           <button
@@ -118,7 +118,7 @@ export function AgentChatCard({
               setSessionId(null);
               setError(null);
             }}
-            className="text-xs text-zinc-400 hover:text-zinc-200"
+            className="text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
           >
             새 질문
           </button>
@@ -128,26 +128,26 @@ export function AgentChatCard({
         <div className="mt-3 flex flex-col gap-3">
           {messages.map((m, i) =>
             m.role === "user" ? (
-              <div key={i} className="self-end rounded-lg bg-sky-950/60 px-3 py-2 text-sm text-sky-100">
+              <div key={i} className="self-end rounded-lg bg-sky-50/60 dark:bg-sky-950/60 px-3 py-2 text-sm text-sky-900 dark:text-sky-100">
                 {m.content}
               </div>
             ) : (
-              <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+              <div key={i} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 px-3 py-2">
                 {m.numbersGrounded === false && m.ungroundedNumbers && m.ungroundedNumbers.length > 0 && (
-                  <p className="mb-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+                  <p className="mb-2 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                     ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
                     <span className="font-mono">{m.ungroundedNumbers.join(", ")}</span>
                   </p>
                 )}
-                <Markdown text={m.content} className="text-sm text-zinc-200" />
+                <Markdown text={m.content} className="text-sm text-zinc-800 dark:text-zinc-200" />
                 {m.sources && m.sources.length > 0 && (
-                  <div className="mt-3 border-t border-zinc-800 pt-2">
+                  <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2">
                     <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                       관련 수집 문서
                     </p>
                     <ul className="flex flex-col gap-1">
                       {m.sources.map((s, j) => (
-                        <li key={j} className="flex items-center gap-2 text-xs text-zinc-300">
+                        <li key={j} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
                           <Tag>{s.source}</Tag>
                           <span>{s.title}</span>
                           {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
@@ -167,7 +167,7 @@ export function AgentChatCard({
         </div>
       )}
       {error && (
-        <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+        <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
           {error}
         </p>
       )}
@@ -179,7 +179,7 @@ export function AgentChatCard({
             if (e.key === "Enter" && !loading) send();
           }}
           placeholder={placeholder}
-          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         />
         <button
           onClick={send}

@@ -102,7 +102,7 @@ export default function CollectionDocumentsPage() {
       />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+        <div className="mb-6 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -113,12 +113,12 @@ export default function CollectionDocumentsPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="제목·주제·출처 검색"
-          className="min-w-52 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="min-w-52 flex-1 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         />
         <select
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         >
           <option value="">모든 소스</option>
           {sources.map((s) => (
@@ -130,7 +130,7 @@ export default function CollectionDocumentsPage() {
         <select
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         >
           <option value="">모든 주제</option>
           {topics.map((t) => (
@@ -146,7 +146,7 @@ export default function CollectionDocumentsPage() {
               setSource("");
               setTopic("");
             }}
-            className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:text-zinc-100"
+            className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             필터 해제
           </button>
@@ -159,7 +159,7 @@ export default function CollectionDocumentsPage() {
         <div className="grid gap-5 lg:grid-cols-2">
           {/* 목록 */}
           <Card className="p-0">
-            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-2.5">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-5 py-2.5">
               <span className="text-xs text-zinc-500">문서 {filtered.length}건</span>
             </div>
             {filtered.length === 0 ? (
@@ -167,18 +167,18 @@ export default function CollectionDocumentsPage() {
                 조건에 맞는 문서가 없습니다.
               </p>
             ) : (
-              <ul className="max-h-[70vh] divide-y divide-zinc-800/60 overflow-y-auto">
+              <ul className="max-h-[70vh] divide-y divide-zinc-200/60 dark:divide-zinc-800/60 overflow-y-auto">
                 {filtered.map((d) => (
                   <li key={d.id}>
                     <button
                       onClick={() => openDoc(d.id)}
                       className={`flex w-full flex-col gap-1 px-5 py-3 text-left transition-colors ${
-                        selectedId === d.id ? "bg-zinc-800/80" : "hover:bg-zinc-900"
+                        selectedId === d.id ? "bg-zinc-200/80 dark:bg-zinc-800/80" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
                       }`}
                     >
-                      <span className="truncate text-sm text-zinc-200">{d.title}</span>
+                      <span className="truncate text-sm text-zinc-800 dark:text-zinc-200">{d.title}</span>
                       <span className="flex items-center gap-2 text-[11px] text-zinc-500">
-                        {d.topic ? <Tag>{d.topic}</Tag> : <span className="text-zinc-600">미분류</span>}
+                        {d.topic ? <Tag>{d.topic}</Tag> : <span className="text-zinc-400 dark:text-zinc-600">미분류</span>}
                         <span className="truncate">{d.sourceName}</span>
                         <span className="ml-auto shrink-0 font-mono">{d.createdAt}</span>
                       </span>
@@ -198,11 +198,11 @@ export default function CollectionDocumentsPage() {
             ) : contentLoading ? (
               <p className="px-5 py-8 text-center text-sm text-zinc-500">본문 불러오는 중…</p>
             ) : contentError ? (
-              <p className="px-5 py-8 text-center text-sm text-red-400">{contentError}</p>
+              <p className="px-5 py-8 text-center text-sm text-red-600 dark:text-red-400">{contentError}</p>
             ) : (
               <div className="flex max-h-[74vh] flex-col">
-                <div className="border-b border-zinc-800 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-zinc-100">{contentDoc?.title}</h2>
+                <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-4">
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{contentDoc?.title}</h2>
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
                     <span>{contentDoc?.sourceName}</span>
                     {contentDoc?.topic && <Tag>{contentDoc.topic}</Tag>}
@@ -217,11 +217,11 @@ export default function CollectionDocumentsPage() {
                   </p>
                 ) : (
                   <div className="overflow-y-auto px-5 py-4">
-                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-zinc-300">
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
                       {content}
                     </pre>
                     {content.length >= 50000 && (
-                      <p className="mt-3 text-[11px] text-amber-400/70">
+                      <p className="mt-3 text-[11px] text-amber-600/70 dark:text-amber-400/70">
                         ⚠️ 본문이 길어 최대 5만자까지만 표시했습니다.
                       </p>
                     )}

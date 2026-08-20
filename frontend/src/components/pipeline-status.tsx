@@ -6,10 +6,10 @@ import { api, type Source } from "@/lib/api";
 import { Card } from "@/components/ui";
 
 function statusColor(status: string) {
-  if (status === "정상") return "text-emerald-400";
-  if (status === "지연") return "text-amber-400";
-  if (status === "오류") return "text-red-400";
-  return "text-zinc-400";
+  if (status === "정상") return "text-emerald-600 dark:text-emerald-400";
+  if (status === "지연") return "text-amber-600 dark:text-amber-400";
+  if (status === "오류") return "text-red-600 dark:text-red-400";
+  return "text-zinc-600 dark:text-zinc-400";
 }
 
 export function PipelineStatus() {
@@ -41,7 +41,7 @@ export function PipelineStatus() {
   return (
     <Card className="p-0">
       {error ? (
-        <p className="px-5 py-6 text-sm text-amber-400/80">
+        <p className="px-5 py-6 text-sm text-amber-600/80 dark:text-amber-400/80">
           {error} — 백엔드를 실행하면 실시간 소스 상태가 표시됩니다.
         </p>
       ) : loading ? (
@@ -50,7 +50,7 @@ export function PipelineStatus() {
         <>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
                 <th className="px-5 py-3 font-medium">소스</th>
                 <th className="px-5 py-3 font-medium">상태</th>
                 <th className="px-5 py-3 font-medium">최근 실행</th>
@@ -59,26 +59,26 @@ export function PipelineStatus() {
             </thead>
             <tbody>
               {sources.map((s) => (
-                <tr key={s.id} className="border-b border-zinc-800/60 last:border-0">
-                  <td className="px-5 py-3 text-zinc-200">{s.name}</td>
+                <tr key={s.id} className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
+                  <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">{s.name}</td>
                   <td className="px-5 py-3">
                     <span className={statusColor(s.status)}>● {s.status}</span>
                   </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-400">
+                  <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                     {s.lastRun ?? "—"}
                   </td>
-                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
+                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-700 dark:text-zinc-300">
                     {s.count}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="flex items-center justify-between border-t border-zinc-800 px-5 py-2.5 text-[11px] text-zinc-500">
+          <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-5 py-2.5 text-[11px] text-zinc-500">
             <span>
               소스 {sources.length}개 · 수집 문서 {docCount ?? "—"}건 (실시간)
             </span>
-            <Link href="/collection" className="text-sky-400 hover:underline">
+            <Link href="/collection" className="text-sky-600 dark:text-sky-400 hover:underline">
               데이터 수집 관리 →
             </Link>
           </div>

@@ -83,21 +83,21 @@ export default function SchedulePage() {
       />
 
       {error && (
-        <div className="mb-5 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>
+        <div className="mb-5 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>
       )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         {/* 설정 폼 */}
         <Card>
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-100">자동 실행 설정</h2>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">자동 실행 설정</h2>
             <button
               onClick={() => setEnabled((v) => !v)}
               aria-pressed={enabled}
               className={`rounded-md border px-3 py-1 text-xs transition-colors ${
                 enabled
-                  ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400"
-                  : "border-zinc-700 bg-zinc-800 text-zinc-500"
+                  ? "border-emerald-200/60 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400"
+                  : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-500"
               }`}
             >
               {enabled ? "● 활성" : "○ 비활성"}
@@ -107,13 +107,13 @@ export default function SchedulePage() {
           <div className="mt-4 flex flex-col gap-4">
             <div className="flex items-center gap-2">
               <span className="w-16 text-xs text-zinc-500">주기</span>
-              <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1 text-sm">
+              <div className="flex gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/40 dark:bg-zinc-900/40 p-1 text-sm">
                 {(["daily", "weekly"] as const).map((f) => (
                   <button
                     key={f}
                     onClick={() => setFrequency(f)}
                     className={`rounded-md px-3 py-1 transition-colors ${
-                      frequency === f ? "bg-zinc-800 font-medium text-zinc-50" : "text-zinc-400 hover:text-zinc-200"
+                      frequency === f ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
                     }`}
                   >
                     {f === "daily" ? "매일" : "매주"}
@@ -132,8 +132,8 @@ export default function SchedulePage() {
                       onClick={() => setWeekday(i)}
                       className={`h-8 w-8 rounded-md border text-xs transition-colors ${
                         weekday === i
-                          ? "border-sky-700 bg-sky-950/50 text-sky-300"
-                          : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                          ? "border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300"
+                          : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
                       }`}
                     >
                       {d}
@@ -153,7 +153,7 @@ export default function SchedulePage() {
                   if (!Number.isNaN(h)) setHour(h);
                   if (!Number.isNaN(m)) setMinute(m);
                 }}
-                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
               />
             </div>
 
@@ -165,7 +165,7 @@ export default function SchedulePage() {
                 max={100}
                 value={digestLimit}
                 onChange={(e) => setDigestLimit(Number(e.target.value) || 20)}
-                className="w-24 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                className="w-24 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
               />
               <span className="text-xs text-zinc-500">다이제스트 입력 문서 최대</span>
             </div>
@@ -177,8 +177,8 @@ export default function SchedulePage() {
                 aria-pressed={retryEnabled}
                 className={`rounded-md border px-3 py-1 text-xs transition-colors ${
                   retryEnabled
-                    ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-500"
+                    ? "border-emerald-200/60 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400"
+                    : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-500"
                 }`}
               >
                 {retryEnabled ? "● 켜짐" : "○ 꺼짐"}
@@ -191,7 +191,7 @@ export default function SchedulePage() {
                     max={120}
                     value={retryMinutes}
                     onChange={(e) => setRetryMinutes(Number(e.target.value) || 10)}
-                    className="w-20 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                    className="w-20 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
                   />
                   <span className="text-xs text-zinc-500">분 후 재시도 (실패 시 최대 3회)</span>
                 </>
@@ -209,52 +209,52 @@ export default function SchedulePage() {
               <button
                 onClick={runNow}
                 disabled={running}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 disabled:opacity-40"
+                className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition-colors hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
               >
                 {running ? "실행 중…" : "지금 실행"}
               </button>
-              {msg && <span className="text-xs text-emerald-400">{msg}</span>}
+              {msg && <span className="text-xs text-emerald-600 dark:text-emerald-400">{msg}</span>}
             </div>
           </div>
         </Card>
 
         {/* 요약 / crontab */}
         <Card>
-          <h2 className="text-sm font-semibold text-zinc-100">현황</h2>
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">현황</h2>
           {view && (
             <dl className="mt-3 flex flex-col gap-2 text-sm">
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">설정</dt>
-                <dd className="text-zinc-200">{view.describe}</dd>
+                <dd className="text-zinc-800 dark:text-zinc-200">{view.describe}</dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">다음 실행</dt>
-                <dd className="font-mono text-zinc-300">{view.nextRun ?? "—(비활성)"}</dd>
+                <dd className="font-mono text-zinc-700 dark:text-zinc-300">{view.nextRun ?? "—(비활성)"}</dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">마지막 실행</dt>
-                <dd className="flex items-center gap-1.5 font-mono text-zinc-400">
+                <dd className="flex items-center gap-1.5 font-mono text-zinc-600 dark:text-zinc-400">
                   {view.schedule.lastRunAt ?? "—"}
-                  {view.lastStatus === "success" && <span className="text-emerald-400">✓</span>}
-                  {view.lastStatus === "failure" && <span className="text-red-400">⚠️ 실패</span>}
+                  {view.lastStatus === "success" && <span className="text-emerald-600 dark:text-emerald-400">✓</span>}
+                  {view.lastStatus === "failure" && <span className="text-red-600 dark:text-red-400">⚠️ 실패</span>}
                 </dd>
               </div>
               {view.lastStatus === "failure" && view.lastError && (
-                <div className="rounded-md border border-red-900/60 bg-red-950/30 px-2.5 py-1.5 text-xs text-red-300">
+                <div className="rounded-md border border-red-100/60 dark:border-red-900/60 bg-red-50/30 dark:bg-red-950/30 px-2.5 py-1.5 text-xs text-red-700 dark:text-red-300">
                   {view.lastError}
                 </div>
               )}
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-500">앱 내 스케줄러</dt>
-                <dd className={view.inAppScheduler ? "text-emerald-400" : "text-zinc-400"}>
+                <dd className={view.inAppScheduler ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-600 dark:text-zinc-400"}>
                   {view.inAppScheduler ? "동작 중" : "꺼짐 (MI_SCHEDULER=1 필요)"}
                 </dd>
               </div>
             </dl>
           )}
-          <div className="mt-4 border-t border-zinc-800 pt-3">
+          <div className="mt-4 border-t border-zinc-200 dark:border-zinc-800 pt-3">
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">crontab (외부 cron 용)</p>
-            <code className="block break-all rounded-lg bg-zinc-900 px-3 py-2 font-mono text-xs text-sky-300">
+            <code className="block break-all rounded-lg bg-zinc-100 dark:bg-zinc-900 px-3 py-2 font-mono text-xs text-sky-700 dark:text-sky-300">
               {view ? `${view.crontab}  cd backend && .venv/bin/python -m tools.run_pipeline` : "—"}
             </code>
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
@@ -265,14 +265,14 @@ export default function SchedulePage() {
       </div>
 
       <Card className="mt-5">
-        <h2 className="text-sm font-semibold text-zinc-100">실행 이력</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">실행 이력</h2>
         {view && view.runs.length === 0 && (
           <p className="mt-3 text-xs text-zinc-500">아직 실행 이력이 없습니다.</p>
         )}
         {view && view.runs.length > 0 && (
           <table className="mt-3 w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 text-zinc-500">
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
                 <th className="pb-2 font-medium">시각</th>
                 <th className="pb-2 font-medium">트리거</th>
                 <th className="pb-2 font-medium">상태</th>
@@ -281,17 +281,17 @@ export default function SchedulePage() {
             </thead>
             <tbody>
               {view.runs.map((r, i) => (
-                <tr key={i} className="border-b border-zinc-900 last:border-0">
-                  <td className="py-2 font-mono text-zinc-400">{r.ranAt}</td>
-                  <td className="py-2 text-zinc-400">{r.trigger === "auto" ? "자동" : "수동"}</td>
+                <tr key={i} className="border-b border-zinc-100 dark:border-zinc-900 last:border-0">
+                  <td className="py-2 font-mono text-zinc-600 dark:text-zinc-400">{r.ranAt}</td>
+                  <td className="py-2 text-zinc-600 dark:text-zinc-400">{r.trigger === "auto" ? "자동" : "수동"}</td>
                   <td className="py-2">
                     {r.status === "success" ? (
-                      <span className="text-emerald-400">✓ 성공</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">✓ 성공</span>
                     ) : (
-                      <span className="text-red-400">⚠️ 실패</span>
+                      <span className="text-red-600 dark:text-red-400">⚠️ 실패</span>
                     )}
                   </td>
-                  <td className="py-2 text-zinc-400">
+                  <td className="py-2 text-zinc-600 dark:text-zinc-400">
                     {r.status === "success" ? `수집 ${r.ingested ?? 0}건` : (r.error ?? "—")}
                   </td>
                 </tr>

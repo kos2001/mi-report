@@ -63,21 +63,21 @@ export function ArtifactHistoryPanel({
   return (
     <Card>
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-100">생성 이력</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">생성 이력</h2>
         {items.length > 0 && <span className="text-xs text-zinc-500">{items.length}건</span>}
       </div>
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
       {loading ? (
         <p className="mt-3 text-xs text-zinc-500">불러오는 중…</p>
       ) : items.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500">{emptyLabel}</p>
       ) : (
-        <ul className="mt-2 flex flex-col divide-y divide-zinc-800/60">
+        <ul className="mt-2 flex flex-col divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
           {items.map((a) => (
             <li key={a.id} className="flex items-center gap-2 py-2">
               <button
                 onClick={() => open(a.id)}
-                className="min-w-0 flex-1 truncate text-left text-sm text-zinc-300 transition-colors hover:text-zinc-100"
+                className="min-w-0 flex-1 truncate text-left text-sm text-zinc-700 dark:text-zinc-300 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
               >
                 {a.title}
                 <span className="ml-2 font-mono text-[11px] text-zinc-500">{a.createdAt}</span>
@@ -85,7 +85,7 @@ export function ArtifactHistoryPanel({
               <button
                 onClick={(e) => remove(a.id, e)}
                 disabled={busyId === a.id}
-                className="shrink-0 rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-red-950/40 hover:text-red-400 disabled:opacity-40"
+                className="shrink-0 rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-red-50/40 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40"
                 aria-label="삭제"
               >
                 {busyId === a.id ? "…" : "삭제"}

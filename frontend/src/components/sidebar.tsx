@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type NavItem = {
   href: string;
@@ -55,9 +56,9 @@ const navGroups: NavGroup[] = [
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-zinc-800 bg-zinc-950">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
       <div className="px-5 py-6">
-        <p className="text-lg font-semibold tracking-tight text-zinc-50">
+        <p className="text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
           MI Report Agent
         </p>
         <p className="mt-1 text-xs text-zinc-500">
@@ -68,7 +69,7 @@ export function Sidebar() {
         {navGroups.map((group, gi) => (
           <div key={group.label ?? gi} className="flex flex-col gap-1">
             {group.label && (
-              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-600">
                 {group.label}
               </p>
             )}
@@ -86,8 +87,8 @@ export function Sidebar() {
                     item.indent ? "pl-9 pr-3" : "px-3"
                   } ${
                     active
-                      ? "bg-zinc-800 font-medium text-zinc-50"
-                      : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                      ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50"
+                      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-800 dark:hover:text-zinc-200"
                   }`}
                 >
                   <span className="w-4 text-center text-zinc-500">{item.icon}</span>
@@ -98,8 +99,9 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-      <div className="mt-auto px-5 py-4">
-        <p className="rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-400/80">
+      <div className="mt-auto flex flex-col gap-3 px-5 py-4">
+        <ThemeToggle />
+        <p className="rounded-md border border-amber-100/50 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-600/80 dark:text-amber-400/80">
           데이터 수집·대시보드 상태는 백엔드 실연동. 주제·다이제스트·경쟁사는 목업.
         </p>
       </div>
