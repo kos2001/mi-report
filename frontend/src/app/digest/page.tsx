@@ -10,12 +10,11 @@ import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
-// hermes 에이전트가 초안을 검토한 코멘트(수치 검증·관련 문서 포함)
+// hermes 에이전트가 초안을 검토한 코멘트(관련 문서 포함). 수치 검증은 생성 시점
+// digest_audit 과 중복이라 여기서는 하지 않는다(백엔드가 아예 필드를 안 붙인다).
 interface AgentComment {
   week: string;
   answer: string;
-  numbersGrounded?: boolean;
-  ungroundedNumbers?: string[];
   sources?: { title: string; source: string; publishedAt: string | null }[];
 }
 
@@ -26,21 +25,75 @@ function digestContext(d: GeneratedDigest): string {
   return `다음은 뉴스 다이제스트 ${d.week}(${d.period}) 초안이다. 이 초안과 수집 문서·웹 근거를 참고해 질문에 답하라.\n${items}`;
 }
 
-function AgentCommentCard({ comment }: { comment: AgentComment }) {
+// 에이전트에게 "### 제목" 형식의 고정 섹션(항목별 타당성 검토/놓친 리스크·시사점/수정
+// 제안)으로 답하도록 프롬프트했다(agentchat.digest_comment_prompt) — 여기서 그 섹션을
+// 파싱해 각각 별도 블록으로 보여준다. 옛 형식(섹션 헤더 없는 답변)은 통짜로 폴백 표시.
+interface CommentSection {
+  title: string;
+  body: string;
+}
+
+function parseCommentSections(answer: string): CommentSection[] | null {
+  const lines = answer.split("\n");
+  const sections: CommentSection[] = [];
+  let current: CommentSection | null = null;
+  for (const line of lines) {
+    const m = /^#{2,3}\s+(.+)$/.exec(line.trim());
+    if (m) {
+      if (current) sections.push({ ...current, body: current.body.trim() });
+      current = { title: m[1].trim(), body: "" };
+    } else if (current) {
+      current.body += (current.body ? "\n" : "") + line;
+    }
+  }
+  if (current) sections.push({ ...current, body: current.body.trim() });
+  return sections.length > 0 ? sections : null;
+}
+
+const SECTION_ICON: Record<string, string> = {
+  "항목별 타당성 검토": "🔍",
+  "놓친 리스크·시사점": "⚠️",
+  "수정 제안": "💡",
+};
+
+function AgentCommentCard({
+  comment, source,
+}: {
+  comment: AgentComment;
+  source?: "auto" | "manual";
+}) {
+  const sections = parseCommentSections(comment.answer);
   return (
     <Card className="mb-4 border-violet-100/40 dark:border-violet-900/40 bg-violet-50/15 dark:bg-violet-950/15">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
-        🤖 에이전트 코멘트 — 초안 검토
-      </p>
-      {comment.numbersGrounded === false &&
-        comment.ungroundedNumbers &&
-        comment.ungroundedNumbers.length > 0 && (
-          <p className="mt-2 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
-            <span className="font-mono">{comment.ungroundedNumbers.join(", ")}</span>
-          </p>
+      <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+        <span>🤖 에이전트 코멘트 — 초안 검토</span>
+        {source && (
+          <span className="rounded-full bg-violet-100/60 dark:bg-violet-900/40 px-2 py-0.5 text-[10px] normal-case text-violet-600 dark:text-violet-300">
+            {source === "auto" ? "생성 시 자동 검토" : "수동 재검토"}
+          </span>
         )}
-      <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-800 dark:text-zinc-200" />
+      </p>
+      {sections ? (
+        <div className="mt-3 flex flex-col gap-2.5">
+          {sections.map((s) => (
+            <div
+              key={s.title}
+              className="rounded-lg border border-violet-100/50 dark:border-violet-900/50 bg-white/50 dark:bg-zinc-950/40 px-3 py-2.5"
+            >
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                <span>{SECTION_ICON[s.title] ?? "📝"}</span>
+                {s.title}
+              </p>
+              <Markdown
+                text={s.body || "해당 없음"}
+                className="mt-1.5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300"
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-800 dark:text-zinc-200" />
+      )}
       {comment.sources && comment.sources.length > 0 && (
         <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2">
           <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
@@ -190,9 +243,12 @@ export default function DigestPage() {
 
   // 생성 시점에 자동으로 붙은 코멘트(agentComment)를 우선 보여준다 — 사용자가 이
   // 다이제스트에 대해 수동으로 재검토를 요청했다면(comment) 그 결과가 최신이므로 우선.
-  function displayedComment(d: GeneratedDigest): AgentComment | null {
-    if (comment && comment.week === d.week) return comment;
-    if (d.agentComment) return { week: d.week, ...d.agentComment };
+  // source 는 카드에 "자동/수동" 배지로 표시해 코멘트의 출처를 직관적으로 알 수 있게 한다.
+  function displayedComment(
+    d: GeneratedDigest,
+  ): (AgentComment & { source: "auto" | "manual" }) | null {
+    if (comment && comment.week === d.week) return { ...comment, source: "manual" };
+    if (d.agentComment) return { week: d.week, ...d.agentComment, source: "auto" };
     return null;
   }
 
@@ -342,7 +398,10 @@ export default function DigestPage() {
               </div>
             )}
             {displayedComment(latest) && (
-              <AgentCommentCard comment={displayedComment(latest)!} />
+              <AgentCommentCard
+                comment={displayedComment(latest)!}
+                source={displayedComment(latest)!.source}
+              />
             )}
             {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
               <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -447,7 +506,10 @@ export default function DigestPage() {
               </div>
             )}
             {displayedComment(generated) && (
-              <AgentCommentCard comment={displayedComment(generated)!} />
+              <AgentCommentCard
+                comment={displayedComment(generated)!}
+                source={displayedComment(generated)!.source}
+              />
             )}
             {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (
               <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">

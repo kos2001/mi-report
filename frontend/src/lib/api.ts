@@ -183,11 +183,10 @@ export interface GeneratedDigest {
   ungroundedNumbers?: string[];
   unverifiedSourceCount?: number;
   unsupportedClaims?: string[];
-  // hermes 에이전트가 생성 시점에 자동으로 붙인 초안 검토(hermes 미설정/장애 시 null)
+  // hermes 에이전트가 생성 시점에 자동으로 붙인 초안 검토(hermes 미설정/장애 시 null).
+  // 수치 검증은 생성 시점 digest_audit 과 중복이라 여기서는 하지 않는다.
   agentComment?: {
     answer: string;
-    numbersGrounded?: boolean;
-    ungroundedNumbers?: string[];
     sources?: { title: string; source: string; publishedAt: string | null }[];
   } | null;
 }
@@ -234,8 +233,6 @@ export const digestApi = {
     req<{
       answer: string;
       sessionId: string;
-      numbersGrounded?: boolean;
-      ungroundedNumbers?: string[];
       sources?: { title: string; source: string; publishedAt: string | null }[];
     }>("/digest/agent-comment", { method: "POST", body: JSON.stringify(body) }),
 };

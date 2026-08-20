@@ -928,7 +928,9 @@ async def digest_agent_comment_stream(req: DigestAgentCommentRequest):
     message = agentchat.digest_comment_prompt(
         req.week, req.period, [i.model_dump() for i in req.items]
     )
-    return _sse_response(agentchat.stream_events(message, None, None, persist=False))
+    return _sse_response(
+        agentchat.stream_events(message, None, None, persist=False, check_numbers=False)
+    )
 
 
 @app.get("/digest/latest")
