@@ -112,7 +112,9 @@ _GROUND_MAX_CHARS = 8000
 _SOURCES_MAX = 6
 
 
-async def ground_answer(question: str, answer: str) -> dict[str, Any]:
+async def ground_answer(
+    question: str, answer: str, *, check_numbers: bool = True,
+) -> dict[str, Any]:
     """에이전트 답변을 코퍼스와 대조해 {수치 검증, 관련 문서} 를 만든다.
 
     에이전트는 스스로 검색하므로 어떤 문서를 근거로 썼는지 서버가 모른다.
@@ -122,7 +124,10 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
         가수 폴백은 쓰지 않는다 — 문서가 많으면 우연 일치로 무력화되기 때문.
     미근거 수치가 곧 환각은 아니다(웹 출처일 수 있음) — UI 는
     '수집 문서에서 미확인'으로 표기한다.
-    """
+
+    check_numbers=False 면 수치 검증을 건너뛴다 — 호출부가 이미 자체 수치
+    검증을 거친 텍스트를 대상으로 재검토할 때(다이제스트 에이전트 코멘트 등)
+    같은 검사를 중복 수행하지 않기 위함."""
 
     # 질문·답변 두 질의를 배치로 — 임베딩 왕복 1회, 벡터 로드 1회, 겹친 문서 본문
     # 읽기 1회(질의별 순차 검색 대비 원격 임베딩 왕복 한 번을 그대로 절약).
@@ -137,7 +142,7 @@ async def ground_answer(question: str, answer: str) -> dict[str, Any]:
          "publishedAt": d.get("publishedAt")}
         for d in docs[:_SOURCES_MAX]
     ]
-    if grounding.extract_numbers(answer):
+    if check_numbers and grounding.extract_numbers(answer):
         g = grounding.check(
             answer, [d.get("content", "") for d in docs], mantissa_fallback=False,
         )
@@ -170,7 +175,7 @@ async def parse_sse(lines) -> Any:
 
 async def stream_events(message: str, session_id: str | None = None,
                         user_id: str | None = None, *,
-                        persist: bool = True) -> Any:
+                        persist: bool = True, check_numbers: bool = True) -> Any:
     """hermes 스트리밍 chat 을 이벤트 dict 로 중계하는 async generator.
 
     산출 이벤트:
@@ -231,7 +236,7 @@ async def stream_events(message: str, session_id: str | None = None,
     if not answer:
         raise LLMError(502, "hermes 에이전트가 빈 응답을 반환했습니다.")
     result: dict[str, Any] = {"answer": answer, "sessionId": sid}
-    result.update(await ground_answer(message, answer))
+    result.update(await ground_answer(message, answer, check_numbers=check_numbers))
     if persist and user_id:
         await asyncio.to_thread(record_turn, user_id, sid, message, result)
     yield {"type": "done", **result}
@@ -252,9 +257,12 @@ def digest_comment_prompt(week: str, period: str,
     return (
         "다음은 발송 전 검토 단계의 주간 뉴스 다이제스트 초안이다. "
         "MI 애널리스트 관점의 에이전트 코멘트를 작성하라.\n"
-        "코퍼스 검색(필요시 웹 검색 병행)으로 근거를 확인해서 간결하게:\n"
-        "1) 항목별 타당성과 놓친 근거, 2) 초안에 빠진 리스크·시사점, "
-        "3) 발송 전 수정 제안.\n"
+        "코퍼스 검색(필요시 웹 검색 병행)으로 근거를 확인해서 간결하게 답하되, "
+        "반드시 아래 3개 마크다운 섹션 제목을 정확히 그대로 사용해 구성하라"
+        "(섹션 내용이 없으면 '해당 없음'이라고 쓴다):\n\n"
+        "### 항목별 타당성 검토\n"
+        "### 놓친 리스크·시사점\n"
+        "### 수정 제안\n\n"
         "근거 문서·출처는 본문에 인용하라.\n\n"
         f"{week} {period}\n" + "\n".join(lines)
     )
@@ -265,11 +273,16 @@ async def digest_comment(week: str, period: str,
     """다이제스트 초안에 대한 에이전트 코멘트(일회성 — 세션 저장 안 함).
 
     에이전트가 코퍼스·웹을 검색해 초안의 타당성 검토, 근거 보강, 놓친
-    리스크/시사점을 코멘트로 작성한다. 답변 수치는 코퍼스 대조로 검증한다.
+    리스크/시사점을 코멘트로 작성한다.
+
+    수치 검증은 하지 않는다(check_numbers=False) — 다이제스트 초안은 이미
+    생성 시점에 자체 수치 검증(digest_audit)을 거쳤으므로 같은 검사를
+    에이전트 코멘트에서 또 반복하면 중복이다. sources(관련 수집 문서)만 참고용으로 붙인다.
     """
     message = digest_comment_prompt(week, period, items)
     result = await chat(message)  # 매번 새 세션(일회성 코멘트)
-    result.update(await ground_answer(message, result["answer"]))
+    grounded = await ground_answer(message, result["answer"], check_numbers=False)
+    result["sources"] = grounded["sources"]
     return result
 
 

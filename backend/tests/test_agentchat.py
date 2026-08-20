@@ -134,6 +134,19 @@ def test_ground_answer_no_numbers_still_returns_sources(monkeypatch):
     assert len(out["sources"]) == 1
 
 
+def test_ground_answer_check_numbers_false_skips_grounding_check(monkeypatch):
+    # 미근거 수치가 있는 답변이라도 check_numbers=False 면 검증 자체를 건너뛴다
+    # (호출부가 이미 자체 검증을 거친 텍스트를 재검토할 때 중복 계산을 피하기 위함).
+    monkeypatch.setattr(
+        agentchat.collection, "documents_for_rag_multi", lambda qs, **k: _CORPUS
+    )
+    out = asyncio.run(agentchat.ground_answer(
+        "질문", "수요는 87% 증가 전망.", check_numbers=False,
+    ))
+    assert out["numbersGrounded"] is True and out["ungroundedNumbers"] == []
+    assert len(out["sources"]) == 1
+
+
 # ── 엔드포인트 (TestClient) ────────────────────────────────────────────────
 
 def _fake_chat(monkeypatch):
@@ -319,12 +332,23 @@ def test_agent_chat_stream_endpoint(client, monkeypatch):
     assert types == ["progress", "delta", "done"]
 
 
+def test_digest_comment_prompt_requests_structured_sections():
+    # 프론트가 답변을 섹션별로 시각화할 수 있도록 고정된 마크다운 제목을 요청한다.
+    msg = agentchat.digest_comment_prompt(
+        "2026년 3주차", "p", [{"title": "T", "summary": "S", "impact": "high"}],
+    )
+    assert "### 항목별 타당성 검토" in msg
+    assert "### 놓친 리스크·시사점" in msg
+    assert "### 수정 제안" in msg
+
+
 def test_digest_comment_stream_endpoint(client, monkeypatch):
     captured: dict = {}
 
-    async def fake_stream(message, session_id=None, user_id=None, persist=True):
+    async def fake_stream(message, session_id=None, user_id=None, persist=True, check_numbers=True):
         captured["message"] = message
         captured["persist"] = persist
+        captured["check_numbers"] = check_numbers
         yield {"type": "done", "answer": "코멘트", "sessionId": "s1"}
 
     monkeypatch.setattr(agentchat, "stream_events", fake_stream)
@@ -334,6 +358,8 @@ def test_digest_comment_stream_endpoint(client, monkeypatch):
     assert r.status_code == 200
     assert "2026년 3주차" in captured["message"] and "T" in captured["message"]
     assert captured["persist"] is False
+    # 다이제스트 초안은 생성 시점에 이미 수치 검증을 거쳤으므로 코멘트에서 중복 검증하지 않는다
+    assert captured["check_numbers"] is False
 
 
 # ── 다이제스트 에이전트 코멘트 ─────────────────────────────────────────────
@@ -356,7 +382,9 @@ def test_digest_agent_comment(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["answer"] == "초안 코멘트입니다."
-    assert body["numbersGrounded"] is True and body["sources"] == []
+    assert body["sources"] == []
+    # 다이제스트 초안은 생성 시점에 이미 수치 검증을 거쳤으므로 코멘트 응답에 중복 필드가 없다
+    assert "numbersGrounded" not in body and "ungroundedNumbers" not in body
     # 프롬프트에 주차·항목 제목·요약이 들어간다
     assert "2026년 48주차" in captured["message"]
     assert "HBM4 채택 공식화" in captured["message"]
