@@ -59,6 +59,24 @@ def test_classify_document_returns_dict():
     assert len(client.calls) == 1
 
 
+def test_build_messages_includes_existing_topics_when_given():
+    msgs = classify.build_messages("제목", "본문", existing_topics=["HBM 수요", "2nm 파운드리"])
+    assert "HBM 수요" in msgs[0]["content"]
+    assert "2nm 파운드리" in msgs[0]["content"]
+
+
+def test_build_messages_omits_existing_topics_block_when_empty():
+    msgs = classify.build_messages("제목", "본문", existing_topics=[])
+    assert "기존 주제" not in msgs[0]["content"]
+
+
+def test_classify_document_passes_existing_topics_through():
+    client = FakeClient(_VALID_RESPONSE)
+    asyncio.run(classify.classify_document(client, "제목", "본문", existing_topics=["HBM 수요"]))
+    sent_system = client.calls[0][0][0]["content"]
+    assert "HBM 수요" in sent_system
+
+
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────
 def _upload(client, name, body, topic=None):
     return client.post(

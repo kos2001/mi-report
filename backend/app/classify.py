@@ -23,15 +23,29 @@ CLASSIFY_SYSTEM_PROMPT = """반도체/IT 시장 인텔리전스(MI) 문서를 �
 출력 형식:
 {"topic":"...","category":"...","tags":["..."]}"""
 
+# 새 문서 분류 시 이미 있는 주제 목록을 함께 보여줘, 같은 사안이면 새 문자열을
+# 만들지 않고 기존 주제를 그대로 재사용하도록 유도한다. topic 은 LLM 이 매번 자유
+# 생성하는 문자열이라, 이 유도가 없으면 "HBM 수요"/"HBM4 수요 확대"처럼 같은 주제가
+# 표현만 다르게 갈라져 주제별 History 가 조각난다.
+_EXISTING_TOPICS_RULE = (
+    "\n\n[기존 주제 목록 — 같은 사안이면 아래 중 하나를 정확히 그대로 재사용하라. "
+    "새 사안일 때만 새 주제명을 만들어라]\n{topics}"
+)
+
 
 class ChatClient(Protocol):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
 
 
-def build_messages(title: str, content: str) -> list[dict[str, str]]:
+def build_messages(
+    title: str, content: str, existing_topics: list[str] | None = None,
+) -> list[dict[str, str]]:
+    system = CLASSIFY_SYSTEM_PROMPT
+    if existing_topics:
+        system += _EXISTING_TOPICS_RULE.format(topics=", ".join(existing_topics))
     user = f"제목: {title}\n\n본문:\n{content}"
     return [
-        {"role": "system", "content": CLASSIFY_SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
 
@@ -51,8 +65,11 @@ def parse_classification(content: str) -> DocClassificationOut:
 
 
 async def classify_document(
-    client: ChatClient, title: str, content: str, *, temperature: float = 0.1
+    client: ChatClient, title: str, content: str, *,
+    temperature: float = 0.1, existing_topics: list[str] | None = None,
 ) -> dict[str, Any]:
     """문서 제목·본문으로 topic/category/tags 를 분류한다."""
-    completion = await client.chat(build_messages(title, content), temperature=temperature)
+    completion = await client.chat(
+        build_messages(title, content, existing_topics), temperature=temperature,
+    )
     return parse_classification(extract_content(completion)).model_dump()
