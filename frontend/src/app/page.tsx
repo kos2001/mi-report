@@ -16,10 +16,10 @@ import { PipelineStatus } from "@/components/pipeline-status";
 
 // 서비스 흐름 단계 색상 (Tailwind 가 스캔하도록 리터럴 클래스만 사용)
 const STAGE = {
-  collect: { bar: "bg-sky-500", text: "text-sky-400" },
-  classify: { bar: "bg-amber-500", text: "text-amber-400" },
-  ai: { bar: "bg-violet-500", text: "text-violet-400" },
-  report: { bar: "bg-emerald-500", text: "text-emerald-400" },
+  collect: { bar: "bg-sky-500", text: "text-sky-600 dark:text-sky-400" },
+  classify: { bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
+  ai: { bar: "bg-violet-500", text: "text-violet-600 dark:text-violet-400" },
+  report: { bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
 };
 
 function FlowStage({
@@ -40,13 +40,13 @@ function FlowStage({
   return (
     <Link
       href={href}
-      className="group relative flex-1 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 transition hover:border-zinc-600 hover:bg-zinc-900"
+      className="group relative flex-1 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 transition hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-900"
     >
       <div className={`h-1 ${accent.bar}`} />
       <div className="p-4">
         <p className={`text-[11px] font-medium ${accent.text}`}>{step}</p>
-        <p className="mt-0.5 text-sm font-semibold text-zinc-100">{title}</p>
-        <p className="mt-2 text-2xl font-semibold text-zinc-50">{metric}</p>
+        <p className="mt-0.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
+        <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{metric}</p>
         <p className="mt-0.5 text-[11px] text-zinc-500">{sub}</p>
       </div>
     </Link>
@@ -55,7 +55,7 @@ function FlowStage({
 
 function Arrow() {
   return (
-    <div className="hidden shrink-0 items-center self-center text-lg text-zinc-600 sm:flex" aria-hidden>
+    <div className="hidden shrink-0 items-center self-center text-lg text-zinc-400 dark:text-zinc-600 sm:flex" aria-hidden>
       →
     </div>
   );
@@ -109,14 +109,14 @@ export default function DashboardPage() {
       />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-amber-900/60 bg-amber-950/40 px-4 py-3 text-sm text-amber-300">
+        <div className="mb-6 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
           {error} — 백엔드를 실행하면 실시간 현황이 표시됩니다.
         </div>
       )}
 
       {/* 서비스 흐름: 수집 → 분류 → AI 생성 → 리포트 */}
       <section>
-        <h2 className="mb-3 text-sm font-medium text-zinc-300">서비스 흐름</h2>
+        <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">서비스 흐름</h2>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
           <FlowStage
             href="/collection"
@@ -163,31 +163,31 @@ export default function DashboardPage() {
       <section className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card>
           <p className="text-xs text-zinc-500">수집 문서</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">{docCount}</p>
-          <Link href="/collection" className="mt-3 inline-block text-xs text-sky-400 hover:underline">
+          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">{docCount}</p>
+          <Link href="/collection" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
             데이터 수집 →
           </Link>
         </Card>
         <Card>
           <p className="text-xs text-zinc-500">추적 주제</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">{topicList.length}</p>
-          <Link href="/topics" className="mt-3 inline-block text-xs text-sky-400 hover:underline">
+          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">{topicList.length}</p>
+          <Link href="/topics" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
             주제별 History →
           </Link>
         </Card>
         <Card>
           <p className="text-xs text-zinc-500">최근 다이제스트</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">
+          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
             {latest ? `제${latest.issueNo}호` : "없음"}
           </p>
-          <Link href="/digest" className="mt-3 inline-block text-xs text-sky-400 hover:underline">
+          <Link href="/digest" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
             뉴스 다이제스트 →
           </Link>
         </Card>
         <Card>
           <p className="text-xs text-zinc-500">문서 Q&A</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">RAG</p>
-          <Link href="/ask" className="mt-3 inline-block text-xs text-sky-400 hover:underline">
+          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">RAG</p>
+          <Link href="/ask" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
             질문하기 →
           </Link>
         </Card>
@@ -195,15 +195,15 @@ export default function DashboardPage() {
 
       {/* 핵심 시그널 (최근 자동 다이제스트의 영향도 상 항목) */}
       <section className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-zinc-300">영향도 높은 시그널</h2>
+        <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">영향도 높은 시그널</h2>
         {highImpact.length === 0 ? (
           <Card>
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
               {latest
                 ? "최근 다이제스트에 영향도 '상' 항목이 없습니다."
                 : "아직 자동 생성된 다이제스트가 없습니다. "}
               {!latest && (
-                <Link href="/digest" className="text-sky-400 hover:underline">
+                <Link href="/digest" className="text-sky-600 dark:text-sky-400 hover:underline">
                   다이제스트 생성 →
                 </Link>
               )}
@@ -214,8 +214,8 @@ export default function DashboardPage() {
             {highImpact.map((item) => (
               <Card key={item.id} className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-zinc-100">{item.title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-zinc-400">{item.slsiRelevance}</p>
+                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{item.title}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">{item.slsiRelevance}</p>
                 </div>
                 <ImpactBadge level={item.impact} />
               </Card>
@@ -226,7 +226,7 @@ export default function DashboardPage() {
 
       {/* 수집 파이프라인 상태 (실시간) */}
       <section className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-zinc-300">수집 파이프라인 상태</h2>
+        <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">수집 파이프라인 상태</h2>
         <PipelineStatus />
       </section>
     </>

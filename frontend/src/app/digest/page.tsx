@@ -27,27 +27,27 @@ function digestContext(d: GeneratedDigest): string {
 
 function AgentCommentCard({ comment }: { comment: AgentComment }) {
   return (
-    <Card className="mb-4 border-violet-900/40 bg-violet-950/15">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-300">
+    <Card className="mb-4 border-violet-100/40 dark:border-violet-900/40 bg-violet-50/15 dark:bg-violet-950/15">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
         🤖 에이전트 코멘트 — 초안 검토
       </p>
       {comment.numbersGrounded === false &&
         comment.ungroundedNumbers &&
         comment.ungroundedNumbers.length > 0 && (
-          <p className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+          <p className="mt-2 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
             ⚠ 다음 수치는 수집 문서에서 확인되지 않았습니다(웹 출처이거나 오류일 수 있음 — 검토 필요):{" "}
             <span className="font-mono">{comment.ungroundedNumbers.join(", ")}</span>
           </p>
         )}
-      <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-200" />
+      <Markdown text={comment.answer} className="mt-2 text-sm text-zinc-800 dark:text-zinc-200" />
       {comment.sources && comment.sources.length > 0 && (
-        <div className="mt-3 border-t border-zinc-800 pt-2">
+        <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2">
           <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
             관련 수집 문서
           </p>
           <ul className="flex flex-col gap-1">
             {comment.sources.map((s, i) => (
-              <li key={i} className="flex items-center gap-2 text-xs text-zinc-300">
+              <li key={i} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
                 <Tag>{s.source}</Tag>
                 <span>{s.title}</span>
                 {s.publishedAt && <span className="text-zinc-500">· {s.publishedAt}</span>}
@@ -86,11 +86,11 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
     <Card>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-100">{item.title}</h3>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{item.title}</h3>
           <p className="mt-1 text-xs text-zinc-500">
             {item.source} · {item.publishedAt}
             {sourceUnverified && (
-              <span className="ml-1 text-amber-400">· ⚠ 출처 미검증</span>
+              <span className="ml-1 text-amber-600 dark:text-amber-400">· ⚠ 출처 미검증</span>
             )}
           </p>
         </div>
@@ -98,7 +98,7 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
       </div>
 
       {(ungrounded.length > 0 || sourceUnverified) && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           {ungrounded.length > 0 && (
             <>
               ⚠ 환각 주의 — 제공 문서에서 확인되지 않은 수치:{" "}
@@ -111,20 +111,20 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
         </p>
       )}
 
-      <p className="mt-3 text-sm leading-relaxed text-zinc-300">{item.summary}</p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{item.summary}</p>
 
       <dl className="mt-4 grid grid-cols-3 gap-3 text-xs">
-        <div className="rounded-lg bg-zinc-800/50 px-3 py-2.5">
+        <div className="rounded-lg bg-zinc-200/50 dark:bg-zinc-800/50 px-3 py-2.5">
           <dt className="font-medium text-zinc-500">S.LSI 연관성</dt>
-          <dd className="mt-1 leading-relaxed text-zinc-300">{item.slsiRelevance}</dd>
+          <dd className="mt-1 leading-relaxed text-zinc-700 dark:text-zinc-300">{item.slsiRelevance}</dd>
         </div>
-        <div className="rounded-lg bg-zinc-800/50 px-3 py-2.5">
+        <div className="rounded-lg bg-zinc-200/50 dark:bg-zinc-800/50 px-3 py-2.5">
           <dt className="font-medium text-zinc-500">수요 변동</dt>
-          <dd className="mt-1 leading-relaxed text-zinc-300">{item.demandImpact}</dd>
+          <dd className="mt-1 leading-relaxed text-zinc-700 dark:text-zinc-300">{item.demandImpact}</dd>
         </div>
-        <div className="rounded-lg bg-zinc-800/50 px-3 py-2.5">
+        <div className="rounded-lg bg-zinc-200/50 dark:bg-zinc-800/50 px-3 py-2.5">
           <dt className="font-medium text-zinc-500">리스크</dt>
-          <dd className="mt-1 leading-relaxed text-zinc-300">{item.risk}</dd>
+          <dd className="mt-1 leading-relaxed text-zinc-700 dark:text-zinc-300">{item.risk}</dd>
         </div>
       </dl>
 
@@ -257,7 +257,7 @@ export default function DigestPage() {
       <Card className="mb-8">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">AI 다이제스트 초안 생성</h2>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI 다이제스트 초안 생성</h2>
             <p className="mt-1 text-xs text-zinc-500">
               수집된 문서를 분석해 제{NEXT_ISSUE_NO}호 초안을 생성합니다. (게이트웨이 연동)
             </p>
@@ -265,13 +265,13 @@ export default function DigestPage() {
           <button
             onClick={handleGenerate}
             disabled={loading}
-            className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "생성 중…" : "AI 초안 생성"}
           </button>
         </div>
         {error && (
-          <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+          <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
             {error}
           </p>
         )}
@@ -304,12 +304,12 @@ export default function DigestPage() {
         {latest && (
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-zinc-50">
+              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                 제{latest.issueNo}호{" "}
-                <span className="ml-1 text-sm font-normal text-zinc-400">{latest.period}</span>
+                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">{latest.period}</span>
               </h2>
               <div className="flex items-center gap-2">
-                <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
+                <span className="rounded-full border border-emerald-100/60 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/40 px-3 py-1 text-xs text-emerald-600 dark:text-emerald-400">
                   자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
                   {latest.sourceDocCount}건
                 </span>
@@ -317,7 +317,7 @@ export default function DigestPage() {
                   onClick={() => handleAgentComment(latest)}
                   disabled={commentLoading || latest.items.length === 0}
                   title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
-                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-violet-200/70 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 transition hover:bg-violet-100/40 dark:hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
                 </button>
@@ -332,13 +332,13 @@ export default function DigestPage() {
               <AgentCommentCard comment={comment} />
             )}
             {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
-              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {latest.unsupportedClaims.join(" / ")}
               </p>
             )}
             {latest.items.length === 0 ? (
               <Card>
-                <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">생성된 항목이 없습니다.</p>
               </Card>
             ) : (
               <div className="flex flex-col gap-4">
@@ -354,21 +354,21 @@ export default function DigestPage() {
         {generated && (
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-zinc-50">
+              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                 제{generated.issueNo}호{" "}
-                <span className="ml-1 text-sm font-normal text-zinc-400">
+                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">
                   {generated.period}
                 </span>
               </h2>
               <div className="flex items-center gap-2">
-                <span className="rounded-full border border-sky-900/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-400">
+                <span className="rounded-full border border-sky-100/60 dark:border-sky-900/60 bg-sky-50/40 dark:bg-sky-950/40 px-3 py-1 text-xs text-sky-600 dark:text-sky-400">
                   AI 생성 초안 · 문서 {generated.sourceDocCount}건 기반
                 </span>
                 <button
                   onClick={() => handleAgentComment(generated)}
                   disabled={commentLoading || generated.items.length === 0}
                   title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
-                  className="rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-200 transition hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-violet-200/70 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 transition hover:bg-violet-100/40 dark:hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
                 </button>
@@ -376,7 +376,7 @@ export default function DigestPage() {
                   onClick={() => handleSend(generated)}
                   disabled={sending || generated.items.length === 0}
                   title="다이제스트를 메일로 발송 (SMTP 미설정 시 미리보기만)"
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {sending ? "발송 중…" : "메일 발송"}
                 </button>
@@ -386,8 +386,8 @@ export default function DigestPage() {
                     onClick={() => handleFeedback(generated, "up")}
                     className={`rounded-md border px-2 py-1 text-xs ${
                       fb === "up"
-                        ? "border-emerald-700 bg-emerald-950/50 text-emerald-300"
-                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                        ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                        : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700"
                     }`}
                   >
                     👍
@@ -396,8 +396,8 @@ export default function DigestPage() {
                     onClick={() => handleFeedback(generated, "down")}
                     className={`rounded-md border px-2 py-1 text-xs ${
                       fb === "down"
-                        ? "border-red-800 bg-red-950/50 text-red-300"
-                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                        ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50 text-red-700 dark:text-red-300"
+                        : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700"
                     }`}
                   >
                     👎
@@ -412,15 +412,15 @@ export default function DigestPage() {
               <p
                 className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
                   sendMsg.ok
-                    ? "border-emerald-900/60 bg-emerald-950/40 text-emerald-400"
-                    : "border-amber-900/60 bg-amber-950/40 text-amber-300"
+                    ? "border-emerald-100/60 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                    : "border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300"
                 }`}
               >
                 {sendMsg.text}
               </p>
             )}
             {commentError && (
-              <p className="mb-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+              <p className="mb-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                 {commentError}
               </p>
             )}
@@ -433,13 +433,13 @@ export default function DigestPage() {
               <AgentCommentCard comment={comment} />
             )}
             {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (
-              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {generated.unsupportedClaims.join(" / ")}
               </p>
             )}
             {generated.items.length === 0 ? (
               <Card>
-                <p className="text-sm text-zinc-400">생성된 항목이 없습니다.</p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">생성된 항목이 없습니다.</p>
               </Card>
             ) : (
               <div className="flex flex-col gap-4">
@@ -455,18 +455,18 @@ export default function DigestPage() {
         {digests.map((digest) => (
           <section key={digest.id}>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-zinc-50">
+              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                 제{digest.issueNo}호{" "}
-                <span className="ml-1 text-sm font-normal text-zinc-400">
+                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">
                   {digest.period}
                 </span>
               </h2>
               {digest.mailedAt ? (
-                <span className="rounded-full border border-emerald-900/60 bg-emerald-950/40 px-3 py-1 text-xs text-emerald-400">
+                <span className="rounded-full border border-emerald-100/60 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/40 px-3 py-1 text-xs text-emerald-600 dark:text-emerald-400">
                   발송 완료 · {digest.mailedAt}
                 </span>
               ) : (
-                <span className="rounded-full border border-amber-900/60 bg-amber-950/40 px-3 py-1 text-xs text-amber-400">
+                <span className="rounded-full border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-1 text-xs text-amber-600 dark:text-amber-400">
                   초안 — 발송 전 검토 필요
                 </span>
               )}

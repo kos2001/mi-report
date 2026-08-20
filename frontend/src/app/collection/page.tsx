@@ -40,10 +40,10 @@ const TAB_GROUPS: {
 const CONNECTOR_TYPES: SourceType[] = ["edm", "confluence", "news", "broker", "consensus"];
 
 function statusColor(status: string) {
-  if (status === "정상") return "text-emerald-400";
-  if (status === "지연") return "text-amber-400";
-  if (status === "오류") return "text-red-400";
-  return "text-zinc-400";
+  if (status === "정상") return "text-emerald-600 dark:text-emerald-400";
+  if (status === "지연") return "text-amber-600 dark:text-amber-400";
+  if (status === "오류") return "text-red-600 dark:text-red-400";
+  return "text-zinc-600 dark:text-zinc-400";
 }
 
 // 소스 삭제(확인창 포함). 소스와 그 소스로 수집된 문서까지 함께 제거된다.
@@ -101,7 +101,7 @@ export default function CollectionPage() {
       />
 
       {error && (
-        <div className="mb-5 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+        <div className="mb-5 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -111,23 +111,23 @@ export default function CollectionPage() {
           {TAB_GROUPS.map((g, gi) => (
             <Fragment key={g.group}>
               {gi > 0 && (
-                <span className="mb-2 select-none px-1 text-lg text-zinc-600" aria-hidden>
+                <span className="mb-2 select-none px-1 text-lg text-zinc-400 dark:text-zinc-600" aria-hidden>
                   →
                 </span>
               )}
               <div>
                 <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                  {g.group} <span className="text-zinc-600">· {g.hint}</span>
+                  {g.group} <span className="text-zinc-400 dark:text-zinc-600">· {g.hint}</span>
                 </p>
-                <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+                <div className="flex gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/40 dark:bg-zinc-900/40 p-1">
                   {g.tabs.map((t) => (
                     <button
                       key={t.key}
                       onClick={() => setTab(t.key)}
                       className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${
                         tab === t.key
-                          ? "bg-zinc-800 font-medium text-zinc-50"
-                          : "text-zinc-400 hover:text-zinc-200"
+                          ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-950 dark:text-zinc-50"
+                          : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
                       }`}
                     >
                       {t.label}
@@ -139,8 +139,8 @@ export default function CollectionPage() {
           ))}
         </div>
         <p className="mt-2 text-[11px] text-zinc-500">
-          <span className="text-zinc-400">소스</span>(어디서) →{" "}
-          <span className="text-zinc-400">문서</span>(무엇을). ‘상태·수집’의 ‘지금 수집’(자동)과
+          <span className="text-zinc-600 dark:text-zinc-400">소스</span>(어디서) →{" "}
+          <span className="text-zinc-600 dark:text-zinc-400">문서</span>(무엇을). ‘상태·수집’의 ‘지금 수집’(자동)과
           ‘업로드’(수동)가 각각 문서를 만들고, 모든 문서는 소스에 귀속됩니다.
         </p>
       </div>
@@ -266,7 +266,7 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
   return (
     <div className="flex flex-col gap-5">
       <Card>
-        <p className="mb-3 text-sm font-medium text-zinc-200">소스 추가</p>
+        <p className="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">소스 추가</p>
         <div className="flex flex-col gap-3">
           {/* 1행: 이름 + 타입 — 타입에 따라 아래 입력 폼이 바뀐다 */}
           <div className="flex gap-2">
@@ -274,12 +274,12 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="소스 이름"
-              className="w-52 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              className="w-52 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
             />
             <select
               value={type}
               onChange={(e) => changeType(e.target.value as SourceType)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
             >
               {CREATE_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -302,7 +302,7 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
                       if (e.key === "Enter" && !busy) add();
                     }}
                     placeholder={f.placeholder}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                    className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
                   />
                 </label>
               ))}
@@ -321,7 +321,7 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
           </div>
         </div>
         {error && (
-          <p className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-400">
+          <p className="mt-3 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400">
             {error}
           </p>
         )}
@@ -333,7 +333,7 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
             <div className="flex items-center gap-3">
               <Tag>{SOURCE_TYPE_LABEL[s.type]}</Tag>
               <div>
-                <p className="text-sm font-medium text-zinc-100">{s.name}</p>
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{s.name}</p>
                 <p className="text-xs text-zinc-500">
                   <span className={statusColor(s.status)}>● {s.status}</span>
                   {" · "}최근 {s.lastRun ?? "—"} · 누적 {s.count}건
@@ -348,15 +348,15 @@ function SourcesTab({ sources, onChange }: { sources: Source[]; onChange: () => 
                 aria-pressed={s.enabled}
                 className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
                   s.enabled
-                    ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/40"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+                    ? "border-emerald-200/60 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100/40 dark:hover:bg-emerald-900/40"
+                    : "border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 }`}
               >
                 {s.enabled ? "● 활성" : "○ 비활성"}
               </button>
               <button
                 onClick={() => deleteSourceWithConfirm(s, onChange)}
-                className="rounded-md px-2.5 py-1 text-xs text-zinc-500 hover:text-red-400"
+                className="rounded-md px-2.5 py-1 text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
               >
                 삭제
               </button>
@@ -453,7 +453,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
     <Card className="p-0">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+          <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
             <th className="px-5 py-3 font-medium">소스</th>
             <th className="px-5 py-3 font-medium">상태</th>
             <th className="px-5 py-3 font-medium">최근 실행</th>
@@ -469,12 +469,12 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
             const docs = docsBySource[s.id];
             return (
               <Fragment key={s.id}>
-                <tr className="border-b border-zinc-800/60 last:border-0">
-                  <td className="px-5 py-3 text-zinc-200">
+                <tr className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
+                  <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">
                     <button
                       onClick={() => toggleExpand(s.id)}
                       title="출처 상세 보기"
-                      className="flex items-center gap-2 text-left hover:text-sky-300"
+                      className="flex items-center gap-2 text-left hover:text-sky-700 dark:hover:text-sky-300"
                     >
                       <span className="w-3 text-xs text-zinc-500">{open ? "▾" : "▸"}</span>
                       <span>
@@ -488,10 +488,10 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                   <td className="px-5 py-3">
                     <span className={statusColor(s.status)}>● {s.status}</span>
                   </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-400">
+                  <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                     {s.lastRun ?? "—"}
                   </td>
-                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
+                  <td className="px-5 py-3 text-right font-mono text-xs text-zinc-700 dark:text-zinc-300">
                     {s.count}
                   </td>
                   <td className="px-5 py-3 text-right">
@@ -501,25 +501,25 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                           onClick={() => collect(s)}
                           disabled={!s.enabled || busyId === s.id}
                           title={!s.enabled ? "비활성 소스" : "URL 이 있으면 실제 수집, 없으면 스텁"}
-                          className="rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+                          className="rounded-md bg-zinc-200 dark:bg-zinc-800 px-2.5 py-1 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
                         >
                           {busyId === s.id ? "수집 중…" : "지금 수집"}
                         </button>
                         {result[s.id] && (
                           <span
-                            className={`text-[11px] ${result[s.id].ok ? "text-emerald-400" : "text-red-400"}`}
+                            className={`text-[11px] ${result[s.id].ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
                           >
                             {result[s.id].msg.slice(0, 60)}
                           </span>
                         )}
                       </div>
                     ) : (
-                      <span className="text-xs text-zinc-600">업로드 전용</span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-600">업로드 전용</span>
                     )}
                   </td>
                 </tr>
                 {open && (
-                  <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
+                  <tr className="border-b border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-100/40 dark:bg-zinc-900/40">
                     <td colSpan={5} className="px-5 py-4">
                       <div className="grid gap-5 sm:grid-cols-2">
                         {/* 출처 설정 */}
@@ -530,31 +530,31 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                           <dl className="flex flex-col gap-1 text-xs">
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-zinc-500">타입</dt>
-                              <dd className="text-zinc-300">{SOURCE_TYPE_LABEL[s.type]}</dd>
+                              <dd className="text-zinc-700 dark:text-zinc-300">{SOURCE_TYPE_LABEL[s.type]}</dd>
                             </div>
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-zinc-500">활성</dt>
-                              <dd className="text-zinc-300">{s.enabled ? "예" : "아니오"}</dd>
+                              <dd className="text-zinc-700 dark:text-zinc-300">{s.enabled ? "예" : "아니오"}</dd>
                             </div>
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-zinc-500">생성일</dt>
-                              <dd className="font-mono text-zinc-400">{s.createdAt}</dd>
+                              <dd className="font-mono text-zinc-600 dark:text-zinc-400">{s.createdAt}</dd>
                             </div>
                             {configEntries.length === 0 ? (
-                              <p className="mt-1 text-zinc-600">추가 설정 없음</p>
+                              <p className="mt-1 text-zinc-400 dark:text-zinc-600">추가 설정 없음</p>
                             ) : (
                               configEntries.map(([k, v]) => (
                                 <div key={k} className="flex gap-2">
                                   <dt className="w-20 shrink-0 text-zinc-500">
                                     {CONFIG_LABEL[k] ?? k}
                                   </dt>
-                                  <dd className="break-all text-zinc-300">
+                                  <dd className="break-all text-zinc-700 dark:text-zinc-300">
                                     {k === "url" ? (
                                       <a
                                         href={String(v)}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="text-sky-400 hover:underline"
+                                        className="text-sky-600 dark:text-sky-400 hover:underline"
                                       >
                                         {formatConfigValue(v)}
                                       </a>
@@ -575,12 +575,12 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                           {docsLoading === s.id ? (
                             <p className="text-xs text-zinc-500">불러오는 중…</p>
                           ) : !docs || docs.length === 0 ? (
-                            <p className="text-xs text-zinc-600">이 소스로 수집된 문서가 없습니다.</p>
+                            <p className="text-xs text-zinc-400 dark:text-zinc-600">이 소스로 수집된 문서가 없습니다.</p>
                           ) : (
                             <ul className="flex flex-col gap-1.5">
                               {docs.map((d) => (
                                 <li key={d.id} className="flex items-center gap-2 text-xs">
-                                  <span className="truncate text-zinc-300">{d.title}</span>
+                                  <span className="truncate text-zinc-700 dark:text-zinc-300">{d.title}</span>
                                   {d.topic && <Tag>{d.topic}</Tag>}
                                   <span className="ml-auto shrink-0 font-mono text-zinc-500">
                                     {d.createdAt}
@@ -588,7 +588,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
                                   <button
                                     onClick={() => deleteDoc(s.id, d.id)}
                                     title="이 문서 삭제"
-                                    className="shrink-0 rounded px-1.5 py-0.5 text-zinc-500 hover:text-red-400"
+                                    className="shrink-0 rounded px-1.5 py-0.5 text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
                                   >
                                     삭제
                                   </button>
@@ -606,7 +606,7 @@ function StatusTab({ sources, onChange }: { sources: Source[]; onChange: () => v
           })}
         </tbody>
       </table>
-      <p className="border-t border-zinc-800 px-5 py-2.5 text-[11px] text-amber-400/70">
+      <p className="border-t border-zinc-200 dark:border-zinc-800 px-5 py-2.5 text-[11px] text-amber-600/70 dark:text-amber-400/70">
         ⚠️ URL 이 설정된 소스는 실제로 페이지를 가져옵니다. URL 이 없는 소스는 스텁(실행 기록만 갱신)입니다.
       </p>
     </Card>
@@ -661,7 +661,7 @@ function UploadTab({ onChange }: { onChange: () => void }) {
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder="예: HBM, 파운드리"
-          className="mb-4 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="mb-4 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         />
         <div
           onDragOver={(e) => {
@@ -677,11 +677,11 @@ function UploadTab({ onChange }: { onChange: () => void }) {
           onClick={() => inputRef.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
             drag
-              ? "border-sky-500 bg-sky-950/30"
-              : "border-zinc-700 hover:border-zinc-600"
+              ? "border-sky-500 bg-sky-50/30 dark:bg-sky-950/30"
+              : "border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-600"
           }`}
         >
-          <p className="text-sm text-zinc-300">
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">
             {uploading ? "업로드 중…" : "파일을 드래그하거나 클릭해서 선택"}
           </p>
           <p className="mt-1 text-xs text-zinc-500">
@@ -702,7 +702,7 @@ function UploadTab({ onChange }: { onChange: () => void }) {
           <p className="mb-2 text-xs text-zinc-500">방금 업로드</p>
           <ul className="flex flex-col gap-1">
             {recent.map((n, i) => (
-              <li key={n + i} className="text-sm text-zinc-300">
+              <li key={n + i} className="text-sm text-zinc-700 dark:text-zinc-300">
                 ✓ {n}
               </li>
             ))}
@@ -759,13 +759,13 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="제목·주제로 검색"
-          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+          className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500"
         />
         <button
           onClick={classifyAll}
           disabled={batchBusy || untaggedCount === 0}
           title="주제가 비어 있는 문서를 AI 로 일괄 분류"
-          className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {batchBusy ? "분류 중…" : `미분류 자동 분류${untaggedCount ? ` (${untaggedCount})` : ""}`}
         </button>
@@ -778,7 +778,7 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
                 <th className="px-5 py-3 font-medium">제목</th>
                 <th className="px-5 py-3 font-medium">출처</th>
                 <th className="px-5 py-3 font-medium">주제</th>
@@ -788,13 +788,13 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
             </thead>
             <tbody>
               {filtered.map((d) => (
-                <tr key={d.id} className="border-b border-zinc-800/60 last:border-0">
-                  <td className="px-5 py-3 text-zinc-200">{d.title}</td>
-                  <td className="px-5 py-3 text-xs text-zinc-400">{d.sourceName}</td>
+                <tr key={d.id} className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
+                  <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">{d.title}</td>
+                  <td className="px-5 py-3 text-xs text-zinc-600 dark:text-zinc-400">{d.sourceName}</td>
                   <td className="px-5 py-3">
-                    {d.topic ? <Tag>{d.topic}</Tag> : <span className="text-xs text-zinc-600">—</span>}
+                    {d.topic ? <Tag>{d.topic}</Tag> : <span className="text-xs text-zinc-400 dark:text-zinc-600">—</span>}
                   </td>
-                  <td className="px-5 py-3 font-mono text-xs text-zinc-400">
+                  <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                     {d.createdAt}
                   </td>
                   <td className="px-5 py-3 text-right">
@@ -803,14 +803,14 @@ function DocumentsTab({ docs, onChange }: { docs: CollectedDoc[]; onChange: () =
                         <button
                           onClick={() => classifyOne(d.id)}
                           disabled={busyId === d.id}
-                          className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-50"
+                          className="text-xs text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 disabled:opacity-50"
                         >
                           {busyId === d.id ? "분류 중…" : "분류"}
                         </button>
                       )}
                       <button
                         onClick={() => api.deleteDocument(d.id).then(onChange)}
-                        className="text-xs text-zinc-500 hover:text-red-400"
+                        className="text-xs text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
                       >
                         삭제
                       </button>

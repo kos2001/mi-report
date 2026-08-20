@@ -13,17 +13,17 @@ import {
 import { Card, PageHeader, Tag } from "@/components/ui";
 
 function statusColor(status: string) {
-  if (status === "정상") return "text-emerald-400";
-  if (status === "지연") return "text-amber-400";
-  if (status === "오류") return "text-red-400";
-  return "text-zinc-400";
+  if (status === "정상") return "text-emerald-600 dark:text-emerald-400";
+  if (status === "지연") return "text-amber-600 dark:text-amber-400";
+  if (status === "오류") return "text-red-600 dark:text-red-400";
+  return "text-zinc-600 dark:text-zinc-400";
 }
 
 function Kpi({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <Card>
       <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-zinc-50">{value}</p>
+      <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">{value}</p>
       {hint && <p className="mt-1 text-[11px] text-zinc-500">{hint}</p>}
     </Card>
   );
@@ -81,7 +81,7 @@ export default function CollectionResultsPage() {
       />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+        <div className="mb-6 rounded-lg border border-red-100/60 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -101,8 +101,8 @@ export default function CollectionResultsPage() {
           {/* 소스별 수집 현황 */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-zinc-300">소스별 수집 현황</h2>
-              <Link href="/collection" className="text-xs text-sky-400 hover:underline">
+              <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">소스별 수집 현황</h2>
+              <Link href="/collection" className="text-xs text-sky-600 dark:text-sky-400 hover:underline">
                 소스 관리 →
               </Link>
             </div>
@@ -112,7 +112,7 @@ export default function CollectionResultsPage() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+                    <tr className="border-b border-zinc-200 dark:border-zinc-800 text-left text-xs text-zinc-500">
                       <th className="px-5 py-3 font-medium">소스</th>
                       <th className="px-5 py-3 font-medium">타입</th>
                       <th className="px-5 py-3 font-medium">상태</th>
@@ -122,18 +122,18 @@ export default function CollectionResultsPage() {
                   </thead>
                   <tbody>
                     {sources.map((s) => (
-                      <tr key={s.id} className="border-b border-zinc-800/60 last:border-0">
-                        <td className="px-5 py-3 text-zinc-200">{s.name}</td>
-                        <td className="px-5 py-3 text-xs text-zinc-400">
+                      <tr key={s.id} className="border-b border-zinc-200/60 dark:border-zinc-800/60 last:border-0">
+                        <td className="px-5 py-3 text-zinc-800 dark:text-zinc-200">{s.name}</td>
+                        <td className="px-5 py-3 text-xs text-zinc-600 dark:text-zinc-400">
                           {SOURCE_TYPE_LABEL[s.type]}
                         </td>
                         <td className="px-5 py-3">
                           <span className={statusColor(s.status)}>● {s.status}</span>
                         </td>
-                        <td className="px-5 py-3 font-mono text-xs text-zinc-400">
+                        <td className="px-5 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">
                           {s.lastRun ?? "—"}
                         </td>
-                        <td className="px-5 py-3 text-right font-mono text-xs text-zinc-300">
+                        <td className="px-5 py-3 text-right font-mono text-xs text-zinc-700 dark:text-zinc-300">
                           {s.count}
                         </td>
                       </tr>
@@ -146,10 +146,10 @@ export default function CollectionResultsPage() {
 
           {/* 주제 분포 */}
           <section>
-            <h2 className="mb-3 text-sm font-medium text-zinc-300">주제 분포</h2>
+            <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">주제 분포</h2>
             {topics.length === 0 ? (
               <Card>
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   분류된 주제가 없습니다. 데이터 수집의 문서 탭에서 자동 분류를 실행하세요.
                 </p>
               </Card>
@@ -160,17 +160,17 @@ export default function CollectionResultsPage() {
                     <li key={t.topic} className="flex items-center gap-3">
                       <Link
                         href={`/collection/documents?topic=${encodeURIComponent(t.topic)}`}
-                        className="w-40 shrink-0 truncate text-sm text-zinc-300 hover:text-sky-300"
+                        className="w-40 shrink-0 truncate text-sm text-zinc-700 dark:text-zinc-300 hover:text-sky-700 dark:hover:text-sky-300"
                       >
                         {t.topic}
                       </Link>
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                         <div
                           className="h-full rounded-full bg-sky-600"
                           style={{ width: `${maxTopic ? (t.count / maxTopic) * 100 : 0}%` }}
                         />
                       </div>
-                      <span className="w-10 shrink-0 text-right font-mono text-xs text-zinc-400">
+                      <span className="w-10 shrink-0 text-right font-mono text-xs text-zinc-600 dark:text-zinc-400">
                         {t.count}
                       </span>
                     </li>
@@ -183,8 +183,8 @@ export default function CollectionResultsPage() {
           {/* 최근 수집 문서 */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-zinc-300">최근 수집 문서</h2>
-              <Link href="/collection/documents" className="text-xs text-sky-400 hover:underline">
+              <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">최근 수집 문서</h2>
+              <Link href="/collection/documents" className="text-xs text-sky-600 dark:text-sky-400 hover:underline">
                 전체 문서 보기 →
               </Link>
             </div>
@@ -194,20 +194,20 @@ export default function CollectionResultsPage() {
                   수집된 문서가 없습니다.
                 </p>
               ) : (
-                <ul className="divide-y divide-zinc-800/60">
+                <ul className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
                   {recent.map((d) => (
                     <li key={d.id}>
                       <Link
                         href={`/collection/documents?doc=${d.id}`}
-                        className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-zinc-900"
+                        className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900"
                       >
-                        <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                        <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-200">
                           {d.title}
                         </span>
                         {d.topic ? (
                           <Tag>{d.topic}</Tag>
                         ) : (
-                          <span className="text-[11px] text-zinc-600">미분류</span>
+                          <span className="text-[11px] text-zinc-400 dark:text-zinc-600">미분류</span>
                         )}
                         <span className="shrink-0 text-xs text-zinc-500">{d.sourceName}</span>
                         <span className="shrink-0 font-mono text-xs text-zinc-500">
