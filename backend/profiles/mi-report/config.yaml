@@ -6,7 +6,7 @@
 # embeddings/reranker/VLM 은 항상 OPENROUTER_* 를 사용한다.
 
 model:
-  default: "minimax/minimax-m3"  # OPENROUTER_MODEL 로 재정의 가능
+  default: "deepseek/deepseek-v4-flash-0731"  # OPENROUTER_MODEL 로 재정의 가능
   provider: "openrouter"
   base_url: "https://openrouter.ai/api/v1"
 
