@@ -11,11 +11,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 
-from . import agentchat, assets, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
+from . import agentchat, assets, auth, classify, collection, competitors, digest, gateway, mailer, pipeline, qa_golden, rag, report, schedule, topics, voc
 from .gateway import LLMError, get_client
 from .profiles import get_active_profile_name, list_profiles, load_profile
 from .schemas import (
@@ -35,6 +36,7 @@ from .schemas import (
     SourceUpdate,
     QaGoldenCreate,
     TopicSummarizeRequest,
+    UserCreate,
     VocCreate,
     VocStatusUpdate,
 )
@@ -106,6 +108,23 @@ app.add_middleware(
 # 문서 목록·다이제스트 등 큰 JSON 응답 압축(전송량·체감 지연 감소)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+# 읽기(GET)=viewer 이상, 쓰기(그 외 메서드)=admin 전용. users.yaml 이 비어 있으면
+# (아무도 아직 만들지 않았으면) 인증이 꺼져 있다고 보고 통과시킨다 — 그래야 최초
+# 관리자를 POST /auth/users 로 만들 수 있다(부트스트랩).
+_AUTH_EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    if request.method in ("GET", "OPTIONS") or request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    user = auth.authenticate(request.headers.get("x-user-token"))
+    if user is None:
+        return JSONResponse({"detail": "인증 필요 (X-User-Token 헤더)"}, status_code=401)
+    if user["role"] != "admin":
+        return JSONResponse({"detail": "관리자 권한이 필요합니다."}, status_code=403)
+    return await call_next(request)
+
 
 def _client(profile: str | None = None):
     try:
@@ -124,6 +143,39 @@ def profiles():
 @app.get("/health")
 def health():
     return {"status": "ok", "active_profile": get_active_profile_name()}
+
+
+# ── 사용자 인증/권한(admin/viewer) ─────────────────────────────────────────
+@app.get("/auth/me")
+def auth_me(request: Request):
+    user = auth.authenticate(request.headers.get("x-user-token"))
+    return {"user": user, "authEnabled": auth.enabled()}
+
+
+@app.get("/auth/users")
+def auth_users_list(request: Request):
+    # GET 은 전역 게이트에서 viewer 도 통과하지만, 이 목록엔 다른 사람의 토큰이
+    # 그대로 들어 있으므로(뷰어가 보면 그대로 관리자로 위장 가능) 여기서만 admin 강제.
+    user = auth.authenticate(request.headers.get("x-user-token"))
+    if user is None or user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+    return {"users": auth.list_users()}
+
+
+@app.post("/auth/users", status_code=201)
+def auth_users_create(req: UserCreate):
+    try:
+        return auth.create_user(req.name, req.role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/auth/users/{name}", status_code=204)
+def auth_users_delete(name: str):
+    try:
+        auth.delete_user(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"사용자 없음: {name}") from e
 
 
 # ── 지식 자산 (생성물 누적) + 자기 개선 (피드백) ──────────────────────────

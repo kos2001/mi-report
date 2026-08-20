@@ -260,6 +260,12 @@ class CriticalPointOut(BaseModel):
     evidence: list[EvidenceQuote] = Field(default_factory=list)
 
 
+# ── 사용자 인증/권한 ───────────────────────────────────────────────────────
+class UserCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    role: Literal["admin", "viewer"] = "viewer"
+
+
 # ── 문서 코퍼스 Q&A (RAG) ─────────────────────────────────────────────────
 class RagQueryRequest(BaseModel):
     """수집 문서 근거 자연어 질문."""
