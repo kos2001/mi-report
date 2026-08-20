@@ -10,6 +10,7 @@ import {
   type TopicListItem,
 } from "@/lib/api";
 import { Card, PageHeader, Tag } from "@/components/ui";
+import { Markdown } from "@/components/markdown";
 
 export default function CollectionDocumentsPage() {
   const [docs, setDocs] = useState<CollectedDoc[]>([]);
@@ -210,6 +211,16 @@ export default function CollectionDocumentsPage() {
                     {contentDoc?.publishedAt && <span>· 발행 {contentDoc.publishedAt}</span>}
                     {content && <span>· {content.length.toLocaleString()}자</span>}
                   </p>
+                  {contentDoc?.filename && /^https?:\/\//.test(contentDoc.filename) && (
+                    <a
+                      href={contentDoc.filename}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+                    >
+                      원본 보기 ↗
+                    </a>
+                  )}
                 </div>
                 {content === null ? (
                   <p className="px-5 py-8 text-sm text-zinc-500">
@@ -217,9 +228,7 @@ export default function CollectionDocumentsPage() {
                   </p>
                 ) : (
                   <div className="overflow-y-auto px-5 py-4">
-                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                      {content}
-                    </pre>
+                    <Markdown text={content} className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300" />
                     {content.length >= 50000 && (
                       <p className="mt-3 text-[11px] text-amber-600/70 dark:text-amber-400/70">
                         ⚠️ 본문이 길어 최대 5만자까지만 표시했습니다.
