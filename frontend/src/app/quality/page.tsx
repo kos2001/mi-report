@@ -71,33 +71,46 @@ export default function QualityPage() {
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               최근 근거 검증 실패 ({summary.recentFlagged.length})
             </h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              숫자만이 아니라 실제로 무엇이·왜 근거가 없다고 판단됐는지 — 자기개선 loop이 참고하는 근거입니다.
+            </p>
             {summary.recentFlagged.length === 0 ? (
               <p className="mt-3 text-xs text-zinc-500">
                 최근 생성물 중 미근거 수치·근거 없는 서술이 잡힌 것이 없습니다.
               </p>
             ) : (
-              <table className="mt-3 w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500">
-                    <th className="pb-2 font-medium">종류</th>
-                    <th className="pb-2 font-medium">제목</th>
-                    <th className="pb-2 font-medium">미근거 수치</th>
-                    <th className="pb-2 font-medium">근거 없는 서술</th>
-                    <th className="pb-2 font-medium">생성일</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.recentFlagged.map((f) => (
-                    <tr key={f.id} className="border-b border-zinc-100 dark:border-zinc-900 last:border-0">
-                      <td className="py-2"><Tag>{KIND_LABEL[f.kind] ?? f.kind}</Tag></td>
-                      <td className="py-2 text-zinc-900 dark:text-zinc-100">{f.title}</td>
-                      <td className="py-2 text-amber-600 dark:text-amber-400">{f.ungroundedCount || "—"}</td>
-                      <td className="py-2 text-amber-600 dark:text-amber-400">{f.unsupportedCount || "—"}</td>
-                      <td className="py-2 font-mono text-zinc-500">{f.createdAt}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ul className="mt-3 flex flex-col gap-3">
+                {summary.recentFlagged.map((f) => (
+                  <li key={f.id} className="rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Tag>{KIND_LABEL[f.kind] ?? f.kind}</Tag>
+                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{f.title}</span>
+                      </div>
+                      <span className="font-mono text-[11px] text-zinc-500">{f.createdAt}</span>
+                    </div>
+                    {f.ungroundedNumbers.length > 0 && (
+                      <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                        <span className="font-medium">⚠ 미근거 수치</span> — 제공 문서에서 그대로 확인되지 않음:{" "}
+                        <span className="font-mono">{f.ungroundedNumbers.join(", ")}</span>
+                      </p>
+                    )}
+                    {f.unsupportedClaims.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-300">⚠ 근거 없는 서술</p>
+                        <ul className="mt-1 flex flex-col gap-1 pl-4">
+                          {f.unsupportedClaims.map((c, i) => (
+                            <li key={i} className="list-disc text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                              <span>{c.claim}</span>
+                              {c.why && <span className="text-amber-600/80 dark:text-amber-400/80"> — {c.why}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
           </Card>
         </>

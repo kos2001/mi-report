@@ -111,7 +111,7 @@ def test_analyze_competitor_flags_unsupported_claims():
 
     docs = [{"title": "IR", "source": "업로드", "publishedAt": "2026-04-30", "content": "FY26 Q2 실적 발표."}]
     result = asyncio.run(competitors.analyze_competitor(RoutingFakeClient(), "경쟁사 Q", "QCOM", docs))
-    assert result["unsupportedClaims"] == ["3분기 연속 마진이 악화되고 있다"]
+    assert result["unsupportedClaims"] == [{"claim": "3분기 연속 마진이 악화되고 있다", "why": "원문에 추세 언급 없음"}]
 
 
 def test_analyze_competitor_empty_docs_raises():

@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } from "@/lib/api";
+import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor, type UnsupportedClaim } from "@/lib/api";
 import { startJob } from "@/lib/generation-jobs";
 import { useJob } from "@/lib/use-job";
 import { competitors } from "@/lib/data";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
-import { Card, Delta, PageHeader } from "@/components/ui";
+import { Card, Delta, PageHeader, UnsupportedClaimsNotice } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 // 에이전트 대화의 첫 턴 컨텍스트 — 생성된 IR 분석을 요약해 붙인다.
@@ -52,7 +52,7 @@ type CompetitorLike = {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   droppedCount?: number;
-  unsupportedClaims?: string[];
+  unsupportedClaims?: UnsupportedClaim[];
 };
 
 // 회사별 고정 팔레트에서 안정적으로 하나를 골라 카드를 구분한다(같은 회사는
@@ -105,11 +105,7 @@ function CompetitorCard({ c, generated }: { c: CompetitorLike; generated?: boole
         </p>
       )}
 
-      {c.unsupportedClaims && c.unsupportedClaims.length > 0 && (
-        <p className="mt-3 rounded-lg border border-amber-100/60 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {c.unsupportedClaims.join(" / ")}
-        </p>
-      )}
+      <UnsupportedClaimsNotice claims={c.unsupportedClaims} />
 
       <div className="mt-4">
         <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">

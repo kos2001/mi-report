@@ -182,11 +182,19 @@ async def generate_critical_points(
 
 async def audit_overview(
     client: ChatClient, draft: str, src_texts: list[str], *, temperature: float = 0.0,
-) -> list[str]:
-    """총평 초안을 원문과 독립 대조해 근거 없는 서술 주장(비수치)을 반환한다."""
+) -> list[dict[str, str]]:
+    """총평 초안을 원문과 독립 대조해 근거 없는 서술 주장(비수치)을 반환한다.
+
+    각 항목은 {"claim": 문제되는 서술, "why": 왜 근거가 없는지} — 자기개선 loop(품질
+    page)이 "근거 없는 서술 N건"이라는 숫자만이 아니라 실제 이유를 보여줄 수 있어야 한다.
+    """
     if not draft.strip():
         return []
     completion = await client.chat(build_audit_messages(draft, src_texts), temperature=temperature)
     data = extract_json(_extract_content(completion))
     raw = data.get("unsupported", []) if isinstance(data, dict) else []
-    return [str(it.get("claim", "")).strip() for it in raw if isinstance(it, dict) and it.get("claim")]
+    return [
+        {"claim": str(it.get("claim", "")).strip(), "why": str(it.get("why", "")).strip()}
+        for it in raw
+        if isinstance(it, dict) and it.get("claim")
+    ]

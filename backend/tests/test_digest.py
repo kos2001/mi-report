@@ -196,7 +196,7 @@ def test_generate_digest_flags_unsupported_claims():
 
     docs = [{"title": "T", "source": "뉴스", "publishedAt": "2026-06-01", "content": "수요 관련 보도."}]
     result = asyncio.run(digest.generate_digest(RoutingFakeClient(), docs, period=""))
-    assert result["unsupportedClaims"] == ["3주 연속 수요가 악화되고 있다"]
+    assert result["unsupportedClaims"] == [{"claim": "3주 연속 수요가 악화되고 있다", "why": "원문에 추세 언급 없음"}]
 
 
 def test_generate_digest_empty_docs_raises():

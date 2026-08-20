@@ -136,7 +136,12 @@ def _render_week(entry: dict[str, Any]) -> str:
         ])
     unsupported = entry.get("unsupportedClaims") or []
     if unsupported:
-        lines.extend(["## 검토 필요 주장", ""] + [f"- {claim}" for claim in unsupported] + [""])
+        bullets = [
+            f"- {u.get('claim', '')}" + (f" — {u['why']}" if u.get("why") else "")
+            if isinstance(u, dict) else f"- {u}"
+            for u in unsupported
+        ]
+        lines.extend(["## 검토 필요 주장", ""] + bullets + [""])
     return "\n".join(lines).rstrip() + "\n"
 
 

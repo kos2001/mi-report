@@ -4,7 +4,7 @@ import { useState } from "react";
 import { reportApi, type GeneratedReport } from "@/lib/api";
 import { startJob } from "@/lib/generation-jobs";
 import { useJob } from "@/lib/use-job";
-import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
+import { Card, ImpactBadge, PageHeader, Tag, UnsupportedClaimsNotice } from "@/components/ui";
 import { ArtifactHistoryPanel } from "@/components/artifact-history";
 import { Markdown } from "@/components/markdown";
 import { AgentProgressView } from "@/components/agent-chat";
@@ -205,12 +205,9 @@ export default function ReportPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
               {report.overview}
             </p>
-            {report.overviewUnsupportedClaims && report.overviewUnsupportedClaims.length > 0 && (
-              <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                ⚠ 검토 필요 — 다음 총평 서술은 근거가 확인되지 않았습니다:{" "}
-                {report.overviewUnsupportedClaims.join(" / ")}
-              </p>
-            )}
+            <div className="mt-3">
+              <UnsupportedClaimsNotice claims={report.overviewUnsupportedClaims} />
+            </div>
           </Card>
 
           {/* Top Priority / Risk (심층분석 agent) */}
