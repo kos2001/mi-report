@@ -49,6 +49,7 @@ type CompetitorLike = {
   numbersGrounded?: boolean;
   ungroundedNumbers?: string[];
   droppedCount?: number;
+  unsupportedClaims?: string[];
 };
 
 // qoq/yoy 가 null(문서에 수치 없음)이면 '—' 로 표기.
@@ -82,6 +83,12 @@ function CompetitorCard({ c, generated }: { c: CompetitorLike; generated?: boole
           ⚠ 환각 주의 — 제공 문서에서 확인되지 않은 수치가 있어 제외/검토가 필요합니다
           {c.droppedCount ? ` (재무·컨센서스 ${c.droppedCount}건 제외됨)` : ""}:{" "}
           <span className="font-mono">{c.ungroundedNumbers.join(", ")}</span>
+        </p>
+      )}
+
+      {c.unsupportedClaims && c.unsupportedClaims.length > 0 && (
+        <p className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+          ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {c.unsupportedClaims.join(" / ")}
         </p>
       )}
 

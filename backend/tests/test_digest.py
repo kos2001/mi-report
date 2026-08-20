@@ -96,7 +96,33 @@ def test_generate_digest_assigns_ids_and_metadata():
     assert result["sourceDocCount"] == 1
     assert result["items"][0]["id"] == "d1"
     assert result["items"][0]["impact"] == "high"
-    assert len(client.calls) == 1  # 게이트웨이 1회 호출
+    assert result["unsupportedClaims"] == []
+    assert len(client.calls) == 2  # 다이제스트 생성 + 총평 검증(audit)
+
+
+def test_generate_digest_flags_unsupported_claims():
+    # summary 에 원문이 뒷받침하지 않는 추세 주장 → 독립 검증 agent 가 잡는다.
+    class RoutingFakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                content = json.dumps({"items": [{
+                    "title": "T", "source": "뉴스", "publishedAt": "2026-06-01",
+                    "summary": "3주 연속 수요가 악화되고 있다.", "slsiRelevance": "-",
+                    "demandImpact": "-", "risk": "-", "impact": "medium", "tags": [],
+                }]}, ensure_ascii=False)
+            else:
+                content = json.dumps({
+                    "unsupported": [{"claim": "3주 연속 수요가 악화되고 있다", "why": "원문에 추세 언급 없음"}],
+                }, ensure_ascii=False)
+            return {"choices": [{"message": {"content": content}}]}
+
+    docs = [{"title": "T", "source": "뉴스", "publishedAt": "2026-06-01", "content": "수요 관련 보도."}]
+    result = asyncio.run(digest.generate_digest(RoutingFakeClient(), docs, issue_no=1, period=""))
+    assert result["unsupportedClaims"] == ["3주 연속 수요가 악화되고 있다"]
 
 
 def test_generate_digest_empty_docs_raises():

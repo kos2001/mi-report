@@ -104,14 +104,14 @@ def test_generate_report_orchestrates_all_parts():
     assert result["priorities"] == [] and result["risks"] == []
     assert result["criticalPoints"] == []
     assert result["overviewUnsupportedClaims"] == []
-    # 병렬 그룹(다이제스트/priority-risk/critical-point/주제+주제 자체 audit) → 총평 → 총평 검증.
+    # 병렬 그룹(다이제스트/priority-risk/critical-point/주제) → 총평 → 총평 검증.
     # 마지막 둘은 리포트 총평 생성→검증(overview, audit) 순서가 고정이고, 그 앞은 병렬이라
-    # 순서가 뒤섞일 수 있다(주제 요약 자체도 audit 을 한 번 더 부른다).
+    # 순서가 뒤섞일 수 있다. 다이제스트·주제 요약 자체도 각각 audit 을 한 번씩 더 부른다.
     assert client.kinds.count("digest") == 1
     assert client.kinds.count("priority_risk") == 1
     assert client.kinds.count("critical_point") == 1
     assert client.kinds.count("topic") == 1
-    assert client.kinds.count("audit") == 2  # 주제 요약 감사 1회 + 총평 감사 1회
+    assert client.kinds.count("audit") == 3  # 다이제스트 감사 + 주제 요약 감사 + 총평 감사
     assert client.kinds[-2:] == ["overview", "audit"]
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-from . import grounding
+from . import grounding, report_agents
 from .llm_json import extract_json
 from .schemas import DigestItemOut
 
@@ -130,6 +130,14 @@ async def generate_digest(
         })
 
     union_ungrounded = list(dict.fromkeys(all_ungrounded))
+
+    # 독립 검증 agent(V3-style): 항목 서술의 수치 아닌 주장(추세·인과) 중 근거 없는
+    # 것을 별도로 잡는다. 위 grounding 검증은 수치만 본다.
+    prose = " ".join(
+        f"{it['summary']} {it['slsiRelevance']} {it['demandImpact']} {it['risk']}" for it in out_items
+    )
+    unsupported = await report_agents.audit_overview(client, prose, src_texts)
+
     return {
         "issueNo": issue_no,
         "period": period,
@@ -140,4 +148,5 @@ async def generate_digest(
         "numbersGrounded": not union_ungrounded,
         "ungroundedNumbers": union_ungrounded,
         "unverifiedSourceCount": unverified,
+        "unsupportedClaims": unsupported,
     }
