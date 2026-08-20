@@ -104,15 +104,13 @@ def test_collect_uses_name_as_url_fallback(client, monkeypatch):
     assert captured["url"] == "https://www.naver.com"  # 스킴 자동 보정
 
 
-def test_collect_without_url_is_stub(client):
-    # URL 없는 소스(이름에 공백)는 기존 스텁 동작
+def test_collect_without_url_is_rejected(client):
+    # URL 없는 소스가 실행 기록만 정상으로 갱신하면 운영 상태를 오인하게 된다.
     r = client.post("/collection/sources", json={"name": "수동 뉴스 소스", "type": "news"})
     sid = r.json()["id"]
     r = client.post(f"/collection/sources/{sid}/collect")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["stub"] is True
-    assert body["ingested"] == 0
+    assert r.status_code == 400
+    assert "수집 URL 설정" in r.json()["detail"]
 
 
 def test_collect_all_urls_fail_returns_502(client, monkeypatch):

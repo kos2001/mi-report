@@ -35,22 +35,42 @@ def test_sources_seeded(client):
     assert body["documentCount"] == 0  # 대시보드 단일 호출용 카운트
 
 
+def test_search_infrastructure_status(client):
+    empty = client.get("/collection/search-infrastructure")
+    assert empty.status_code == 200
+    assert empty.json()["bm25"]["indexedDocuments"] == 0
+    assert empty.json()["embeddings"]["vectors"] == 0
+    assert empty.json()["wiki"]["weekCount"] == 0
+
+    client.post(
+        "/collection/upload",
+        files={"file": ("hbm.txt", io.BytesIO("HBM4 검색 본문".encode()), "text/plain")},
+    )
+    populated = client.get("/collection/search-infrastructure").json()
+    assert populated["totalDocuments"] == 1
+    assert populated["bm25"]["indexedDocuments"] == 1
+    assert populated["embeddings"]["model"]
+
+
 def test_source_lifecycle(client):
     spec = VIRTUAL_SOURCES[0]
     # create
     r = client.post("/collection/sources", json={"name": spec["name"], "type": spec["type"], "config": spec["config"]})
     assert r.status_code == 201
     sid = r.json()["id"]
+    assert r.json()["operational"]["state"] == "setup"  # URL 없는 가상 뉴스 소스
     # patch disable
     r = client.patch(f"/collection/sources/{sid}", json={"enabled": False})
     assert r.status_code == 200 and r.json()["enabled"] is False
+    assert r.json()["operational"]["state"] == "disabled"
     # collect on disabled -> 400
     r = client.post(f"/collection/sources/{sid}/collect")
     assert r.status_code == 400
-    # re-enable + collect -> stub ok
+    # 재활성화해도 URL 설정이 없으면 정상 실행으로 위장하지 않고 거부
     client.patch(f"/collection/sources/{sid}", json={"enabled": True})
     r = client.post(f"/collection/sources/{sid}/collect")
-    assert r.status_code == 200 and r.json()["stub"] is True
+    assert r.status_code == 400
+    assert "수집 URL 설정" in r.json()["detail"]
     # delete
     assert client.delete(f"/collection/sources/{sid}").status_code == 204
 

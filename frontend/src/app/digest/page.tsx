@@ -195,6 +195,7 @@ export default function DigestPage() {
   const [historyPick, setHistoryPick] = useState<GeneratedDigest | null>(null);
   const generated = historyPick ?? job.result;
   const [latest, setLatest] = useState<GeneratedDigest | null>(null);
+  const visibleLatest = latest && generated?.week === latest.week ? null : latest;
   const loading = job.status === "running";
   const genSteps = job.steps;
   const error = job.status === "error" ? job.error : null;
@@ -207,7 +208,7 @@ export default function DigestPage() {
   const [commentSteps, setCommentSteps] = useState<ProgressStep[]>([]);
   const [commentPartial, setCommentPartial] = useState("");
   const [commentFor, setCommentFor] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
 
   async function handleAgentComment(d: GeneratedDigest) {
     if (commentLoading || d.items.length === 0) return;
@@ -409,6 +410,7 @@ export default function DigestPage() {
       {/* 다이제스트 자유 질문 — 표시 중인 초안(생성본 우선)을 컨텍스트로 */}
       <div className="mb-8">
         <AgentChatCard
+          key={(generated ?? latest)?.week ?? "digest-empty"}
           title="💬 다이제스트에 질문하기"
           description={
             (generated ?? latest)
@@ -422,55 +424,55 @@ export default function DigestPage() {
 
       <div className="flex flex-col gap-8">
         {/* 스케줄(cron) 자동 생성 — 마지막 저장본 */}
-        {latest && (
+        {visibleLatest && (
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                {latest.week}{" "}
-                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">{latest.period}</span>
+                {visibleLatest.week}{" "}
+                <span className="ml-1 text-sm font-normal text-zinc-600 dark:text-zinc-400">{visibleLatest.period}</span>
               </h2>
               <div className="flex items-center gap-2">
                 <span className="rounded-full border border-emerald-100/60 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/40 px-3 py-1 text-xs text-emerald-600 dark:text-emerald-400">
-                  자동 생성{latest.generatedAt ? ` · ${latest.generatedAt}` : ""} · 문서{" "}
-                  {latest.sourceDocCount}건
+                  자동 생성{visibleLatest.generatedAt ? ` · ${visibleLatest.generatedAt}` : ""} · 문서{" "}
+                  {visibleLatest.sourceDocCount}건
                 </span>
                 <button
-                  onClick={() => handleAgentComment(latest)}
-                  disabled={commentLoading || latest.items.length === 0}
+                  onClick={() => handleAgentComment(visibleLatest)}
+                  disabled={commentLoading || visibleLatest.items.length === 0}
                   title="hermes 에이전트가 코퍼스·웹 근거로 초안을 재검토합니다"
                   className="rounded-lg border border-violet-200/70 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 transition hover:bg-violet-100/40 dark:hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {commentLoading
                     ? "검토 중…"
-                    : displayedComment(latest)
+                    : displayedComment(visibleLatest)
                       ? "🔄 재검토"
                       : "🤖 에이전트 코멘트"}
                 </button>
               </div>
             </div>
-            {commentLoading && commentFor === latest.week && (
+            {commentLoading && commentFor === visibleLatest.week && (
               <div className="mb-4">
                 <AgentProgressView steps={commentSteps} partial={commentPartial} />
               </div>
             )}
-            {displayedComment(latest) && (
+            {displayedComment(visibleLatest) && (
               <AgentCommentCard
-                comment={displayedComment(latest)!}
-                source={displayedComment(latest)!.source}
+                comment={displayedComment(visibleLatest)!}
+                source={displayedComment(visibleLatest)!.source}
               />
             )}
-            {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
+            {visibleLatest.unsupportedClaims && visibleLatest.unsupportedClaims.length > 0 && (
               <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {latest.unsupportedClaims.join(" / ")}
+                ⚠ 검토 필요 — 다음 서술은 근거가 확인되지 않았습니다: {visibleLatest.unsupportedClaims.join(" / ")}
               </p>
             )}
-            {latest.items.length === 0 ? (
+            {visibleLatest.items.length === 0 ? (
               <Card>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">생성된 항목이 없습니다.</p>
               </Card>
             ) : (
               <div className="flex flex-col gap-4">
-                {latest.items.map((item) => (
+                {visibleLatest.items.map((item) => (
                   <DigestItemCard key={item.id} item={item} />
                 ))}
               </div>
@@ -516,6 +518,8 @@ export default function DigestPage() {
                 <div className="flex items-center gap-1" title="이 생성물 품질 피드백">
                   <button
                     onClick={() => handleFeedback(generated, "up")}
+                    aria-label="좋은 결과로 평가"
+                    aria-pressed={fb === "up"}
                     className={`rounded-md border px-2 py-1 text-xs ${
                       fb === "up"
                         ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
@@ -526,6 +530,8 @@ export default function DigestPage() {
                   </button>
                   <button
                     onClick={() => handleFeedback(generated, "down")}
+                    aria-label="개선이 필요한 결과로 평가"
+                    aria-pressed={fb === "down"}
                     className={`rounded-md border px-2 py-1 text-xs ${
                       fb === "down"
                         ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50 text-red-700 dark:text-red-300"

@@ -215,7 +215,7 @@ export default function CompetitorsPage() {
   const loading = job.status === "running";
   const [formError, setFormError] = useState<string | null>(null);
   const error = formError ?? (job.status === "error" ? job.error : null);
-  const [showHelp, setShowHelp] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
   const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
   const genSteps = job.steps;
 
@@ -413,6 +413,7 @@ export default function CompetitorsPage() {
       {/* 경쟁사 자유 질문 — 생성된 분석이 있으면 첫 턴 컨텍스트로 */}
       <div className="mb-8">
         <AgentChatCard
+          key={generated ? `${generated.name}-${generated.fiscalQuarter}` : "competitor-empty"}
           title="💬 경쟁사에 질문하기"
           description={
             generated

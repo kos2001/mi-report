@@ -261,6 +261,16 @@ def test_render_report_markdown_custom_template():
     assert "다이제스트" not in md  # 템플릿에 없는 섹션은 나오지 않음
 
 
+def test_report_render_endpoint_uses_existing_report_without_generation(client):
+    response = client.post(
+        "/report/render",
+        json={"report": _SAMPLE_REPORT, "template": "# 제{{issue_no}}호\n{{overview}}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["filename"] == "MI리포트_제53호.md"
+    assert response.json()["markdown"] == "# 제53호\n이번 주 핵심은 HBM4 전환."
+
+
 def test_render_report_markdown_empty_sections():
     from app import report
     md = report.render_report_markdown(

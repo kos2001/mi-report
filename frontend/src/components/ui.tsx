@@ -1,5 +1,22 @@
 import type { ImpactLevel } from "@/lib/data";
 
+const PAGE_META: Record<string, { group: string; icon: string; tone: string; iconTone: string }> = {
+  "대시보드": { group: "OVERVIEW", icon: "◧", tone: "text-zinc-500", iconTone: "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" },
+  "데이터 수집": { group: "DATA PIPELINE", icon: "↓", tone: "text-sky-600", iconTone: "bg-sky-600 text-white" },
+  "수집 결과": { group: "DATA PIPELINE", icon: "∑", tone: "text-sky-600", iconTone: "bg-sky-600 text-white" },
+  "수집 문서": { group: "DATA PIPELINE", icon: "▤", tone: "text-sky-600", iconTone: "bg-sky-600 text-white" },
+  "주제별 History": { group: "ANALYSIS", icon: "≡", tone: "text-emerald-600", iconTone: "bg-emerald-600 text-white" },
+  "뉴스 다이제스트": { group: "ANALYSIS", icon: "✉", tone: "text-emerald-600", iconTone: "bg-emerald-600 text-white" },
+  "경쟁사 IR 트래킹": { group: "ANALYSIS", icon: "▥", tone: "text-emerald-600", iconTone: "bg-emerald-600 text-white" },
+  "주간 MI 리포트": { group: "ANALYSIS", icon: "▦", tone: "text-emerald-600", iconTone: "bg-emerald-600 text-white" },
+  "문서 Q&A": { group: "COMMUNICATION", icon: "?", tone: "text-violet-600", iconTone: "bg-violet-600 text-white" },
+  "VOC": { group: "COMMUNICATION", icon: "●", tone: "text-violet-600", iconTone: "bg-violet-600 text-white" },
+  "스케줄": { group: "OPERATIONS", icon: "◷", tone: "text-amber-600", iconTone: "bg-amber-500 text-white" },
+  "품질": { group: "OPERATIONS", icon: "✓", tone: "text-amber-600", iconTone: "bg-amber-500 text-white" },
+  "설정": { group: "OPERATIONS", icon: "⚙", tone: "text-amber-600", iconTone: "bg-amber-500 text-white" },
+  "사용 안내": { group: "GUIDE", icon: "ⓘ", tone: "text-cyan-600", iconTone: "bg-cyan-600 text-white" },
+};
+
 export function PageHeader({
   title,
   description,
@@ -7,12 +24,17 @@ export function PageHeader({
   title: string;
   description: string;
 }) {
+  const meta = PAGE_META[title] ?? PAGE_META["대시보드"];
   return (
-    <header className="mb-8">
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-        {title}
-      </h1>
-      <p className="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
+    <header className="mb-7 flex items-start gap-3 border-b border-zinc-200 pb-5 dark:border-zinc-800">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base font-bold shadow-sm ${meta.iconTone}`} aria-hidden>
+        {meta.icon}
+      </span>
+      <div className="min-w-0">
+        <p className={`text-[10px] font-bold uppercase tracking-[0.16em] ${meta.tone}`}>{meta.group}</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{title}</h1>
+        <p className="mt-1.5 max-w-4xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{description}</p>
+      </div>
     </header>
   );
 }
@@ -26,7 +48,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 p-5 ${className}`}
+      className={`rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-zinc-800 dark:bg-zinc-950 ${className}`}
     >
       {children}
     </div>
@@ -57,9 +79,19 @@ export function ImpactBadge({ level }: { level: ImpactLevel }) {
   );
 }
 
+const tagStyles = [
+  "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+  "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
+];
+
 export function Tag({ children }: { children: React.ReactNode }) {
+  const label = typeof children === "string" ? children : "tag";
+  const index = [...label].reduce((sum, char) => sum + char.charCodeAt(0), 0) % tagStyles.length;
   return (
-    <span className="inline-flex items-center rounded-md bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-600 dark:text-zinc-400">
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${tagStyles[index]}`}>
       {children}
     </span>
   );

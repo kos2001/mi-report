@@ -114,7 +114,9 @@ export default function DashboardPage() {
   }, []);
 
   const connectorCount = sources.filter((s) => s.type !== "upload").length;
-  const errorCount = sources.filter((s) => s.status === "오류").length;
+  const attentionCount = sources.filter((s) =>
+    ["setup", "error", "stale", "warning"].includes(s.operational.state),
+  ).length;
   const taggedCount = topicList.reduce((n, t) => n + t.count, 0);
   const untagged = Math.max(0, docCount - taggedCount);
   const highImpact = (latest?.items ?? []).filter((i) => i.impact === "high");
@@ -141,7 +143,7 @@ export default function DashboardPage() {
             step="① 데이터 수집"
             title="소스 → 문서"
             metric={`${docCount}건`}
-            sub={`소스 ${sources.length}개 (커넥터 ${connectorCount}${errorCount ? ` · 오류 ${errorCount}` : ""})`}
+            sub={`소스 ${sources.length}개 (커넥터 ${connectorCount}${attentionCount ? ` · 점검 ${attentionCount}` : ""})`}
             accent={STAGE.collect}
           />
           <Arrow />
@@ -172,43 +174,13 @@ export default function DashboardPage() {
             accent={STAGE.report}
           />
         </div>
-        <p className="mt-2 text-[11px] text-zinc-500">
-          소스에서 문서를 수집 → 주제를 분류 → AI가 요약·분석 → 주간 리포트로 종합합니다. 각 단계를 눌러 이동하세요.
-        </p>
-      </section>
-
-      {/* 바로가기 + 핵심 지표 */}
-      <section className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Card>
-          <p className="text-xs text-zinc-500">수집 문서</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">{docCount}</p>
-          <Link href="/collection" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
-            데이터 수집 →
-          </Link>
-        </Card>
-        <Card>
-          <p className="text-xs text-zinc-500">추적 주제</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">{topicList.length}</p>
-          <Link href="/topics" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
-            주제별 History →
-          </Link>
-        </Card>
-        <Card>
-          <p className="text-xs text-zinc-500">최근 다이제스트</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
-            {latest ? latest.week : "없음"}
-          </p>
-          <Link href="/digest" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
-            뉴스 다이제스트 →
-          </Link>
-        </Card>
-        <Card>
-          <p className="text-xs text-zinc-500">문서 Q&A</p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">RAG</p>
-          <Link href="/ask" className="mt-3 inline-block text-xs text-sky-600 dark:text-sky-400 hover:underline">
-            질문하기 →
-          </Link>
-        </Card>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
+          <p>소스 수집 → 주제 분류 → AI 분석 → 주간 리포트. 각 단계를 눌러 이동하세요.</p>
+          <div className="flex gap-2">
+            <Link href="/ask" className="rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-950/50 dark:text-violet-300">문서 Q&A →</Link>
+            <Link href="/collection/results" className="rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-300">수집 결과 →</Link>
+          </div>
+        </div>
       </section>
 
       {/* 핵심 시그널 (최근 자동 다이제스트의 영향도 상 항목) */}

@@ -25,6 +25,14 @@ export interface Source {
   lastRun: string | null;
   count: number;
   createdAt: string;
+  operational: {
+    state: "healthy" | "disabled" | "setup" | "error" | "manual" | "waiting" | "stale" | "warning";
+    label: string;
+    reason: string;
+    effectiveActive: boolean;
+    configured: boolean;
+    configuration: string;
+  };
 }
 
 export interface CollectedDoc {
@@ -37,6 +45,27 @@ export interface CollectedDoc {
   publishedAt: string | null;
   status: string;
   createdAt: string;
+}
+
+export interface SearchInfrastructureStatus {
+  totalDocuments: number;
+  bm25: { engine: string; indexedDocuments: number };
+  embeddings: {
+    configured: boolean;
+    backend: string;
+    model: string;
+    vectors: number;
+    storedModels: { model: string; count: number; dimensions: number }[];
+  };
+  wiki: {
+    enabled: boolean;
+    path: string;
+    weekCount: number;
+    conceptCount: number;
+    latestWeek: string | null;
+    latestUpdated: string | null;
+    contextMaxWeeks: number;
+  };
 }
 
 // 설정 page 에서 저장한 사용자 토큰 — 있으면 모든 요청에 실어 보낸다(쓰기는
@@ -72,6 +101,9 @@ export const api = {
   // 대시보드용: 소스 목록 + 문서 개수를 한 번에 (문서 전체 목록 전송 회피).
   collectionOverview: () =>
     req<{ sources: Source[]; documentCount: number }>("/collection/sources"),
+
+  searchInfrastructure: () =>
+    req<SearchInfrastructureStatus>("/collection/search-infrastructure"),
 
   createSource: (body: {
     name: string;
@@ -441,6 +473,12 @@ export const reportApi = {
       "/report/document",
       { method: "POST", body: JSON.stringify(body ?? {}) },
     ),
+
+  render: (report: GeneratedReport, template?: string) =>
+    req<{ filename: string; markdown: string }>("/report/render", {
+      method: "POST",
+      body: JSON.stringify({ report, template }),
+    }),
 };
 
 // ── 지식 자산(생성물 누적) + 자기 개선(피드백) ─────────────────────────────

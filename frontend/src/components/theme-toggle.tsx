@@ -16,7 +16,7 @@ function getServerSnapshot() {
   return false; // 서버 렌더 기본값 — 하이드레이션 직후 실제 값으로 즉시 갱신됨
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   function toggle() {
@@ -32,9 +32,12 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-pressed={dark}
       aria-label="다크/라이트 모드 전환"
-      className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-zinc-100 px-2.5 py-1.5 text-xs text-zinc-600 transition-colors hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+      title="다크/라이트 모드 전환"
+      className={`flex items-center gap-1.5 rounded-md border border-zinc-300 bg-zinc-100 text-xs text-zinc-600 transition-colors hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 ${
+        compact ? "justify-center px-2 py-1.5" : "px-2.5 py-1.5"
+      }`}
     >
-      {dark ? "🌙 다크" : "☀️ 라이트"}
+      {compact ? (dark ? "🌙" : "☀️") : dark ? "🌙 다크" : "☀️ 라이트"}
     </button>
   );
 }

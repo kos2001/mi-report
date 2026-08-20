@@ -41,11 +41,9 @@ function downloadMarkdown(filename: string, markdown: string) {
 
 export default function ReportPage() {
   const job = useJob<GeneratedReport>("report");
-  // historyPick(이력 선택) > docReport(문서 미리보기로 생성한 결과) > job.result(이번
-  // 세션 작업 결과 — page 이동해도 유지) 순으로 우선한다.
+  // 이력 선택 > 이번 세션 생성 결과 순으로 표시한다.
   const [historyPick, setHistoryPick] = useState<GeneratedReport | null>(null);
-  const [docReport, setDocReport] = useState<GeneratedReport | null>(null);
-  const report = historyPick ?? docReport ?? job.result;
+  const report = historyPick ?? job.result;
   const loading = job.status === "running";
   const [docBusy, setDocBusy] = useState(false);
   const error = job.status === "error" ? job.error : null;
@@ -57,28 +55,20 @@ export default function ReportPage() {
 
   function generate() {
     setHistoryPick(null);
-    setDocReport(null);
     void startJob<GeneratedReport>("report", "주간 리포트 생성 중…", "/report/generate/stream", {
       period: "최근 수집 문서",
       maxTopics: 3,
     });
   }
 
-  // 리포트를 생성하고 (선택) 템플릿을 적용한 Markdown 문서를 미리보기로 띄운다.
-  // 다운로드는 미리보기에서 확인 후 별도 버튼으로. (이 흐름은 문서 내보내기 전용이라
-  // 단발성 fetch 로 유지 — 여러 단계로 나뉜 AI 리포트 "생성" 과는 별개 동작이다.)
+  // 표시 중인 리포트를 추가 생성 없이 Markdown으로 렌더한다.
   async function generateDocument() {
+    if (!report) return;
     setDocBusy(true);
     setDocError(null);
     try {
-      const r = await reportApi.document({
-        period: "최근 수집 문서",
-        maxTopics: 3,
-        template: template.trim() || undefined,
-      });
+      const r = await reportApi.render(report, template.trim() || undefined);
       setDocPreview({ filename: r.filename, markdown: r.markdown });
-      setHistoryPick(null);
-      setDocReport(r.report);
     } catch (e) {
       setDocError(e instanceof Error ? e.message : "문서 생성 실패");
     } finally {
@@ -105,17 +95,17 @@ export default function ReportPage() {
             <button
               onClick={generate}
               disabled={loading || docBusy}
-              className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-900 dark:text-zinc-100 transition-colors hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
             >
               {loading ? "생성 중…" : "AI 리포트 생성"}
             </button>
             <button
               onClick={generateDocument}
-              disabled={loading || docBusy}
-              title="리포트를 생성하고 템플릿을 적용한 Markdown 문서(.md)를 미리봅니다"
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+              disabled={loading || docBusy || !report}
+              title={report ? "표시 중인 리포트를 재생성 없이 Markdown으로 미리봅니다" : "먼저 리포트를 생성하거나 이력에서 선택하세요"}
+              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
             >
-              {docBusy ? "문서 생성 중…" : "문서(.md) 생성·미리보기"}
+              {docBusy ? "렌더링 중…" : "Markdown 미리보기"}
             </button>
           </div>
         </div>

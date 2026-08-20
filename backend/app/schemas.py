@@ -329,3 +329,10 @@ class ReportGenerateRequest(BaseModel):
     topicLimit: int = Field(default=20, ge=1, le=100, description="주제별 입력 문서 수.")
     template: str | None = Field(default=None, description="문서 렌더 템플릿({{토큰}}). 미지정 시 기본 템플릿.")
     profile: str | None = None
+
+
+class ReportRenderRequest(BaseModel):
+    """이미 생성된 리포트를 추가 LLM 호출 없이 Markdown으로 렌더한다."""
+
+    report: dict[str, Any]
+    template: str | None = Field(default=None, description="문서 렌더 템플릿({{토큰}}).")
