@@ -455,6 +455,7 @@ export const artifactsApi = {
   },
   get: (id: string) => req<ArtifactFull>(`/artifacts/${id}`),
   count: () => req<{ count: number }>("/artifacts?limit=1").then((d) => d.count),
+  remove: (id: string) => req<void>(`/artifacts/${id}`, { method: "DELETE" }),
 };
 
 // ── VOC (이 서비스에 대한 사용자 피드백) ──────────────────────────────────

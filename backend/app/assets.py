@@ -114,6 +114,13 @@ def get_artifact(aid: str) -> dict[str, Any]:
     return _row_to_artifact(row, with_payload=True)
 
 
+def delete_artifact(aid: str) -> None:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM artifacts WHERE id=?", (aid,))
+        if cur.rowcount == 0:
+            raise KeyError(aid)
+
+
 def count_artifacts() -> int:
     with _conn() as conn:
         return conn.execute("SELECT COUNT(*) AS n FROM artifacts").fetchone()["n"]

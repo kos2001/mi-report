@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { topicsApi, type GeneratedTopic, type TopicListItem } from "@/lib/api";
 import { topics } from "@/lib/data";
 import { Card, PageHeader } from "@/components/ui";
+import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 type TopicLike = {
   id: string;
@@ -206,6 +207,14 @@ export default function TopicsPage() {
           </p>
         )}
       </Card>
+
+      <div className="mb-8">
+        <ArtifactHistoryPanel
+          kind="topic"
+          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedTopic)}
+          emptyLabel="아직 생성된 주제 요약이 없습니다."
+        />
+      </div>
 
       <div className="flex flex-col gap-5">
         {generated && <TopicCard topic={generated} generated />}

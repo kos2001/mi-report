@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { reportApi, type GeneratedReport } from "@/lib/api";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
+import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 // 기본 템플릿(서버와 동일 토큰). 비우면 서버 기본 템플릿이 적용된다.
 const TEMPLATE_PLACEHOLDER = `# 주간 MI 리포트 제{{issue_no}}호
@@ -142,6 +143,14 @@ export default function ReportPage() {
           </p>
         )}
       </Card>
+
+      <div className="mb-8">
+        <ArtifactHistoryPanel
+          kind="report"
+          onSelect={(a) => setReport(a.payload as unknown as GeneratedReport)}
+          emptyLabel="아직 생성된 리포트가 없습니다."
+        />
+      </div>
 
       {report && (
         <div className="flex flex-col gap-6">
