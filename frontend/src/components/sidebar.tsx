@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { getRunningServerSnapshot, runningJobs, subscribe } from "@/lib/generation-jobs";
 
 type NavItem = {
   href: string;
@@ -61,6 +63,34 @@ const navGroups: NavGroup[] = [
   { label: null, items: [{ href: "/manual", label: "사용 안내", icon: "ⓘ" }] },
 ];
 
+const JOB_HREF: Record<string, string> = {
+  digest: "/digest",
+  topic: "/topics",
+  competitor: "/competitors",
+  report: "/report",
+};
+
+// page 를 이동해도 계속 도는 AI 생성 작업을 어디서나 보이게 — generation-jobs 는
+// 컴포넌트 밖 전역 상태라, 지금 보고 있는 page 와 무관하게 실행 중인 작업이 있을 수 있다.
+function RunningJobsIndicator() {
+  const running = useSyncExternalStore(subscribe, runningJobs, getRunningServerSnapshot);
+  if (running.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-sky-100/60 dark:border-sky-900/60 bg-sky-50/40 dark:bg-sky-950/40 px-3 py-2">
+      {running.map((j) => (
+        <Link
+          key={j.kind}
+          href={JOB_HREF[j.kind] ?? "/"}
+          className="flex items-center gap-1.5 text-[11px] text-sky-700 dark:text-sky-300 hover:underline"
+        >
+          <span className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-500" />
+          {j.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   return (
@@ -112,6 +142,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-3 px-5 py-4">
+        <RunningJobsIndicator />
         <ThemeToggle />
         <p className="rounded-md border border-amber-100/50 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-600/80 dark:text-amber-400/80">
           데이터 수집·대시보드 상태는 백엔드 실연동. 주제·다이제스트·경쟁사는 목업.

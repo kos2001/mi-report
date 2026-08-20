@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { digestApi, feedbackApi, type GeneratedDigest } from "@/lib/api";
 import { applyProgress, streamAgent, type ProgressStep } from "@/lib/agent-stream";
+import { startJob } from "@/lib/generation-jobs";
+import { useJob } from "@/lib/use-job";
 import { digests } from "@/lib/data";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
@@ -138,11 +140,15 @@ function DigestItemCard({ item }: { item: DigestItemLike }) {
 }
 
 export default function DigestPage() {
-  const [generated, setGenerated] = useState<GeneratedDigest | null>(null);
+  const job = useJob<GeneratedDigest>("digest");
+  // 이력 패널에서 과거 생성물을 선택하면 그걸 우선 보여준다 — 없으면 이번 세션의
+  // 작업 결과(페이지를 나갔다 와도 유지됨)를 보여준다.
+  const [historyPick, setHistoryPick] = useState<GeneratedDigest | null>(null);
+  const generated = historyPick ?? job.result;
   const [latest, setLatest] = useState<GeneratedDigest | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [genSteps, setGenSteps] = useState<ProgressStep[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const loading = job.status === "running";
+  const genSteps = job.steps;
+  const error = job.status === "error" ? job.error : null;
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [fb, setFb] = useState<"up" | "down" | null>(null);
@@ -230,24 +236,15 @@ export default function DigestPage() {
     };
   }, []);
 
-  async function handleGenerate() {
-    setLoading(true);
-    setError(null);
-    setGenSteps([]);
-    try {
-      const result = await streamAgent<GeneratedDigest>("/digest/generate/stream", {
-        issueNo: NEXT_ISSUE_NO,
-        period: "최근 수집 문서",
-        limit: 20,
-      }, {
-        progress: (p) => setGenSteps((prev) => applyProgress(prev, p)),
-      });
-      setGenerated(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "다이제스트 생성 실패");
-    } finally {
-      setLoading(false);
-    }
+  function handleGenerate() {
+    setHistoryPick(null);
+    // await 하지 않는다 — 컴포넌트 생명주기와 분리된 전역 작업으로 던지고,
+    // 페이지를 이동해도 계속 진행되며 useJob 이 어디서든 그 상태를 따라간다.
+    void startJob<GeneratedDigest>("digest", "다이제스트 생성 중…", "/digest/generate/stream", {
+      issueNo: NEXT_ISSUE_NO,
+      period: "최근 수집 문서",
+      limit: 20,
+    });
   }
 
   return (
@@ -289,7 +286,7 @@ export default function DigestPage() {
       <div className="mb-8">
         <ArtifactHistoryPanel
           kind="digest"
-          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedDigest)}
+          onSelect={(a) => setHistoryPick(a.payload as unknown as GeneratedDigest)}
           emptyLabel="아직 생성된 다이제스트가 없습니다."
         />
       </div>
