@@ -13,7 +13,8 @@ import json
 
 import pytest
 
-from app import digest, main
+from app import agentchat, digest, main
+from app.gateway import LLMError
 from app.schemas import DigestItemOut
 
 
@@ -192,6 +193,17 @@ def test_generate_digest_flags_unverified_source():
 
 
 # ── 엔드포인트 (페이크 클라이언트 주입) ────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _stub_agent_comment(monkeypatch):
+    """다이제스트 생성에 자동 통합된 hermes 에이전트 코멘트가 테스트에서 실제
+    hermes(MI_LLM_*)를 타지 않도록 기본은 미설정 처리. 통합을 검증하는 테스트는
+    개별적으로 재정의한다."""
+    async def _unset(week, period, items):
+        raise LLMError(503, "hermes 미설정(테스트)")
+
+    monkeypatch.setattr(agentchat, "digest_comment", _unset)
+
+
 def _upload(client, name, body, topic=None):
     return client.post(
         "/collection/upload",
@@ -213,6 +225,31 @@ def test_digest_generate_endpoint(client, monkeypatch):
     assert body["sourceDocCount"] == 1
     assert body["items"][0]["id"] == "d1"
     assert body["items"][0]["impact"] == "high"
+    # hermes 미설정(테스트 기본 스텁)이어도 다이제스트 생성 자체는 성공 — 코멘트만 빠진다
+    assert body["agentComment"] is None
+
+
+def test_digest_generate_endpoint_includes_auto_agent_comment(client, monkeypatch):
+    _upload(client, "hbm_news.txt", "HBM4 12단 채택 공식화. AI 가속기 수요 강세.", "HBM")
+    monkeypatch.setattr(main, "get_client", lambda profile=None: FakeClient(_VALID_RESPONSE))
+
+    captured: dict = {}
+
+    async def fake_digest_comment(week, period, items):
+        captured["week"] = week
+        captured["items"] = items
+        return {"answer": "초안 검토 완료.", "sessionId": "s1",
+                "numbersGrounded": True, "sources": []}
+
+    monkeypatch.setattr(agentchat, "digest_comment", fake_digest_comment)
+
+    r = client.post("/digest/generate", json={"period": "2026.06.08 – 06.11"})
+    assert r.status_code == 200
+    body = r.json()
+    # 다이제스트 생성 시점에 에이전트 코멘트가 자동으로 붙는다 — 별도 버튼 클릭 불필요
+    assert body["agentComment"]["answer"] == "초안 검토 완료."
+    assert captured["week"] == body["week"]
+    assert captured["items"][0]["title"] == body["items"][0]["title"]
 
 
 def test_digest_generate_stream_endpoint(client, monkeypatch):
@@ -226,8 +263,12 @@ def test_digest_generate_stream_endpoint(client, monkeypatch):
     types = [e["type"] for e in events]
     assert types[0] == "progress" and types[-1] == "done"
     tools = [e["tool"] for e in events if e["type"] == "progress"]
-    assert tools == ["digest_generate", "digest_generate", "digest_audit", "digest_audit"]
+    assert tools == [
+        "digest_generate", "digest_generate", "digest_audit", "digest_audit",
+        "digest_agent_comment", "digest_agent_comment",
+    ]
     assert events[-1]["week"] == digest.current_week_label()
+    assert events[-1]["agentComment"] is None  # hermes 미설정(테스트 기본 스텁)
 
 
 def test_digest_generate_stream_no_documents_emits_error(client, monkeypatch):

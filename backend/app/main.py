@@ -839,6 +839,29 @@ async def report_document(req: ReportGenerateRequest):
 
 
 # ── 뉴스 다이제스트 (AI agent 생성) ───────────────────────────────────────
+async def _digest_agent_comment_best_effort(
+    result: dict, on_progress: progress.ProgressFn | None,
+) -> dict | None:
+    """다이제스트 생성 직후 hermes 에이전트 코멘트를 자동으로 붙인다(생성 파이프라인에 통합).
+
+    hermes(MI_LLM_*) 미설정/장애는 다이제스트 생성 자체를 실패시키지 않는다 — 코멘트만
+    빠지고(None) 초안은 정상 반환. 사용자는 필요 시 페이지에서 재시도할 수 있다."""
+    load_profile()
+    await progress.emit(
+        on_progress, tool="digest_agent_comment", emoji="🤖",
+        label="에이전트 코멘트 검토", status="running",
+    )
+    try:
+        comment = await agentchat.digest_comment(result["week"], result["period"], result["items"])
+    except LLMError:
+        comment = None
+    await progress.emit(
+        on_progress, tool="digest_agent_comment", emoji="🤖",
+        label="에이전트 코멘트 검토", status="completed",
+    )
+    return comment
+
+
 async def _digest_generate_result(
     req: DigestGenerateRequest, on_progress: progress.ProgressFn | None = None,
 ) -> dict:
@@ -858,6 +881,7 @@ async def _digest_generate_result(
             client, docs, period=req.period, on_progress=on_progress,
             feedback_notes=assets.recent_negative_feedback("digest"),
         )
+        result["agentComment"] = await _digest_agent_comment_best_effort(result, on_progress)
         assets.save_artifact_safe("digest", result["week"], result["week"], result)
         return result
     except LLMError as e:

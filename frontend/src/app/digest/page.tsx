@@ -188,6 +188,14 @@ export default function DigestPage() {
     }
   }
 
+  // 생성 시점에 자동으로 붙은 코멘트(agentComment)를 우선 보여준다 — 사용자가 이
+  // 다이제스트에 대해 수동으로 재검토를 요청했다면(comment) 그 결과가 최신이므로 우선.
+  function displayedComment(d: GeneratedDigest): AgentComment | null {
+    if (comment && comment.week === d.week) return comment;
+    if (d.agentComment) return { week: d.week, ...d.agentComment };
+    return null;
+  }
+
   async function handleFeedback(d: GeneratedDigest, rating: "up" | "down") {
     setFb(rating);
     try {
@@ -317,10 +325,14 @@ export default function DigestPage() {
                 <button
                   onClick={() => handleAgentComment(latest)}
                   disabled={commentLoading || latest.items.length === 0}
-                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 재검토합니다"
                   className="rounded-lg border border-violet-200/70 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 transition hover:bg-violet-100/40 dark:hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                  {commentLoading
+                    ? "검토 중…"
+                    : displayedComment(latest)
+                      ? "🔄 재검토"
+                      : "🤖 에이전트 코멘트"}
                 </button>
               </div>
             </div>
@@ -329,8 +341,8 @@ export default function DigestPage() {
                 <AgentProgressView steps={commentSteps} partial={commentPartial} />
               </div>
             )}
-            {comment && comment.week === latest.week && (
-              <AgentCommentCard comment={comment} />
+            {displayedComment(latest) && (
+              <AgentCommentCard comment={displayedComment(latest)!} />
             )}
             {latest.unsupportedClaims && latest.unsupportedClaims.length > 0 && (
               <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -368,10 +380,14 @@ export default function DigestPage() {
                 <button
                   onClick={() => handleAgentComment(generated)}
                   disabled={commentLoading || generated.items.length === 0}
-                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 검토합니다"
+                  title="hermes 에이전트가 코퍼스·웹 근거로 초안을 재검토합니다"
                   className="rounded-lg border border-violet-200/70 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/40 px-3 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 transition hover:bg-violet-100/40 dark:hover:bg-violet-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {commentLoading ? "검토 중…" : "🤖 에이전트 코멘트"}
+                  {commentLoading
+                    ? "검토 중…"
+                    : displayedComment(generated)
+                      ? "🔄 재검토"
+                      : "🤖 에이전트 코멘트"}
                 </button>
                 <button
                   onClick={() => handleSend(generated)}
@@ -430,8 +446,8 @@ export default function DigestPage() {
                 <AgentProgressView steps={commentSteps} partial={commentPartial} />
               </div>
             )}
-            {comment && comment.week === generated.week && (
-              <AgentCommentCard comment={comment} />
+            {displayedComment(generated) && (
+              <AgentCommentCard comment={displayedComment(generated)!} />
             )}
             {generated.unsupportedClaims && generated.unsupportedClaims.length > 0 && (
               <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
