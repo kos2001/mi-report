@@ -534,8 +534,9 @@ async def collection_classify_document(doc_id: str, profile: str | None = None):
     if not text:
         raise HTTPException(status_code=422, detail="본문을 읽을 수 없는 문서입니다.")
     client = _client(profile)
+    existing_topics = [t["topic"] for t in await asyncio.to_thread(collection.list_topics)]
     try:
-        result = await classify.classify_document(client, doc["title"], text)
+        result = await classify.classify_document(client, doc["title"], text, existing_topics=existing_topics)
     except LLMError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from e
     except httpx.HTTPError as e:
@@ -554,21 +555,23 @@ async def collection_classify_untagged(limit: int = 20, profile: str | None = No
     """
     client = _client(profile)
 
-    def _prepare() -> list[tuple[dict, str]]:
+    def _prepare() -> tuple[list[tuple[dict, str]], list[str]]:
         out: list[tuple[dict, str]] = []
         for doc_id in collection.list_untagged_ids(limit):
             text = collection.read_document_text(doc_id)
             if text:
                 out.append((collection.get_document(doc_id), text))
-        return out
+        return out, [t["topic"] for t in collection.list_topics()]
 
-    pending = await asyncio.to_thread(_prepare)
+    pending, existing_topics = await asyncio.to_thread(_prepare)
     sem = asyncio.Semaphore(5)
 
     async def _classify_one(doc: dict, text: str) -> dict | None:
         async with sem:
             try:
-                result = await classify.classify_document(client, doc["title"], text)
+                result = await classify.classify_document(
+                    client, doc["title"], text, existing_topics=existing_topics,
+                )
             except (LLMError, httpx.HTTPError, ValueError):
                 return None  # 개별 문서 실패는 전체를 막지 않는다
         if not result["topic"]:
