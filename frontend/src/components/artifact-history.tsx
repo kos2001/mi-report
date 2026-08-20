@@ -113,10 +113,11 @@ export function ArtifactHistoryPanel({
               <button
                 onClick={(e) => remove(a.id, e)}
                 disabled={busyId === a.id}
-                className="shrink-0 rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-red-50/40 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40"
+                title="이 생성물 삭제(되돌릴 수 없음)"
+                className="shrink-0 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
                 aria-label="삭제"
               >
-                {busyId === a.id ? "…" : "삭제"}
+                {busyId === a.id ? "삭제 중…" : "🗑 삭제"}
               </button>
             </li>
             );
