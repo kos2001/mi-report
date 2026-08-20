@@ -14,6 +14,8 @@ type NavItem = {
 
 type NavGroup = {
   label: string | null; // null이면 헤더 없이 단독 표시(대시보드 등)
+  // 그룹 헤더 텍스트 색(고정 순서 카테고리 컬러 — bright 모드에서 그룹을 한눈에 구분).
+  headerColor?: string;
   items: NavItem[];
 };
 
@@ -21,6 +23,7 @@ const navGroups: NavGroup[] = [
   { label: null, items: [{ href: "/", label: "대시보드", icon: "◧" }] },
   {
     label: "데이터",
+    headerColor: "text-sky-600 dark:text-sky-500",
     items: [
       { href: "/collection", label: "데이터 수집", icon: "⬇", exact: true },
       // 데이터 수집 하위: 수집 결과 열람 페이지들
@@ -30,6 +33,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "분석 & 리포트",
+    headerColor: "text-emerald-600 dark:text-emerald-500",
     items: [
       { href: "/topics", label: "주제별 History", icon: "≡" },
       { href: "/digest", label: "뉴스 다이제스트", icon: "✉" },
@@ -39,6 +43,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "소통",
+    headerColor: "text-violet-600 dark:text-violet-500",
     items: [
       { href: "/ask", label: "문서 Q&A", icon: "?" },
       { href: "/voc", label: "VOC", icon: "🗣" },
@@ -46,6 +51,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "운영",
+    headerColor: "text-amber-600 dark:text-amber-500",
     items: [
       { href: "/schedule", label: "스케줄", icon: "⏰" },
     ],
@@ -69,7 +75,11 @@ export function Sidebar() {
         {navGroups.map((group, gi) => (
           <div key={group.label ?? gi} className="flex flex-col gap-1">
             {group.label && (
-              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-600">
+              <p
+                className={`px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                  group.headerColor ?? "text-zinc-400 dark:text-zinc-600"
+                }`}
+              >
                 {group.label}
               </p>
             )}

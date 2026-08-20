@@ -14,12 +14,30 @@ import {
 import { Card, ImpactBadge, PageHeader } from "@/components/ui";
 import { PipelineStatus } from "@/components/pipeline-status";
 
-// 서비스 흐름 단계 색상 (Tailwind 가 스캔하도록 리터럴 클래스만 사용)
+// 서비스 흐름 단계 색상 (Tailwind 가 스캔하도록 리터럴 클래스만 사용).
+// bright 모드는 단계별 액센트 틴트 배경으로 구분하고(카드 자체가 흰색이면 4단계가
+// 다 똑같아 보임), dark 모드는 기존 중립 zinc 표면을 유지한다.
 const STAGE = {
-  collect: { bar: "bg-sky-500", text: "text-sky-600 dark:text-sky-400" },
-  classify: { bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
-  ai: { bar: "bg-violet-500", text: "text-violet-600 dark:text-violet-400" },
-  report: { bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+  collect: {
+    bar: "bg-sky-500",
+    text: "text-sky-600 dark:text-sky-400",
+    card: "border-sky-200/70 bg-sky-50/70 hover:border-sky-300 hover:bg-sky-100/70 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-900",
+  },
+  classify: {
+    bar: "bg-amber-500",
+    text: "text-amber-600 dark:text-amber-400",
+    card: "border-amber-200/70 bg-amber-50/70 hover:border-amber-300 hover:bg-amber-100/70 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-900",
+  },
+  ai: {
+    bar: "bg-violet-500",
+    text: "text-violet-600 dark:text-violet-400",
+    card: "border-violet-200/70 bg-violet-50/70 hover:border-violet-300 hover:bg-violet-100/70 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-900",
+  },
+  report: {
+    bar: "bg-emerald-500",
+    text: "text-emerald-600 dark:text-emerald-400",
+    card: "border-emerald-200/70 bg-emerald-50/70 hover:border-emerald-300 hover:bg-emerald-100/70 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-900",
+  },
 };
 
 function FlowStage({
@@ -35,12 +53,12 @@ function FlowStage({
   title: string;
   metric: string;
   sub: string;
-  accent: { bar: string; text: string };
+  accent: { bar: string; text: string; card: string };
 }) {
   return (
     <Link
       href={href}
-      className="group relative flex-1 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900/60 transition hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+      className={`group relative flex-1 overflow-hidden rounded-xl border transition ${accent.card}`}
     >
       <div className={`h-1 ${accent.bar}`} />
       <div className="p-4">
