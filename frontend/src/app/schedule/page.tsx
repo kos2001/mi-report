@@ -20,6 +20,8 @@ export default function SchedulePage() {
   const [minute, setMinute] = useState(0);
   const [weekday, setWeekday] = useState(0);
   const [digestLimit, setDigestLimit] = useState(20);
+  const [retryEnabled, setRetryEnabled] = useState(false);
+  const [retryMinutes, setRetryMinutes] = useState(10);
 
   function apply(v: ScheduleView) {
     setView(v);
@@ -30,6 +32,8 @@ export default function SchedulePage() {
     setMinute(s.minute);
     setWeekday(s.weekday);
     setDigestLimit(s.digestLimit);
+    setRetryEnabled(s.retryEnabled);
+    setRetryMinutes(s.retryMinutes);
   }
 
   useEffect(() => {
@@ -41,7 +45,11 @@ export default function SchedulePage() {
     setError(null);
     setMsg(null);
     try {
-      apply(await scheduleApi.put({ enabled, frequency, hour, minute, weekday, digestLimit }));
+      apply(
+        await scheduleApi.put({
+          enabled, frequency, hour, minute, weekday, digestLimit, retryEnabled, retryMinutes,
+        }),
+      );
       setMsg("저장됨");
     } catch (e) {
       setError(e instanceof Error ? e.message : "저장 실패");
@@ -160,6 +168,34 @@ export default function SchedulePage() {
                 className="w-24 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
               />
               <span className="text-xs text-zinc-500">다이제스트 입력 문서 최대</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-xs text-zinc-500">자동 재시도</span>
+              <button
+                onClick={() => setRetryEnabled((v) => !v)}
+                aria-pressed={retryEnabled}
+                className={`rounded-md border px-3 py-1 text-xs transition-colors ${
+                  retryEnabled
+                    ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-500"
+                }`}
+              >
+                {retryEnabled ? "● 켜짐" : "○ 꺼짐"}
+              </button>
+              {retryEnabled && (
+                <>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={retryMinutes}
+                    onChange={(e) => setRetryMinutes(Number(e.target.value) || 10)}
+                    className="w-20 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-sky-500"
+                  />
+                  <span className="text-xs text-zinc-500">분 후 재시도 (실패 시 최대 3회)</span>
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-2 pt-1">

@@ -513,6 +513,8 @@ export interface ScheduleState {
   weekday: number;
   digestLimit: number;
   lastRunAt: string | null;
+  retryEnabled: boolean;
+  retryMinutes: number;
 }
 export interface ScheduleRunLogEntry {
   ranAt: string;
