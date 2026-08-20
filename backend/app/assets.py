@@ -36,12 +36,14 @@ def init_assets() -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS artifacts (
-                id         TEXT PRIMARY KEY,
-                kind       TEXT NOT NULL,
-                title      TEXT NOT NULL,
-                ref        TEXT,
-                payload    TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                id               TEXT PRIMARY KEY,
+                kind             TEXT NOT NULL,
+                title            TEXT NOT NULL,
+                ref              TEXT,
+                payload          TEXT NOT NULL,
+                created_at       TEXT NOT NULL,
+                ungrounded_count INTEGER NOT NULL DEFAULT 0,
+                unsupported_count INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_artifacts_kind ON artifacts(kind, created_at DESC);
             CREATE TABLE IF NOT EXISTS feedback (
@@ -55,6 +57,12 @@ def init_assets() -> None:
             CREATE INDEX IF NOT EXISTS idx_feedback_kind ON feedback(kind, created_at DESC);
             """
         )
+        # 기존 DB(컬럼 추가 전 생성)에도 새 컬럼을 얹는다 — schedule.py 와 같은 관례.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(artifacts)").fetchall()}
+        if "ungrounded_count" not in cols:
+            conn.execute("ALTER TABLE artifacts ADD COLUMN ungrounded_count INTEGER NOT NULL DEFAULT 0")
+        if "unsupported_count" not in cols:
+            conn.execute("ALTER TABLE artifacts ADD COLUMN unsupported_count INTEGER NOT NULL DEFAULT 0")
 
 
 def _row_to_artifact(row: sqlite3.Row, *, with_payload: bool) -> dict[str, Any]:
@@ -64,19 +72,33 @@ def _row_to_artifact(row: sqlite3.Row, *, with_payload: bool) -> dict[str, Any]:
         "title": row["title"],
         "ref": row["ref"],
         "createdAt": row["created_at"],
+        "ungroundedCount": row["ungrounded_count"],
+        "unsupportedCount": row["unsupported_count"],
     }
     if with_payload:
         out["payload"] = json.loads(row["payload"])
     return out
 
 
+def _quality_counts(payload: dict[str, Any]) -> tuple[int, int]:
+    """생성물의 환각 방어 신호(미근거 수치·근거 없는 서술)를 payload 에서 뽑는다.
+
+    report.py 는 unsupportedClaims 대신 overviewUnsupportedClaims 를 쓰므로 둘 다 본다.
+    """
+    ungrounded = len(payload.get("ungroundedNumbers") or [])
+    unsupported = len(payload.get("unsupportedClaims") or payload.get("overviewUnsupportedClaims") or [])
+    return ungrounded, unsupported
+
+
 def save_artifact(kind: str, title: str, ref: str | None, payload: dict[str, Any]) -> dict[str, Any]:
     """생성물을 저장한다(시점별 누적). 같은 ref 라도 새 버전으로 쌓인다."""
     aid = uuid.uuid4().hex
+    ungrounded, unsupported = _quality_counts(payload)
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO artifacts (id, kind, title, ref, payload, created_at) VALUES (?,?,?,?,?,?)",
-            (aid, kind, title, ref, json.dumps(payload, ensure_ascii=False), _now()),
+            "INSERT INTO artifacts (id, kind, title, ref, payload, created_at, ungrounded_count, unsupported_count) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (aid, kind, title, ref, json.dumps(payload, ensure_ascii=False), _now(), ungrounded, unsupported),
         )
         row = conn.execute("SELECT * FROM artifacts WHERE id=?", (aid,)).fetchone()
     return _row_to_artifact(row, with_payload=False)
@@ -91,7 +113,8 @@ def save_artifact_safe(kind: str, title: str, ref: str | None, payload: dict[str
 
 
 def list_artifacts(kind: str | None = None, ref: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-    sql = "SELECT id, kind, title, ref, created_at FROM artifacts WHERE 1=1"
+    sql = ("SELECT id, kind, title, ref, created_at, ungrounded_count, unsupported_count "
+           "FROM artifacts WHERE 1=1")
     params: list[Any] = []
     if kind:
         sql += " AND kind=?"
@@ -149,3 +172,65 @@ def feedback_summary() -> dict[str, Any]:
         ).fetchall()
     counts = {r["rating"]: r["n"] for r in rows}
     return {"up": counts.get("up", 0), "down": counts.get("down", 0)}
+
+
+def feedback_summary_by_kind() -> dict[str, dict[str, int]]:
+    """종류(다이제스트/주제/경쟁사/리포트)별 👍/👎 집계 — 품질 대시보드용."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT kind, rating, COUNT(*) AS n FROM feedback GROUP BY kind, rating"
+        ).fetchall()
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r["kind"], {"up": 0, "down": 0})[r["rating"]] = r["n"]
+    return out
+
+
+def recent_negative_feedback(kind: str, limit: int = 5) -> list[str]:
+    """이 종류의 최근 👎 피드백 메모(빈 메모 제외, 최신순) — 다음 생성 프롬프트에 반영."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT note FROM feedback WHERE kind=? AND rating='down' AND note != '' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (kind, limit),
+        ).fetchall()
+    return [r["note"] for r in rows]
+
+
+def quality_summary(limit_flagged: int = 10) -> dict[str, Any]:
+    """자기개선 loop 대시보드 — 종류별 생성 건수·피드백·근거검증 실패 건수 + 최근 플래그된 생성물."""
+    with _conn() as conn:
+        counts = conn.execute(
+            "SELECT kind, COUNT(*) AS n, "
+            "SUM(CASE WHEN ungrounded_count > 0 OR unsupported_count > 0 THEN 1 ELSE 0 END) AS flagged "
+            "FROM artifacts GROUP BY kind"
+        ).fetchall()
+        flagged_rows = conn.execute(
+            "SELECT id, kind, title, created_at, ungrounded_count, unsupported_count FROM artifacts "
+            "WHERE ungrounded_count > 0 OR unsupported_count > 0 "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit_flagged,),
+        ).fetchall()
+
+    fb = feedback_summary_by_kind()
+    by_kind: dict[str, Any] = {}
+    for r in counts:
+        k = r["kind"]
+        kind_fb = fb.get(k, {"up": 0, "down": 0})
+        by_kind[k] = {
+            "count": r["n"], "flaggedCount": r["flagged"] or 0,
+            "up": kind_fb["up"], "down": kind_fb["down"],
+        }
+    for k in ARTIFACT_KINDS:
+        by_kind.setdefault(k, {"count": 0, "flaggedCount": 0, "up": 0, "down": 0})
+
+    return {
+        "byKind": by_kind,
+        "recentFlagged": [
+            {
+                "id": r["id"], "kind": r["kind"], "title": r["title"], "createdAt": r["created_at"],
+                "ungroundedCount": r["ungrounded_count"], "unsupportedCount": r["unsupported_count"],
+            }
+            for r in flagged_rows
+        ],
+    }

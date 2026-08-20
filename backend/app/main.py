@@ -263,6 +263,12 @@ def feedback_summary():
     return assets.feedback_summary()
 
 
+@app.get("/quality/summary")
+def quality_summary():
+    """자기개선 loop 대시보드 — 종류별 피드백·근거검증 실패 집계 + 최근 플래그된 생성물."""
+    return assets.quality_summary()
+
+
 # ── VOC (Voice of Customer) ───────────────────────────────────────────────
 @app.get("/voc")
 def voc_list(status: str | None = None, sentiment: str | None = None):
@@ -789,6 +795,11 @@ async def _generate_report_result(
             period=req.period,
             generated_at=collection.today(),
             on_progress=on_progress,
+            feedback_notes={
+                "report": assets.recent_negative_feedback("report"),
+                "digest": assets.recent_negative_feedback("digest"),
+                "topic": assets.recent_negative_feedback("topic"),
+            },
         )
         assets.save_artifact_safe("report", f"제{req.issueNo}호 리포트", str(req.issueNo), result)
         return result
@@ -842,6 +853,7 @@ async def _digest_generate_result(
     try:
         result = await digest.generate_digest(
             client, docs, issue_no=req.issueNo, period=req.period, on_progress=on_progress,
+            feedback_notes=assets.recent_negative_feedback("digest"),
         )
         assets.save_artifact_safe("digest", f"제{req.issueNo}호", str(req.issueNo), result)
         return result
@@ -963,6 +975,7 @@ async def _topics_summarize_result(
     try:
         result = await topics.generate_topic_summary(
             client, req.topic, docs, updated_at=collection.today(), on_progress=on_progress,
+            feedback_notes=assets.recent_negative_feedback("topic"),
         )
         assets.save_artifact_safe("topic", req.topic, req.topic, result)
         return result
@@ -1018,6 +1031,7 @@ async def _competitors_analyze_result(
     try:
         result = await competitors.analyze_competitor(
             client, req.name, req.ticker, docs, on_progress=on_progress,
+            feedback_notes=assets.recent_negative_feedback("competitor"),
         )
         assets.save_artifact_safe("competitor", req.name, req.ticker or req.name, result)
         return result

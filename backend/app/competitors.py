@@ -38,7 +38,9 @@ class ChatClient(Protocol):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
 
 
-def build_messages(name: str, ticker: str, docs: list[dict[str, Any]]) -> list[dict[str, str]]:
+def build_messages(
+    name: str, ticker: str, docs: list[dict[str, Any]], feedback_notes: list[str] | None = None,
+) -> list[dict[str, str]]:
     blocks: list[str] = []
     for i, d in enumerate(docs, 1):
         blocks.append(
@@ -52,7 +54,7 @@ def build_messages(name: str, ticker: str, docs: list[dict[str, Any]]) -> list[d
         + "\n\n".join(blocks)
     )
     return [
-        {"role": "system", "content": COMPETITOR_SYSTEM_PROMPT},
+        {"role": "system", "content": COMPETITOR_SYSTEM_PROMPT + report_agents.feedback_block(feedback_notes)},
         {"role": "user", "content": user},
     ]
 
@@ -79,12 +81,13 @@ async def analyze_competitor(
     *,
     temperature: float = 0.2,
     on_progress: progress.ProgressFn | None = None,
+    feedback_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     """경쟁사 문서로 분기 분석을 생성한다(id/name/ticker 는 서버가 부여)."""
     if not docs:
         raise ValueError("분석할 본문 있는 문서가 없습니다.")
     completion = await progress.track(
-        client.chat(build_messages(name, ticker, docs), temperature=temperature),
+        client.chat(build_messages(name, ticker, docs, feedback_notes), temperature=temperature),
         on_progress, tool="competitor_generate", emoji="🏢", label=f"{name} 분기 분석 생성",
     )
     out = parse_analysis(extract_content(completion))

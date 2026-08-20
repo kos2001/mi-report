@@ -41,7 +41,9 @@ class ChatClient(Protocol):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
 
 
-def build_messages(docs: list[dict[str, Any]]) -> list[dict[str, str]]:
+def build_messages(
+    docs: list[dict[str, Any]], feedback_notes: list[str] | None = None,
+) -> list[dict[str, str]]:
     """수집 문서 목록을 chat 메시지로 구성한다."""
     blocks: list[str] = []
     for i, d in enumerate(docs, 1):
@@ -51,7 +53,7 @@ def build_messages(docs: list[dict[str, Any]]) -> list[dict[str, str]]:
         )
     user = "다음 수집 문서들을 근거로 다이제스트를 작성하라.\n\n" + "\n\n".join(blocks)
     return [
-        {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
+        {"role": "system", "content": DIGEST_SYSTEM_PROMPT + report_agents.feedback_block(feedback_notes)},
         {"role": "user", "content": user},
     ]
 
@@ -104,12 +106,13 @@ async def generate_digest(
     period: str,
     temperature: float = 0.2,
     on_progress: progress.ProgressFn | None = None,
+    feedback_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     """수집 문서로 다이제스트 초안을 생성한다(id·메타데이터는 서버가 부여)."""
     if not docs:
         raise ValueError("다이제스트로 만들 본문 있는 문서가 없습니다.")
     completion = await progress.track(
-        client.chat(build_messages(docs), temperature=temperature),
+        client.chat(build_messages(docs, feedback_notes), temperature=temperature),
         on_progress, tool="digest_generate", emoji="📰", label="뉴스 다이제스트 초안 생성",
     )
     items = parse_items(extract_content(completion))

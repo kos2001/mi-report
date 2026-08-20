@@ -47,7 +47,9 @@ def slugify(title: str) -> str:
     return s.strip("-") or "topic"
 
 
-def build_messages(topic_title: str, docs: list[dict[str, Any]]) -> list[dict[str, str]]:
+def build_messages(
+    topic_title: str, docs: list[dict[str, Any]], feedback_notes: list[str] | None = None,
+) -> list[dict[str, str]]:
     blocks: list[str] = []
     for i, d in enumerate(docs, 1):
         blocks.append(
@@ -60,7 +62,7 @@ def build_messages(topic_title: str, docs: list[dict[str, Any]]) -> list[dict[st
         + "\n\n".join(blocks)
     )
     return [
-        {"role": "system", "content": TOPIC_SYSTEM_PROMPT},
+        {"role": "system", "content": TOPIC_SYSTEM_PROMPT + report_agents.feedback_block(feedback_notes)},
         {"role": "user", "content": user},
     ]
 
@@ -87,12 +89,13 @@ async def generate_topic_summary(
     updated_at: str,
     temperature: float = 0.2,
     on_progress: progress.ProgressFn | None = None,
+    feedback_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     """주제 누적 문서로 이력·인사이트를 생성한다(id/메타데이터는 서버가 부여)."""
     if not docs:
         raise ValueError("요약할 본문 있는 문서가 없습니다.")
     completion = await progress.track(
-        client.chat(build_messages(topic_title, docs), temperature=temperature),
+        client.chat(build_messages(topic_title, docs, feedback_notes), temperature=temperature),
         on_progress, tool=f"topic_generate:{topic_title}", emoji="📚", label=f"주제 요약 — {topic_title}",
     )
     out = parse_summary(extract_content(completion))

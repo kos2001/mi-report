@@ -33,6 +33,7 @@ def build_overview_messages(
     topic_summaries: list[dict[str, Any]],
     priority_risk: dict[str, Any] | None = None,
     critical_points: dict[str, Any] | None = None,
+    feedback_notes: list[str] | None = None,
 ) -> list[dict[str, str]]:
     parts: list[str] = []
     if digest_obj:
@@ -51,7 +52,7 @@ def build_overview_messages(
             parts.append(f"[관리포인트] {c.get('title', '')}: {c.get('rootCause', '')}")
     user = "다음 자료를 종합해 이번 주 MI 리포트 총평을 작성하라.\n\n" + "\n\n".join(parts)
     return [
-        {"role": "system", "content": REPORT_SYSTEM_PROMPT},
+        {"role": "system", "content": REPORT_SYSTEM_PROMPT + report_agents.feedback_block(feedback_notes)},
         {"role": "user", "content": user},
     ]
 
@@ -72,10 +73,13 @@ async def generate_overview(
     *,
     temperature: float = 0.3,
     on_progress: progress.ProgressFn | None = None,
+    feedback_notes: list[str] | None = None,
 ) -> str:
     completion = await progress.track(
         client.chat(
-            build_overview_messages(digest_obj, topic_summaries, priority_risk, critical_points),
+            build_overview_messages(
+                digest_obj, topic_summaries, priority_risk, critical_points, feedback_notes,
+            ),
             temperature=temperature,
         ),
         on_progress, tool="report_overview", emoji="✍️", label="총평 작성",
@@ -92,10 +96,16 @@ async def generate_report(
     period: str,
     generated_at: str,
     on_progress: progress.ProgressFn | None = None,
+    feedback_notes: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
-    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트를 생성한다."""
+    """다이제스트 + 주제 요약 + 총평을 묶어 주간 리포트를 생성한다.
+
+    feedback_notes 는 종류별({"report": [...], "digest": [...], "topic": [...]})
+    최근 부정 피드백 — 자기개선 loop: 각 하위 생성이 자기 종류의 피드백을,
+    총평은 report 종류의 피드백을 프롬프트에 반영한다."""
     if not digest_docs and not topic_docs:
         raise ValueError("리포트로 만들 본문 있는 문서가 없습니다.")
+    feedback_notes = feedback_notes or {}
 
     # 심층분석 agent(Priority/Risk·Critical Point)를 포함해 서로 독립인 LLM 호출은
     # 모두 동시 수행한다(weekly-report-harness 의 A1~A5 병렬 패턴). 총평·총평 검증만
@@ -106,7 +116,10 @@ async def generate_report(
     for docs in topic_docs.values():
         all_docs.extend(docs)
     digest_task = (
-        digest.generate_digest(client, digest_docs, issue_no=issue_no, period=period, on_progress=on_progress)
+        digest.generate_digest(
+            client, digest_docs, issue_no=issue_no, period=period, on_progress=on_progress,
+            feedback_notes=feedback_notes.get("digest"),
+        )
         if digest_docs
         else None
     )
@@ -128,7 +141,10 @@ async def generate_report(
         t for t in (digest_task, priority_risk_task, critical_point_task) if t is not None
     ]
     topic_tasks = [
-        topics.generate_topic_summary(client, name, docs, updated_at=generated_at, on_progress=on_progress)
+        topics.generate_topic_summary(
+            client, name, docs, updated_at=generated_at, on_progress=on_progress,
+            feedback_notes=feedback_notes.get("topic"),
+        )
         for name, docs in named_topics
     ]
     results = await asyncio.gather(*parallel_tasks, *topic_tasks)
@@ -140,7 +156,8 @@ async def generate_report(
     critical_points = parallel_results.pop(0) if critical_point_task else None
 
     overview = await generate_overview(
-        client, digest_obj, topic_summaries, priority_risk, critical_points, on_progress=on_progress,
+        client, digest_obj, topic_summaries, priority_risk, critical_points,
+        on_progress=on_progress, feedback_notes=feedback_notes.get("report"),
     )
 
     # 환각 방어(MI 서비스): 총평의 수치를 실제 근거 문서(다이제스트·주제 원문)와 대조하고,
