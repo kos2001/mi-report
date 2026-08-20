@@ -5,6 +5,7 @@ import { competitorsApi, type CompetitorCandidate, type GeneratedCompetitor } fr
 import { competitors } from "@/lib/data";
 import { AgentChatCard } from "@/components/agent-chat";
 import { Card, Delta, PageHeader } from "@/components/ui";
+import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 // 에이전트 대화의 첫 턴 컨텍스트 — 생성된 IR 분석을 요약해 붙인다.
 function competitorContext(c: GeneratedCompetitor): string {
@@ -382,6 +383,14 @@ export default function CompetitorsPage() {
           </p>
         )}
       </Card>
+
+      <div className="mb-8">
+        <ArtifactHistoryPanel
+          kind="competitor"
+          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedCompetitor)}
+          emptyLabel="아직 생성된 경쟁사 분석이 없습니다."
+        />
+      </div>
 
       {/* 경쟁사 자유 질문 — 생성된 분석이 있으면 첫 턴 컨텍스트로 */}
       <div className="mb-8">

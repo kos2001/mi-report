@@ -7,6 +7,7 @@ import { digests } from "@/lib/data";
 import { AgentChatCard, AgentProgressView } from "@/components/agent-chat";
 import { Card, ImpactBadge, PageHeader, Tag } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
+import { ArtifactHistoryPanel } from "@/components/artifact-history";
 
 // hermes 에이전트가 초안을 검토한 코멘트(수치 검증·관련 문서 포함)
 interface AgentComment {
@@ -275,6 +276,14 @@ export default function DigestPage() {
           </p>
         )}
       </Card>
+
+      <div className="mb-8">
+        <ArtifactHistoryPanel
+          kind="digest"
+          onSelect={(a) => setGenerated(a.payload as unknown as GeneratedDigest)}
+          emptyLabel="아직 생성된 다이제스트가 없습니다."
+        />
+      </div>
 
       {/* 다이제스트 자유 질문 — 표시 중인 초안(생성본 우선)을 컨텍스트로 */}
       <div className="mb-8">

@@ -21,6 +21,20 @@ def test_save_and_list_and_get(client):
     assert full["payload"]["items"] == [1, 2]
 
 
+def test_delete_artifact(client):
+    a = assets.save_artifact("digest", "제1호", "1", {"items": [1, 2]})
+    assert assets.count_artifacts() == 1
+    assets.delete_artifact(a["id"])
+    assert assets.count_artifacts() == 0
+    with pytest.raises(KeyError):
+        assets.get_artifact(a["id"])
+
+
+def test_delete_artifact_missing_raises(isolated):
+    with pytest.raises(KeyError):
+        assets.delete_artifact("nope")
+
+
 def test_artifact_versions_accumulate(client):
     assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 1})
     assets.save_artifact("topic", "HBM 수요", "HBM 수요", {"v": 2})
@@ -55,6 +69,14 @@ def test_artifacts_endpoints(client):
     assert one.json()["payload"]["overview"] == "요약"
 
     assert client.get("/artifacts/nope").status_code == 404
+
+
+def test_artifacts_delete_endpoint(client):
+    a = assets.save_artifact("report", "제1호 리포트", "1", {"overview": "요약"})
+    r = client.delete(f"/artifacts/{a['id']}")
+    assert r.status_code == 204
+    assert client.get(f"/artifacts/{a['id']}").status_code == 404
+    assert client.delete("/artifacts/nope").status_code == 404
 
 
 def test_feedback_endpoint(client):

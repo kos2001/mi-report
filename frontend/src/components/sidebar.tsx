@@ -47,7 +47,6 @@ const navGroups: NavGroup[] = [
     label: "운영",
     items: [
       { href: "/schedule", label: "스케줄", icon: "⏰" },
-      { href: "/history", label: "생성물 이력", icon: "🗂" },
     ],
   },
   { label: null, items: [{ href: "/manual", label: "사용 안내", icon: "ⓘ" }] },
