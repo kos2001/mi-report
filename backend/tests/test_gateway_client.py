@@ -60,39 +60,34 @@ def test_to_prompt_separates_system_and_joins_convo():
 
 def test_chat_requires_api_key(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("MI_LLM_API_KEY", raising=False)
     c = gateway.LLMClient()
     with pytest.raises(gateway.LLMError):
         asyncio.run(c.chat([{"role": "user", "content": "x"}]))
 
 
-def test_mi_llm_env_overrides_chat_endpoint(monkeypatch):
-    """MI_LLM_* 가 있으면 chat 은 hermes profile api_server 로 라우팅된다."""
+def test_mi_llm_env_does_not_affect_gateway_client(monkeypatch):
+    """MI_LLM_* 는 hermes 에이전트(agentchat.py) 전용 — gateway.LLMClient 는 항상
+    OPENROUTER_* 로만 OpenRouter 에 직접 붙는다(생성 파이프라인이 hermes 가용성과
+    무관하게 동작해야 하므로)."""
     monkeypatch.setenv("OPENROUTER_MODEL", "minimax/minimax-m3")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     monkeypatch.setenv("MI_LLM_MODEL", "mi-report")
     monkeypatch.setenv("MI_LLM_BASE_URL", "http://127.0.0.1:8644/v1")
+    monkeypatch.setenv("MI_LLM_API_KEY", "hermes-token")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     c = gateway.LLMClient()
-    assert c.model == "mi-report"
-    assert c.base_url == "http://127.0.0.1:8644/v1"
+    assert c.model == "minimax/minimax-m3"
+    assert c.base_url == "https://openrouter.ai/api/v1"
+    agent = c._build_agent(None, 0.1, [])
+    assert agent.model.api_key == "or-key"
 
 
-def test_openrouter_env_used_without_mi_llm(monkeypatch):
-    monkeypatch.delenv("MI_LLM_MODEL", raising=False)
-    monkeypatch.delenv("MI_LLM_BASE_URL", raising=False)
+def test_openrouter_env_used(monkeypatch):
     monkeypatch.setenv("OPENROUTER_MODEL", "minimax/minimax-m3")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     c = gateway.LLMClient()
     assert c.model == "minimax/minimax-m3"
     assert c.base_url == "https://openrouter.ai/api/v1"
-
-
-def test_mi_llm_api_key_preferred(monkeypatch):
-    monkeypatch.setenv("MI_LLM_API_KEY", "hermes-token")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    c = gateway.LLMClient()
-    agent = c._build_agent(None, 0.1, [])
-    assert agent.model.api_key == "hermes-token"
 
 
 def test_custom_headers_from_env(monkeypatch):
